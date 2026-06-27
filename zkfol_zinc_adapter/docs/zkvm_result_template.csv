@@ -1,0 +1,11 @@
+system,case,n,arithmetic,prove_ms,execute_ms,verify_ms,proof_bytes,cycles_or_steps,hardware,version,preprocessing_ms,notes
+RISC Zero,official_fib_100_mod_2_64,100,mod 2^64,,,,,,,,,Run `cargo bench --bench fib`; official docs define this benchmark but timings are machine-local
+RISC Zero,official_fib_1000_mod_2_64,1000,mod 2^64,,,,,,,,,Run `cargo bench --bench fib`; official docs define this benchmark but timings are machine-local
+RISC Zero,official_fib_10000_mod_2_64,10000,mod 2^64,,,,,,,,,Run `cargo bench --bench fib`; official docs define this benchmark but timings are machine-local
+RISC Zero,external_zkbenchmarks_fib_10000_gpu,10000,benchmark-suite implementation,1700,,,,,NVIDIA RTX A6000 48GB Ubuntu 22 LTS,zkbenchmarks.com,,External context only; not the exact-integer FOL-Zinc arithmetic
+RISC Zero,external_zkbenchmarks_fib_10000_cpu,10000,benchmark-suite implementation,10800,,,,,AMD EPYC 8534P 64-core Ubuntu 24 LTS,zkbenchmarks.com,,External context only; not the exact-integer FOL-Zinc arithmetic
+FOL+Zinc,fibonacci_exact_n100_public,100,exact integers,,,,,,,,,Fill from `zkfol-zinc-bench run-zinc benchmark_inputs/risc0_fib_exact/fibonacci_exact_n100_public.json ...`
+FOL+Zinc,fibonacci_exact_n1000_public,1000,exact integers,,,,,,,,,Fill from `zkfol-zinc-bench run-zinc benchmark_inputs/risc0_fib_exact/fibonacci_exact_n1000_public.json ...`
+FOL+Zinc,fibonacci_exact_n10000_public,10000,exact integers,,,,,,,,,Fill from `zkfol-zinc-bench run-zinc benchmark_inputs/risc0_fib_exact/fibonacci_exact_n10000_public.json --int-limbs 128 ...`
+Jolt,fibonacci_exact_n100_public,100,exact integers or documented limb model,,,,,,,,,Use only if guest proves the same exact-integer public claim or clearly label arithmetic
+Cairo,fibonacci_exact_n100_public,100,exact integers or documented limb model,,,,,,,,,Use only if program proves the same exact-integer public claim or clearly label arithmetic

@@ -1,0 +1,4 @@
+source,system,case,hardware,arithmetic,n,time,notes
+RISC Zero official docs,RISC Zero,cargo bench --bench fib,user machine,mod 2^64,100;1000;10000,not fixed by docs; run locally,"Official docs define the benchmark as 100th, 1000th, and 10000th Fibonacci numbers modulo 2^64, ten times each, with separate execution and proving statistics."
+"zkbenchmarks.com / Aligned, RTX A6000",Risc0,Fibonacci,"NVIDIA RTX A6000 48GB, Ubuntu 22 LTS",as implemented by that benchmark suite,10000,1.7s,External benchmark number; not the official RISC Zero fib harness and not the exact-integer FOL-Zinc arithmetic here.
+"zkbenchmarks.com / Aligned, AMD EPYC 8534P",Risc0,Fibonacci,"AMD EPYC 8534P 64-core, 576GB RAM, Ubuntu 24 LTS",as implemented by that benchmark suite,10000,10.8s,External benchmark number; not the official RISC Zero fib harness and not the exact-integer FOL-Zinc arithmetic here.
