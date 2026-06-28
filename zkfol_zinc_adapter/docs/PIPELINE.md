@@ -20,8 +20,22 @@ compiled predicate is valid when all relevant values are exactly zero.
 ## 3. `mkQ_x(<phi>)` and `beta_F`
 
 The FOL predicate is translated to an enriched polynomial `<phi>`, then to the
-multivariate polynomial `mkQ_x(<phi>)`. The evaluator `beta_F` fills the paper's
-`B` variables with bits from the matrix witness.
+multivariate polynomial `mkQ_x(<phi>)`, then evaluated by `beta_F`.
+
+The adapter supports two representations of the cell values inside `mkQ`,
+selected with `build_ccs_export(..., representation=...)`:
+
+- **`typed`** (the default): the `num`/`ptr` optimisation. A row is `ptr` when it
+  is used as the inner pointer `C_j` of a composed term `C_i(C_j(x))`, otherwise
+  it is `num`. A `num` cell is a single integer witness; only `ptr` cells carry
+  the range machinery. No per-cell bit decomposition is used.
+- **`bitwise`**: the paper-faithful uniform encoding, where every cell value is a
+  `b2int` over private `B` bit wires. Kept for audit and before/after
+  benchmarking; both routes feed identical `mkQ_x(<phi>) = 0` checks to Zinc.
+
+See `zkfol/types.py` and `zkfol/typed_compiler.py` for the typed route; this is
+the optimisation the paper alludes to in its Section 4 discussion of optimal
+syntactic forms.
 
 ## 4. Pointer soundness
 
@@ -29,8 +43,11 @@ A term `C_i(C_j(x))` uses row `j` as a pointer. The adapter proves this is sound
 by adding:
 
 - one-hot selector bits for each possible target column;
-- a range/value check tying the pointer value to the selected column;
-- lookup constraints tying composed bits to the selected direct bits.
+- a one-hot constraint, which simultaneously range-checks the pointer into
+  `1..len(C)` (its integer value is `sum_k k * sel_k`);
+- a lookup tying the composed cell to the selected column's value: in the typed
+  route, the single integer equality `C_i(C_j(x)) = sum_k sel_k * C_i(k)`; in the
+  bitwise route, one equality per bit tying composed bits to selected direct bits.
 
 
 ## 5a. Public benchmark claims

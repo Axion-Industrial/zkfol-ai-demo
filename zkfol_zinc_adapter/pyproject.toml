@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zkfol-zinc-adapter"
-version = "0.5.14"
+version = "0.6.0"
 description = "Expositional adapter from the zkFOL reference implementation to Zinc-compatible integer CCS/R1CS JSON"
 readme = "README.md"
 requires-python = ">=3.10"

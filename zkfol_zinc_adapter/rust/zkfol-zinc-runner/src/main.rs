@@ -651,6 +651,8 @@ fn classify_constraint(label: Option<&str>) -> &'static str {
         "pointer_range_value_checks"
     } else if label.starts_with("lookup_product:") {
         "pointer_lookup_selector_products"
+    } else if label.starts_with("lookup_value:") {
+        "pointer_lookup_value_equalities"
     } else if label.starts_with("lookup:B_") {
         "pointer_lookup_bit_equalities"
     } else if label.starts_with("public_binding:") {
@@ -677,6 +679,7 @@ fn computed_constraint_breakdown(export: &ExportFile) -> BTreeMap<String, usize>
         "pointer_range_one_hot_checks",
         "pointer_range_value_checks",
         "pointer_lookup_selector_products",
+        "pointer_lookup_value_equalities",
         "pointer_lookup_bit_equalities",
         "booleanity_bit_checks",
         "public_input_binding_checks",
@@ -1005,7 +1008,8 @@ fn print_human_report(export: &ExportFile, report: &RunReport, args: &Args) {
         ("mkq_zero_checks", "one zero-check per witness column"),
         ("pointer_range_one_hot_checks", "one-hot range checks for pointer rows"),
         ("pointer_range_value_checks", "pointer value equals selected column"),
-        ("pointer_lookup_selector_products", "selector * direct-bit lookup products"),
+        ("pointer_lookup_selector_products", "selector * cell lookup products"),
+        ("pointer_lookup_value_equalities", "composed-cell integer lookup equalities"),
         ("pointer_lookup_bit_equalities", "composed-bit lookup equalities"),
         ("booleanity_bit_checks", "bit booleanity checks"),
         ("public_input_binding_checks", "witness entries bound to public claims"),

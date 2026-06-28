@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping
 
-ADAPTER_VERSION = "0.5.14"
+ADAPTER_VERSION = "0.6.0"
 
 PIPELINE_STEPS = [
     {
@@ -32,15 +32,19 @@ PIPELINE_STEPS = [
     {
         "stage": "beta_F evaluation",
         "meaning": (
-            "The B variables in mkQ are instantiated with bits from the witness. Direct bits encode "
-            "C_i(x); composed bits encode C_i(C_j(x)) after pointer range checks."
+            "The mkQ variables are instantiated from the witness. In the typed (num/ptr) representation a "
+            "value symbol C_i(x) takes the integer entry directly, and a composed value C_i(C_j(x)) takes "
+            "the entry pointed at after a range check; in the paper-faithful bitwise representation the "
+            "same values are reconstructed from per-bit B variables."
         ),
     },
     {
         "stage": "Integer R1CS/CCS bridge",
         "meaning": (
-            "This adapter materialises the mkQ/beta checks as signed integer R1CS rows: boolean bit "
-            "checks, pointer range selectors, pointer lookup constraints, and arithmetic gates."
+            "This adapter materialises the mkQ/beta checks as signed integer R1CS rows. The typed route "
+            "uses one integer wire per num cell, one-hot selectors that range-check each pointer cell, "
+            "integer composed-cell lookups, and arithmetic gates; the bitwise route additionally expands "
+            "every cell into boolean B bits. Both feed identical mkQ_x(<phi>) = 0 checks to Zinc."
         ),
     },
     {
@@ -63,9 +67,14 @@ FIELD_GLOSSARY = {
     "dimensions.witness_variables": "Number of private z-vector entries after expanding matrix bits, selectors, lookup products, and arithmetic intermediates.",
     "dimensions.public_inputs": "Number of public input coordinates before the constant-one coordinate. A default export has one public zero. Some benchmark claims are instead encoded as public relation constants in ccs.public_bindings for compatibility with the current Zinc proof-of-concept.",
     "dimensions.z_len": "Unpadded z length: public inputs || constant-one coordinate || private witness variables.",
-    "stats.b_wires": "Number of private wires representing paper B variables.",
-    "stats.bit_wires": "Number of wires constrained to be Boolean. This includes B wires and selector wires.",
+    "stats.b_wires": "Number of private wires representing paper B variables. Zero in the typed (num/ptr) representation, which uses no bit decomposition.",
+    "stats.bit_wires": "Number of wires constrained to be Boolean. In the bitwise representation this includes B wires and selector wires; in the typed representation it is just the one-hot selector wires.",
     "stats.selector_wires": "Number of one-hot selector wires used to prove private pointer values are in range.",
+    "stats.value_wires": "Typed representation only: number of single-integer wires holding direct num cells C_i(x).",
+    "stats.composed_value_wires": "Typed representation only: number of single-integer wires holding composed cells C_i(C_j(x)).",
+    "representation": "Which cell encoding was used: 'typed' (num cells are integers, only pointers carry range machinery) or 'bitwise' (uniform b2int over B bits, the paper-faithful encoding).",
+    "zkfol.representation": "Which cell encoding was used: 'typed' or 'bitwise'.",
+    "zkfol.row_types": "Typed representation only: map from matrix row to its inferred type, 'num' (used only in arithmetic) or 'ptr' (used as a column pointer C_j and therefore range-checked).",
     "stats.max_abs_value_bit_length": "Largest absolute integer bit length appearing in the witness vector or constraint coefficients.",
 
     "zinc_constraint_summary.target_use_case": "Practical benchmark family for this export, such as compact exact-integer Fibonacci or efficient repeated-squaring power.",
@@ -88,8 +97,9 @@ FIELD_GLOSSARY = {
     "constraint_breakdown.mkq_zero_checks": "Final zero checks for mkQ_x(<phi>) = 0, one per witness column x.",
     "constraint_breakdown.pointer_range_one_hot_checks": "One-hot checks showing a private pointer selects exactly one legal column.",
     "constraint_breakdown.pointer_range_value_checks": "Checks tying a pointer's integer value to the selected one-hot column.",
-    "constraint_breakdown.pointer_lookup_selector_products": "Intermediate products selector * direct_bit used to realise private lookups.",
-    "constraint_breakdown.pointer_lookup_bit_equalities": "Checks equating composed B bits with the selected direct B bits.",
+    "constraint_breakdown.pointer_lookup_selector_products": "Intermediate products selector * cell used to realise private lookups (selector * direct_bit in the bitwise route, selector * num value in the typed route).",
+    "constraint_breakdown.pointer_lookup_bit_equalities": "Bitwise route: checks equating composed B bits with the selected direct B bits.",
+    "constraint_breakdown.pointer_lookup_value_equalities": "Typed route: checks pinning each composed cell C_i(C_j(x)) to its selected integer value sum_k sel_k * C_i(k).",
     "constraint_breakdown.booleanity_bit_checks": "Boolean constraints v*(v-1)=0 for bit and selector wires.",
     "constraint_breakdown.public_input_binding_checks": "Checks binding selected witness entries to public benchmark claims, either through public input coordinates or through public relation constants.",
     "constraints_unpadded": "Number of exported R1CS/CCS rows before Zinc padding; this equals dimensions.constraints.",
@@ -114,8 +124,9 @@ CONSTRAINT_BREAKDOWN_DESCRIPTIONS = {
     "mkq_zero_checks": "one zero-check per witness column",
     "pointer_range_one_hot_checks": "one-hot range checks for pointer rows",
     "pointer_range_value_checks": "pointer value equals selected column",
-    "pointer_lookup_selector_products": "selector * direct-bit lookup products",
+    "pointer_lookup_selector_products": "selector * cell lookup products",
     "pointer_lookup_bit_equalities": "composed-bit lookup equalities",
+    "pointer_lookup_value_equalities": "composed-cell integer lookup equalities",
     "booleanity_bit_checks": "bit booleanity checks",
     "public_input_binding_checks": "witness entries bound to public claims",
     "direct_fibonacci_base_checks": "direct exact-integer Fibonacci base cases",
@@ -155,6 +166,8 @@ def constraint_category(label: str | None) -> str:
         return "pointer_range_value_checks"
     if label.startswith("lookup_product:"):
         return "pointer_lookup_selector_products"
+    if label.startswith("lookup_value:"):
+        return "pointer_lookup_value_equalities"
     if label.startswith("lookup:B_"):
         return "pointer_lookup_bit_equalities"
     if label.startswith("public_binding:"):
@@ -178,10 +191,17 @@ def constraint_breakdown(constraints: Iterable[Mapping[str, Any]]) -> dict[str, 
     return {key: int(counts.get(key, 0)) for key in CONSTRAINT_BREAKDOWN_DESCRIPTIONS}
 
 
-def build_exposition(*, example: Any, witness: Any, pointer_rows: list[int] | set[int] | tuple[int, ...]) -> dict[str, Any]:
+def build_exposition(
+    *,
+    example: Any,
+    witness: Any,
+    pointer_rows: list[int] | set[int] | tuple[int, ...],
+    representation: str = "typed",
+) -> dict[str, Any]:
     """Return a JSON-serialisable explanation block for one exported example."""
     return {
         "adapter_version": ADAPTER_VERSION,
+        "representation": representation,
         "what_this_file_is": (
             "A self-contained benchmark input produced from a concrete zkFOL reference example. "
             "It contains the finite FOL witness matrix, the local semantic cross-checks, and a signed "

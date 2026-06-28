@@ -411,11 +411,28 @@ def format_concrete_statement(export: Mapping[str, Any], *, emphasize: bool | No
 def format_zinc_constraint_shape(export: Mapping[str, Any]) -> str:
     """Return the practical variables/degree/bit-bound summary."""
     summary = compute_constraint_summary(export)
+    representation = export.get("representation") or export.get("zkfol", {}).get("representation")
     lines = [
         "Zinc constraint shape",
         "---------------------",
         f"Target use case:             {summary['target_use_case']}",
         "Headline:                   " + format_constraint_summary(export),
+    ]
+    if representation:
+        stats = export.get("stats", {}) if isinstance(export.get("stats"), Mapping) else {}
+        row_types = export.get("zkfol", {}).get("row_types") if isinstance(export.get("zkfol"), Mapping) else None
+        detail = f"Cell representation:         {representation}"
+        if representation == "typed":
+            ptr = sorted(int(r) for r, t in (row_types or {}).items() if t == "ptr")
+            detail += (
+                f" (num cells = integers, ptr rows {ptr} use one-hot range selectors; "
+                f"{stats.get('value_wires', 0)} value wires, {stats.get('composed_value_wires', 0)} composed-value wires, "
+                f"{stats.get('selector_wires', 0)} selector wires, {stats.get('b_wires', 0)} bit wires)"
+            )
+        elif representation == "bitwise":
+            detail += f" (uniform b2int over {stats.get('b_wires', 0)} B-bit wires plus {stats.get('selector_wires', 0)} selector wires)"
+        lines.append(detail)
+    lines += [
         f"Scalar variables before padding: {summary['scalar_variables_unpadded']} = {summary['public_input_variables']} public + 1 constant-one + {summary['private_witness_variables']} private",
         f"Constraints before padding:  {summary['constraints_unpadded']}",
         f"Declared CCS/R1CS degree:    {summary['ccs_declared_degree']} (<A,z>*<B,z>=<C,z>)",
