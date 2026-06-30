@@ -29,21 +29,48 @@ try:
     from zkfol.compiler import BIndex, CompilationContext, beta_symbol, parse_b_symbol
     from zkfol.examples import ExampleSpec
     from zkfol.fast_beta import beta_all_fast
+    from zkfol.types import TypeEnv, iter_matrix_cells
+    from zkfol.typed_compiler import (
+        TypedCompilationContext,
+        ValueIndex,
+        beta_value_symbol,
+        parse_value_symbol,
+    )
     from zkfol.witness import MatrixInterpretation
 except ModuleNotFoundError:  # Allows docs/utility commands and direct Fibonacci helpers before zkfol_reference is installed.
     BIndex = object  # type: ignore[assignment]
     ExampleSpec = object  # type: ignore[assignment]
     MatrixInterpretation = object  # type: ignore[assignment]
+    ValueIndex = object  # type: ignore[assignment]
 
     class CompilationContext:  # type: ignore[no-redef]
         @classmethod
         def from_witness(cls, *_args: Any, **_kwargs: Any) -> "CompilationContext":
             raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
 
+    class TypedCompilationContext:  # type: ignore[no-redef]
+        @classmethod
+        def from_witness(cls, *_args: Any, **_kwargs: Any) -> "TypedCompilationContext":
+            raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
+
+    class TypeEnv:  # type: ignore[no-redef]
+        @classmethod
+        def from_predicate(cls, *_args: Any, **_kwargs: Any) -> "TypeEnv":
+            raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
+
     def beta_symbol(*_args: Any, **_kwargs: Any) -> int:  # type: ignore[no-redef]
         raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
 
+    def beta_value_symbol(*_args: Any, **_kwargs: Any) -> int:  # type: ignore[no-redef]
+        raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
+
     def parse_b_symbol(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
+        raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
+
+    def parse_value_symbol(*_args: Any, **_kwargs: Any) -> Any:  # type: ignore[no-redef]
+        raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
+
+    def iter_matrix_cells(*_args: Any, **_kwargs: Any) -> list[Any]:  # type: ignore[no-redef]
         raise R1CSError("zkfol_reference is not installed; run ./zkfol_zinc_adapter/folzinc setup first")
 
     def beta_all_fast(*_args: Any, **_kwargs: Any) -> list[int]:  # type: ignore[no-redef]
@@ -188,6 +215,14 @@ class R1CSBuilder:
     bit_wires: set[int] = field(default_factory=set)
     b_wires: dict[BIndex, int] = field(default_factory=dict)
     selector_wires: dict[tuple[int, int, int], int] = field(default_factory=dict)
+    # Typed (num/ptr) representation state.  ``value_wires`` holds one integer
+    # wire per direct ``num`` cell C_row(x); ``composed_value_wires`` holds one
+    # integer wire per composed cell C_row(C_pointer(x)); ``_one_hot_rows``
+    # records which (pointer_row, x) pairs already carry their one-hot range
+    # constraint so it is added exactly once.
+    value_wires: dict[tuple[int, int], int] = field(default_factory=dict)
+    composed_value_wires: dict[tuple[int, int, int], int] = field(default_factory=dict)
+    _one_hot_rows: set[tuple[int, int]] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if not self.public_inputs:
@@ -305,8 +340,22 @@ class R1CSBuilder:
         self.mark_bit(z_index)
         return z_index
 
-    def compile_sympy_expr(self, expr: sp.Expr, witness: MatrixInterpretation, *, label: str) -> Lin:
-        """Compile a SymPy mkQ expression to a linear output plus constraints."""
+    def compile_sympy_expr(
+        self,
+        expr: sp.Expr,
+        *,
+        resolve_symbol: "Any",
+        label: str,
+    ) -> Lin:
+        """Compile a SymPy mkQ expression to a linear output plus constraints.
+
+        ``resolve_symbol`` maps a free SymPy symbol to the :class:`Lin` that
+        represents its value in the z-vector.  The bitwise route resolves each
+        ``B`` bit symbol to a private bit wire; the typed route resolves each
+        ``V`` value symbol to an integer cell wire (or a pointer's selected
+        value).  Everything else -- integers, sums, products, integer powers --
+        is identical for both representations.
+        """
         expr = sp.sympify(expr)
 
         def rec(e: sp.Expr, path: str) -> Lin:
@@ -318,8 +367,7 @@ class R1CSBuilder:
             if e.is_Rational:
                 raise R1CSError(f"non-integral rational {e} in {label}")
             if e.is_Symbol:
-                index = parse_b_symbol(e)
-                return self.wire(self.ensure_b_wire(index, witness))
+                return resolve_symbol(e)
             if isinstance(e, sp.Add):
                 total = self.zero()
                 for n, arg in enumerate(e.args):
@@ -347,6 +395,95 @@ class R1CSBuilder:
             raise R1CSError(f"unsupported SymPy node {type(e).__name__}: {e!s}")
 
         return rec(expr, label)
+
+    # ------------------------------------------------------------------
+    # Typed (num/ptr) cell representation
+    # ------------------------------------------------------------------
+    #
+    # A ``num`` cell is a single integer witness.  A ``ptr`` cell is held in
+    # one-hot form by the selector wires that also enforce its range
+    # ``1 <= C_row(x) <= len(C)``; its integer value is ``sum_k k * sel_k``.  A
+    # composed cell C_i(C_j(x)) is a single integer witness pinned to the
+    # selected entry ``sum_k sel(j,x,k) * C_i(k)``.  No bit decomposition is
+    # used: bits are only ever needed to *index*, and one-hot selectors do the
+    # indexing directly over integers.
+
+    def value_wire(self, *, row: int, x: int, witness: MatrixInterpretation) -> Lin:
+        """Return the integer wire for a direct ``num`` cell C_row(x)."""
+        key = (row, x)
+        existing = self.value_wires.get(key)
+        if existing is None:
+            existing = self.alloc_witness(f"C{row}({x})", witness.value(row, x))
+            self.value_wires[key] = existing
+        return self.wire(existing)
+
+    def ensure_pointer_one_hot(self, *, pointer_row: int, x: int, witness: MatrixInterpretation) -> list[int]:
+        """Allocate one-hot selectors for a pointer cell and range-check them once."""
+        selectors = [
+            self.selector_wire(pointer_row=pointer_row, x=x, selected_column=k, witness=witness)
+            for k in range(1, witness.length + 1)
+        ]
+        if (pointer_row, x) not in self._one_hot_rows:
+            self._one_hot_rows.add((pointer_row, x))
+            self.assert_zero(
+                _lin_sum(self.wire(z) for z in selectors) - self.const(1),
+                f"range:ptr_row={pointer_row}:x={x}:one_hot",
+            )
+        return selectors
+
+    def pointer_value_lin(self, *, pointer_row: int, x: int, witness: MatrixInterpretation) -> Lin:
+        """Integer value of a ``ptr`` cell as ``sum_k k * sel(pointer_row,x,k)``.
+
+        The accompanying one-hot constraint forces exactly one selector to one,
+        so this value automatically lies in ``[1, len(C)]`` -- the pointer range
+        check of Definition 3.1, realised without any bit decomposition.
+        """
+        selectors = self.ensure_pointer_one_hot(pointer_row=pointer_row, x=x, witness=witness)
+        return _lin_sum(self.wire(selectors[k - 1]).scale(k) for k in range(1, witness.length + 1))
+
+    def direct_value_lin(self, *, type_env: "TypeEnv", row: int, x: int, witness: MatrixInterpretation) -> Lin:
+        """Integer value of a direct cell C_row(x), per its num/ptr type."""
+        if type_env.is_pointer(row):
+            return self.pointer_value_lin(pointer_row=row, x=x, witness=witness)
+        return self.value_wire(row=row, x=x, witness=witness)
+
+    def composed_value_lin(
+        self,
+        *,
+        type_env: "TypeEnv",
+        out_row: int,
+        pointer_row: int,
+        x: int,
+        witness: MatrixInterpretation,
+    ) -> Lin:
+        """Integer wire for a composed cell C_out(C_pointer(x)).
+
+        The wire is pinned to ``sum_k sel(pointer_row,x,k) * C_out(k)``: the
+        one-hot selectors pick the column C_pointer(x) points at, and the sum
+        reads the integer entry there.  This is the integer-level analogue of the
+        paper's bitwise composed lookup, costing one row per selected column plus
+        one equality instead of one set per bit.
+        """
+        key = (out_row, pointer_row, x)
+        existing = self.composed_value_wires.get(key)
+        if existing is not None:
+            return self.wire(existing)
+        value = beta_value_symbol(ValueIndex(row=out_row, pointer=pointer_row, x=x), witness)
+        z_index = self.alloc_witness(f"C{out_row}(C{pointer_row}({x}))", value)
+        self.composed_value_wires[key] = z_index
+        out = self.wire(z_index)
+        selectors = self.ensure_pointer_one_hot(pointer_row=pointer_row, x=x, witness=witness)
+        terms: list[Lin] = []
+        for k in range(1, witness.length + 1):
+            selected = self.direct_value_lin(type_env=type_env, row=out_row, x=k, witness=witness)
+            product = self.mul(
+                self.wire(selectors[k - 1]),
+                selected,
+                label=f"lookup_product:C{out_row}(C{pointer_row}({x})):k={k}",
+            )
+            terms.append(product)
+        self.assert_zero(out - _lin_sum(terms), f"lookup_value:C{out_row}(C{pointer_row}({x}))")
+        return out
 
     def add_all_pending_boolean_constraints(self) -> None:
         for z_index in sorted(self.bit_wires):
@@ -470,9 +607,15 @@ def add_public_binding_constraints(
     builder: R1CSBuilder,
     *,
     witness: MatrixInterpretation,
-    max_bits: int,
     bindings: Iterable[PublicBinding],
+    value_lin: "Any",
 ) -> None:
+    """Bind selected witness cells to public inputs.
+
+    ``value_lin(row, x)`` returns the :class:`Lin` for the integer value of cell
+    C_row(x) in the active representation (a ``b2int`` sum for the bitwise route,
+    a single integer wire for the typed route).
+    """
     for binding in bindings:
         if binding.public_index < 0 or binding.public_index >= len(builder.public_inputs):
             raise R1CSError(f"public binding {binding.name!r} points outside public inputs")
@@ -481,7 +624,7 @@ def add_public_binding_constraints(
         actual = witness.value(binding.row, binding.x)
         if actual != binding.value:
             raise R1CSError(f"public binding {binding.name!r} value does not match witness")
-        witness_entry = builder.b2int_lin(row=binding.row, pointer=0, x=binding.x, max_bits=max_bits, witness=witness)
+        witness_entry = value_lin(binding.row, binding.x)
         public_value = builder.wire(binding.public_index)
         builder.assert_zero(
             witness_entry - public_value,
@@ -489,59 +632,41 @@ def add_public_binding_constraints(
         )
 
 
-def build_ccs_export(
-    example: ExampleSpec,
+_BITWISE_SOUNDNESS_NOTE = (
+    "This CCS instance uses private bit variables for the reference implementation's B symbols, "
+    "boolean constraints for those bits, one-hot selector constraints for pointer range checks, "
+    "lookup constraints tying composed B_i,j,x,nu bits to selected direct B_i,0,k,nu bits, and "
+    "R1CS arithmetic gates for every mkQ_x(<phi>) = 0 check."
+)
+
+_TYPED_SOUNDNESS_NOTE = (
+    "This CCS instance uses the num/ptr typed representation. A num cell C_i(x) is a single integer "
+    "witness; a ptr cell is held in one-hot form by selector wires whose one-hot constraint also range-"
+    "checks it into 1..len(C); a composed cell C_i(C_j(x)) is a single integer witness pinned to "
+    "sum_k sel(j,x,k) * C_i(k). There is no per-cell bit decomposition: bits are only needed to index, "
+    "and the one-hot selectors index directly over integers. R1CS arithmetic gates enforce every "
+    "mkQ_x(<phi>) = 0 check, exactly as in the bitwise route but over integer-valued cell wires."
+)
+
+
+def _assemble_export(
     *,
-    include_sympy_strings: bool = False,
-    public_final: bool = False,
+    example: ExampleSpec,
+    witness: MatrixInterpretation,
+    builder: R1CSBuilder,
+    public_bindings: tuple[PublicBinding, ...],
+    public_final: bool,
+    pointer_rows: Iterable[int],
+    report: dict[str, Any],
+    mkq_strings: list[str],
+    include_sympy_strings: bool,
+    adapter_kind: str,
+    soundness_note: str,
+    representation: str,
+    stats_extra: Mapping[str, Any],
+    zkfol_extra: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build a JSON-serialisable Zinc CCS/R1CS instance from a zkFOL example."""
-    witness = example.witness
-    context = CompilationContext.from_witness(witness)
-    if public_final:
-        public_inputs, public_input_names, public_bindings = final_public_bindings_for_example(example)
-    else:
-        public_inputs, public_input_names, public_bindings = [0], {0: "public_zero"}, ()
-    builder = R1CSBuilder(public_inputs=public_inputs, public_input_names=public_input_names)
-
-    # Allocate all direct matrix bits up front.  This makes the witness-vector
-    # prefix stable across examples and makes pointer lookup constraints clear.
-    for row in range(1, witness.arity + 1):
-        for x in range(1, witness.length + 1):
-            for bit in range(1, witness.max_bits + 1):
-                builder.ensure_direct_b_wire(row=row, x=x, bit=bit, witness=witness)
-
-    mkq_strings: list[str] = []
-    direct_values: list[int] = []
-    beta_values: list[int] = []
-
-    for x in range(1, witness.length + 1):
-        compiled = context.mkq(example.predicate, x, expand=False)
-        if include_sympy_strings:
-            mkq_strings.append(str(compiled.expression))
-        direct = example.predicate.evaluate(witness, x)
-        beta = compiled.beta(witness)
-        direct_values.append(direct)
-        beta_values.append(beta)
-        if direct != beta:
-            raise R1CSError(f"direct/beta mismatch at x={x}: {direct} != {beta}")
-        value = builder.compile_sympy_expr(compiled.expression, witness, label=f"mkq_x={x}")
-        builder.assert_zero(value, f"mkq_zero:x={x}")
-
-    composed_pointer_rows = {index.pointer for index in builder.b_wires if index.pointer != 0}
-    pointer_rows = set(example.pointer_rows) | composed_pointer_rows
-    add_pointer_lookup_constraints(
-        builder,
-        witness=witness,
-        max_bits=witness.max_bits,
-        pointer_rows=pointer_rows,
-    )
-    add_public_binding_constraints(
-        builder,
-        witness=witness,
-        max_bits=witness.max_bits,
-        bindings=public_bindings,
-    )
+    """Assemble the export JSON shared by the bitwise and typed routes."""
     builder.add_all_pending_boolean_constraints()
     builder.check_all_constraints()
 
@@ -555,30 +680,36 @@ def build_ccs_export(
             for _, coeff in constraint[side]:
                 max_abs_value = max(max_abs_value, abs(int(coeff)))
 
-    direct_rows = witness.as_lists()
-    report = {
-        "direct_values": direct_values,
-        "beta_values": beta_values,
-        "fast_beta_values": list(beta_all_fast(example.predicate, witness)),
-        "semantics_agree": direct_values == beta_values,
-        "all_zero": all(v == 0 for v in beta_values),
-        "pointer_range_ok": example.pointer_range_ok(),
+    pointer_rows = sorted(set(pointer_rows))
+    zkfol = {
+        "witness_rows": witness.as_lists(),
+        "pointer_rows": pointer_rows,
+        "representation": representation,
+        "paper_reference": example.paper_reference,
+        "mathematical_description": example.mathematical_description,
+        "witness_convention": example.witness_convention,
+        "reference_report": report,
     }
-    if report["fast_beta_values"] != beta_values:
-        raise R1CSError("fast beta and symbolic beta disagree")
+    zkfol.update(zkfol_extra)
+
+    stats = {
+        "bit_wires": len(builder.bit_wires),
+        "b_wires": len(builder.b_wires),
+        "selector_wires": len(builder.selector_wires),
+        "constraint_breakdown": breakdown,
+        "max_abs_value_bit_length": int(max_abs_value).bit_length(),
+        "max_abs_value_decimal": str(max_abs_value),
+    }
+    stats.update(stats_extra)
 
     export = {
         "schema": "zkfol-zinc-ccs-v2",
         "name": example.name,
         "description": example.description,
-        "adapter_kind": "mkq_beta_bits_to_integer_r1cs_ccs",
+        "adapter_kind": adapter_kind,
         "adapter_version": ADAPTER_VERSION,
-        "soundness_note": (
-            "This CCS instance uses private bit variables for the reference implementation's B symbols, "
-            "boolean constraints for those bits, one-hot selector constraints for pointer range checks, "
-            "lookup constraints tying composed B_i,j,x,nu bits to selected direct B_i,0,k,nu bits, and "
-            "R1CS arithmetic gates for every mkQ_x(<phi>) = 0 check."
-        ),
+        "representation": representation,
+        "soundness_note": soundness_note,
         "zero_rhs_encoding": "explicit_public_zero",
         "dimensions": {
             "arity": witness.arity,
@@ -606,15 +737,10 @@ def build_ccs_export(
             "witness": [str(value) for value in builder.witness_values],
             "constraints": constraints,
         },
-        "zkfol": {
-            "witness_rows": direct_rows,
-            "pointer_rows": sorted(pointer_rows),
-            "paper_reference": example.paper_reference,
-            "mathematical_description": example.mathematical_description,
-            "witness_convention": example.witness_convention,
-            "reference_report": report,
-        },
-        "exposition": build_exposition(example=example, witness=witness, pointer_rows=pointer_rows),
+        "zkfol": zkfol,
+        "exposition": build_exposition(
+            example=example, witness=witness, pointer_rows=pointer_rows, representation=representation
+        ),
         "wire_names": {str(k): v for k, v in sorted(builder.wire_names.items())},
         "constraint_breakdown": breakdown,
         "benchmark_claim": {
@@ -625,14 +751,7 @@ def build_ccs_export(
                 else "No public final claim was bound; this proves existence of a private valid FOL witness table."
             ),
         },
-        "stats": {
-            "bit_wires": len(builder.bit_wires),
-            "b_wires": len(builder.b_wires),
-            "selector_wires": len(builder.selector_wires),
-            "constraint_breakdown": breakdown,
-            "max_abs_value_bit_length": int(max_abs_value).bit_length(),
-            "max_abs_value_decimal": str(max_abs_value),
-        },
+        "stats": stats,
     }
     from .view import concrete_statement_lines  # Local import avoids a presentation-only dependency at module load time.
 
@@ -642,6 +761,221 @@ def build_ccs_export(
         export["zkfol"]["mkq_sympy"] = mkq_strings
     attach_constraint_summary(export)
     return export
+
+
+def _public_setup(example: ExampleSpec, *, public_final: bool):
+    if public_final:
+        return final_public_bindings_for_example(example)
+    return [0], {0: "public_zero"}, ()
+
+
+def _build_ccs_export_bitwise(
+    example: ExampleSpec,
+    *,
+    include_sympy_strings: bool = False,
+    public_final: bool = False,
+) -> dict[str, Any]:
+    """Paper-faithful route: every cell value is a b2int over private bit wires."""
+    witness = example.witness
+    context = CompilationContext.from_witness(witness)
+    public_inputs, public_input_names, public_bindings = _public_setup(example, public_final=public_final)
+    builder = R1CSBuilder(public_inputs=public_inputs, public_input_names=public_input_names)
+
+    # Allocate all direct matrix bits up front.  This makes the witness-vector
+    # prefix stable across examples and makes pointer lookup constraints clear.
+    for row in range(1, witness.arity + 1):
+        for x in range(1, witness.length + 1):
+            for bit in range(1, witness.max_bits + 1):
+                builder.ensure_direct_b_wire(row=row, x=x, bit=bit, witness=witness)
+
+    def resolve(symbol: sp.Symbol) -> Lin:
+        return builder.wire(builder.ensure_b_wire(parse_b_symbol(symbol), witness))
+
+    mkq_strings: list[str] = []
+    direct_values: list[int] = []
+    beta_values: list[int] = []
+
+    for x in range(1, witness.length + 1):
+        compiled = context.mkq(example.predicate, x, expand=False)
+        if include_sympy_strings:
+            mkq_strings.append(str(compiled.expression))
+        direct = example.predicate.evaluate(witness, x)
+        beta = compiled.beta(witness)
+        direct_values.append(direct)
+        beta_values.append(beta)
+        if direct != beta:
+            raise R1CSError(f"direct/beta mismatch at x={x}: {direct} != {beta}")
+        value = builder.compile_sympy_expr(compiled.expression, resolve_symbol=resolve, label=f"mkq_x={x}")
+        builder.assert_zero(value, f"mkq_zero:x={x}")
+
+    composed_pointer_rows = {index.pointer for index in builder.b_wires if index.pointer != 0}
+    pointer_rows = set(example.pointer_rows) | composed_pointer_rows
+    add_pointer_lookup_constraints(
+        builder,
+        witness=witness,
+        max_bits=witness.max_bits,
+        pointer_rows=pointer_rows,
+    )
+    add_public_binding_constraints(
+        builder,
+        witness=witness,
+        bindings=public_bindings,
+        value_lin=lambda row, x: builder.b2int_lin(row=row, pointer=0, x=x, max_bits=witness.max_bits, witness=witness),
+    )
+
+    report = {
+        "direct_values": direct_values,
+        "beta_values": beta_values,
+        "fast_beta_values": list(beta_all_fast(example.predicate, witness)),
+        "semantics_agree": direct_values == beta_values,
+        "all_zero": all(v == 0 for v in beta_values),
+        "pointer_range_ok": example.pointer_range_ok(),
+    }
+    if report["fast_beta_values"] != beta_values:
+        raise R1CSError("fast beta and symbolic beta disagree")
+
+    return _assemble_export(
+        example=example,
+        witness=witness,
+        builder=builder,
+        public_bindings=public_bindings,
+        public_final=public_final,
+        pointer_rows=pointer_rows,
+        report=report,
+        mkq_strings=mkq_strings,
+        include_sympy_strings=include_sympy_strings,
+        adapter_kind="mkq_beta_bits_to_integer_r1cs_ccs",
+        soundness_note=_BITWISE_SOUNDNESS_NOTE,
+        representation="bitwise",
+        stats_extra={},
+        zkfol_extra={},
+    )
+
+
+def _build_ccs_export_typed(
+    example: ExampleSpec,
+    *,
+    include_sympy_strings: bool = False,
+    public_final: bool = False,
+) -> dict[str, Any]:
+    """Optimised route: num cells are integers, ptr cells use one-hot selectors."""
+    witness = example.witness
+    # Pointer rows are read off the predicate's syntax; we union with the rows
+    # the ExampleSpec declares so a hand-annotated pointer row is never dropped.
+    derived = TypeEnv.from_predicate(example.predicate, witness.arity).pointers
+    pointers = frozenset(derived) | frozenset(example.pointer_rows)
+    type_env = TypeEnv(arity=witness.arity, pointers=pointers)
+    context = TypedCompilationContext.from_witness(witness)
+    public_inputs, public_input_names, public_bindings = _public_setup(example, public_final=public_final)
+    builder = R1CSBuilder(public_inputs=public_inputs, public_input_names=public_input_names)
+
+    # Step 1: allocate every direct cell.  num cells become a single integer
+    # wire; ptr cells install their one-hot selectors and range check for every
+    # column (the universal pointer range check of Definition 3.1/3.7).
+    for row in range(1, witness.arity + 1):
+        for x in range(1, witness.length + 1):
+            builder.direct_value_lin(type_env=type_env, row=row, x=x, witness=witness)
+
+    # Step 2: allocate every composed cell C_i(C_j(x)) that the predicate uses.
+    composed_cells = sorted(
+        {(cell.row, cell.pointer_row) for cell in iter_matrix_cells(example.predicate) if cell.pointer_row is not None}
+    )
+    for out_row, pointer_row in composed_cells:
+        for x in range(1, witness.length + 1):
+            builder.composed_value_lin(
+                type_env=type_env, out_row=out_row, pointer_row=pointer_row, x=x, witness=witness
+            )
+
+    def resolve(symbol: sp.Symbol) -> Lin:
+        index = parse_value_symbol(symbol)
+        if index.pointer == 0:
+            return builder.direct_value_lin(type_env=type_env, row=index.row, x=index.x, witness=witness)
+        return builder.composed_value_lin(
+            type_env=type_env, out_row=index.row, pointer_row=index.pointer, x=index.x, witness=witness
+        )
+
+    mkq_strings: list[str] = []
+    direct_values: list[int] = []
+    beta_values: list[int] = []
+
+    for x in range(1, witness.length + 1):
+        compiled = context.mkq(example.predicate, x, expand=False)
+        if include_sympy_strings:
+            mkq_strings.append(str(compiled.expression))
+        direct = example.predicate.evaluate(witness, x)
+        beta = compiled.beta(witness)
+        direct_values.append(direct)
+        beta_values.append(beta)
+        if direct != beta:
+            raise R1CSError(f"direct/typed-beta mismatch at x={x}: {direct} != {beta}")
+        value = builder.compile_sympy_expr(compiled.expression, resolve_symbol=resolve, label=f"mkq_x={x}")
+        builder.assert_zero(value, f"mkq_zero:x={x}")
+
+    add_public_binding_constraints(
+        builder,
+        witness=witness,
+        bindings=public_bindings,
+        value_lin=lambda row, x: builder.direct_value_lin(type_env=type_env, row=row, x=x, witness=witness),
+    )
+
+    report = {
+        "direct_values": direct_values,
+        "beta_values": beta_values,
+        "fast_beta_values": list(beta_all_fast(example.predicate, witness)),
+        "semantics_agree": direct_values == beta_values,
+        "all_zero": all(v == 0 for v in beta_values),
+        "pointer_range_ok": example.pointer_range_ok(),
+    }
+    if report["fast_beta_values"] != beta_values:
+        raise R1CSError("fast beta and typed beta disagree")
+
+    row_types = {str(row): str(type_env.row_type(row)) for row in range(1, witness.arity + 1)}
+    return _assemble_export(
+        example=example,
+        witness=witness,
+        builder=builder,
+        public_bindings=public_bindings,
+        public_final=public_final,
+        pointer_rows=type_env.pointers,
+        report=report,
+        mkq_strings=mkq_strings,
+        include_sympy_strings=include_sympy_strings,
+        adapter_kind="typed_num_ptr_mkq_to_integer_r1cs_ccs",
+        soundness_note=_TYPED_SOUNDNESS_NOTE,
+        representation="typed",
+        stats_extra={
+            "value_wires": len(builder.value_wires),
+            "composed_value_wires": len(builder.composed_value_wires),
+        },
+        zkfol_extra={"row_types": row_types},
+    )
+
+
+def build_ccs_export(
+    example: ExampleSpec,
+    *,
+    include_sympy_strings: bool = False,
+    public_final: bool = False,
+    representation: str = "typed",
+) -> dict[str, Any]:
+    """Build a JSON-serialisable Zinc CCS/R1CS instance from a zkFOL example.
+
+    ``representation`` selects how cell values are encoded:
+
+    * ``"typed"`` (default) -- the num/ptr optimisation: arithmetic values are
+      single integers and only pointer rows carry the (one-hot) range machinery.
+    * ``"bitwise"`` -- the paper-faithful uniform b2int encoding, kept for audit
+      and for before/after benchmarking.
+    """
+    if representation == "typed":
+        return _build_ccs_export_typed(
+            example, include_sympy_strings=include_sympy_strings, public_final=public_final
+        )
+    if representation == "bitwise":
+        return _build_ccs_export_bitwise(
+            example, include_sympy_strings=include_sympy_strings, public_final=public_final
+        )
+    raise R1CSError(f"unknown representation {representation!r}; expected 'typed' or 'bitwise'")
 
 
 def dense_matrices_from_export(export: Mapping[str, Any]) -> tuple[list[list[int]], list[list[int]], list[list[int]]]:

@@ -18,7 +18,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import Any
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 _EXPORT_MODULES = {
     # ast
@@ -51,6 +51,19 @@ _EXPORT_MODULES = {
     "beta": "zkfol.compiler",
     "mkq": "zkfol.compiler",
     "to_enriched_polynomial": "zkfol.compiler",
+    # types (num / ptr)
+    "CellType": "zkfol.types",
+    "TypeEnv": "zkfol.types",
+    "pointer_rows": "zkfol.types",
+    "iter_matrix_cells": "zkfol.types",
+    # typed (optimised, non-bitwise) compiler
+    "TypedCompilationContext": "zkfol.typed_compiler",
+    "TypedCompiledPolynomial": "zkfol.typed_compiler",
+    "ValueIndex": "zkfol.typed_compiler",
+    "beta_typed": "zkfol.typed_compiler",
+    "beta_value_symbol": "zkfol.typed_compiler",
+    "mkq_typed": "zkfol.typed_compiler",
+    "parse_value_symbol": "zkfol.typed_compiler",
     # fast beta
     "beta_all_fast": "zkfol.fast_beta",
     "beta_formula_fast": "zkfol.fast_beta",
