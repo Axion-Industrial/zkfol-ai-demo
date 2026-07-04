@@ -11,6 +11,20 @@ runner (the `parallel` feature is measurably a no-op for these workloads —
 102% CPU). Adapter 0.6.0, Rust runner release build, cargo 1.92.0,
 Python 3.14.6, Zinc pinned at NethermindEth/zinc rev `0c9ed214`.
 
+## Route key: the exact function behind every label in this document
+
+| label used below                          | FOL source program                         | function executed                                                              |
+|-------------------------------------------|--------------------------------------------|--------------------------------------------------------------------------------|
+| generic mkQ bridge / "(typed)" rows       | `zkfol.examples.power_predicate()` etc.    | `zkfol_zinc_adapter.r1cs.build_ccs_export(example, representation="typed")` (via `folzinc export`) — the automatic paper lowering, incl. pointer mux machinery |
+| efficient power 2^32                      | `zkfol.examples.efficient_power_predicate()` (hand-authored smarter algorithm) | same `build_ccs_export` generic lowering |
+| direct trace (hand)                       | none — hand-written CCS rows               | `direct_fibonacci.build_compact_direct_fibonacci_ccs_export(n)`                 |
+| fast doubling (hand)                      | none — hand-written CCS rows               | `fast_doubling_fibonacci.build_fast_doubling_fibonacci_ccs_export(n)`           |
+| + CRT channels / mod 2^64 channel         | none — hand-written CCS rows               | `crt_fast_doubling_fibonacci.build_crt_...(n, channel_bits)` / `build_modular_...(n)` |
+| compiled (detector + emitter)             | `fibonacci_predicate()` / `power_predicate()` from `zkfol.examples` | `recurrence_compile.compile_doubling_export(predicate, n[, cell_values])` — detection-licensed emitters, no generic bridge |
+
+Every row is then proved and verified by
+`zkfol-zinc-runner --input <export.json> [--int-limbs N --field-limbs F] --repeat R`.
+
 ## Measured baseline
 
 | case                                 | what is proved                 | constraints | padded dim | Int/Field profile    |   prove |      verify | prime setup |                                      total/iter | proof size |     peak RSS |
@@ -166,30 +180,104 @@ repeated-squaring power are refused by detection with stated reasons;
 orders above 2 are refused pending the general companion matrix-power
 emitter. The CRT rows remain hand-formulated.
 
-## The compiler gap, measured (2026-07-04): one statement, three routes
+## The compiler pass, measured on the repo's own programs (2026-07-04)
 
-Same statement — exact integer F_32 = 2,178,309 — produced by the generic
-FOL compiler route (`examples.py` fibonacci through the typed mkQ bridge)
-and by the two hand-formulated exports. First actual runs of the generic
-Fibonacci route (previously it was only estimated):
+Detection (`recurrence.py`) plus descriptor-driven emitters
+(`recurrence_compile.py`): a syntactic C-finite analysis extracts the
+recurrence descriptor from a FOL predicate and licenses an emitter —
+the order-2 kernel-pair doubling walk, or order-1 square-and-multiply
+when the coefficient is a trace-constant cell (licensed by an offset-0
+constancy schedule such as `base.eq(cell(1, previous))`). Factorial and
+repeated-squaring power are refused with stated reasons (factorial's
+coefficient row varies along the trace). A synthetic Lucas-style control
+(coefficients 2,3 — a sequence hand-optimized nowhere in this repo)
+compiles and proves correctly, so the emitter is descriptor-driven
+rather than Fibonacci-shaped; identical shapes give identical costs, so
+per-sequence benchmark tables add no information and are omitted.
 
-| route                              | rows |  pad |  prove |   verify | proof size |
-|------------------------------------|-----:|-----:|-------:|---------:|-----------:|
-| generic mkQ bridge (the compiler)  | 6,656| 8,192| 48 ms  |   16.5 s |    4.2 MiB |
-| direct compact trace (hand)        |   33 |   64 | 2.5 ms |    12 ms |   0.64 MiB |
-| fast doubling (hand)               |   16 |   32 | 2.2 ms |   7.2 ms |   0.39 MiB |
+Provenance, stated precisely: these rows benchmark the detector (which
+analyzes genuine FOL AST predicates), the descriptor-driven emitters, and
+Zinc. They do NOT exercise the FOL reference pipeline (no mkQ/beta runs
+here), and the equivalence between the FOL judgement and the compiled
+value claim is machine-checked only where both worlds are computable:
+for fib n = 3..20 and power exponents 1..8, the reference evaluators
+validate the FOL judgement and the valid witness's value cell is tested
+equal to the compiled circuit's bound constant
+(test_recurrence_compile.py). For large n that equivalence rests on the
+value-claim legality argument, not on a mechanical check — a
+translation-validation gap the Elixir compiler should close properly.
+
+### Same source, two lowerings
+
+Exact F_32 from `fibonacci_predicate()` (first actual runs of the
+generic Fibonacci route; previously estimate-only):
+
+| route                                        | rows |  pad |  prove |   verify | proof size |
+|----------------------------------------------|-----:|-----:|-------:|---------:|-----------:|
+| generic mkQ bridge on fibonacci_predicate()  | 6,656| 8,192| 48 ms  |   16.5 s |    4.2 MiB |
+| direct compact trace (hand)                  |   33 |   64 | 2.5 ms |    12 ms |   0.64 MiB |
+| fast doubling (hand)                         |   16 |   32 | 2.2 ms |   7.2 ms |   0.39 MiB |
+| compiled from the same fibonacci_predicate() |   13 |   16 | 2.0 ms |   6.7 ms |   0.36 MiB |
+
+Exact 2^32 from `power_predicate()` (base bound as a public constant):
+
+| route                                             | rows |   pad |   prove |   verify |    total | proof size |
+|---------------------------------------------------|-----:|------:|--------:|---------:|---------:|-----------:|
+| generic mkQ bridge (typed)                        | 4,755| 8,192 | 43.7 ms |  17.36 s |  17.42 s |   4.20 MiB |
+| efficient_power (hand predicate, generic bridge)  |   325|   512 |  6.0 ms |  61.4 ms |  69.3 ms |   1.19 MiB |
+| compiled from power_predicate (detector + emitter)|     7|     8 |  2.1 ms |   7.0 ms |  9.65 ms |    337 KiB |
+
+Both statements show the same ~1,800x same-source collapse between the
+generic lowering and the pass. Compiled power also beats the
+hand-authored efficient_power predicate ~7x: that program is already the
+log-form algorithm, but the generic lowering still charges it pointer
+machinery for its half-pointer; the compiled form has no pointers at all.
+
+### Head-to-head across n (Fibonacci)
+
+Same public claim per n (exact F_n); compiled =
+`compile_doubling_export(fibonacci_predicate(), n)`. Repeat 3 except
+direct n=10000 (repeat 1).
+
+| n     | route              |   rows |    pad |   prove |  verify |   total | proof size |
+|-------|--------------------|-------:|-------:|--------:|--------:|--------:|-----------:|
+| 100   | direct (hand)      |    101 |    128 |  3.0 ms | 13.6 ms | 17.4 ms |    684 KiB |
+| 100   | fastdbl (hand)     |     19 |     32 |  2.1 ms |  6.9 ms |  9.5 ms |   0.39 MiB |
+| 100   | **compiled**       |     19 |     32 |  2.4 ms |  7.0 ms | 10.3 ms |   0.39 MiB |
+| 1000  | direct (hand)      |  1,001 |  1,024 | 34.3 ms |  820 ms |  872 ms |   15.9 MiB |
+| 1000  | fastdbl (hand)     |     28 |     32 |  3.7 ms | 81.7 ms | 97.4 ms |   2.11 MiB |
+| 1000  | **compiled**       |     28 |     32 |  3.6 ms | 80.8 ms | 96.5 ms |   2.11 MiB |
+| 10000 | direct (hand)      | 10,001 | 16,384 |  20.5 s | 235.6 s | 257.2 s |  525.6 MiB |
+| 10000 | fastdbl (hand)     |     40 |     64 |  101 ms |  10.6 s |  10.7 s |   31.5 MiB |
+| 10000 | CRT 500-bit (hand) |    560 |  1,024 |   31 ms |  818 ms |  864 ms |   15.9 MiB |
+| 10000 | **compiled**       |     40 |     64 |  101 ms | 10.55 s | 10.66 s |   31.5 MiB |
+
+Readings: the compiled route matches hand fast-doubling within noise at
+every n (identical rows, pads, and proof sizes — the pass reproduces the
+hand formulation exactly at these sizes). It beats the hand direct trace
+by 1.8x (n=100), 9x (n=1000), and 24x (n=10000). The one hand row still
+ahead is the CRT formulation at n=10000 (864 ms vs 10.66 s): compiling
+*into* residue channels automatically is the next emitter, not yet built.
+
+### Generic-route growth and the memory wall
 
 Generic-route growth measured at n = 8/16/32: 512 / 1,792 / 6,656
-constraints ≈ 7·n² — the pointer one-hot machinery's quadratic, now data.
-Extrapolated to n = 10000 the typed generic route is ~7×10^8 rows: still
-utterly infeasible, but four orders of magnitude below the old 5.5×10^12
+constraints ~ 7 n^2 — the pointer one-hot machinery's quadratic, now
+data. Extrapolated to n = 10000 the typed generic route is ~7x10^8 rows:
+infeasible, but four orders of magnitude below the old 5.5x10^12
 estimate in `GENERIC_MKQ_FIBONACCI_ESTIMATE.md`, which described the
-pre-num/ptr bitwise encoding. The num/ptr PR improved the constant;
-only static-pointer specialization (the determinacy pass) removes the n².
+pre-num/ptr bitwise encoding. The num/ptr PR improved the constant; only
+static-pointer specialization (the determinacy pass) removes the n^2.
 
-The measured gap at n=32 — 200× rows, ~1,400× verify, ~2,000× total wall
-clock between compiler output and hand formulation of the same claim — is
-the quantified target for the specialization and doubling passes.
+The generic route's ceiling on this 62 GB machine is n~32 (pad 8,192,
+~6 GiB peak): an attempted n=48 run (14,592 rows, pad 16,384) drew
+~41 GB (system memory 20 -> 61 GB) and was stopped before exhausting
+RAM — the memory wall observed, not extrapolated. The draw exceeded the
+cost model's ~26 GB two-tables-live estimate; ~41 GB is consistent with
+three dense matrix tables plus a clone alive at once, so the model's
+memory term is a lower bound, phase-dependent (strengthens upstream
+finding #2). Generic n=1000 would be ~7x10^6 rows, pad 2^23, a ~3.4 PB
+dense verifier table: not runnable on any existing machine.
 
 Bug note: the generic n=8 export (exactly 512 constraints, z_len 277)
 crashes inside Zinc ("size of evaluations should not exceed 2^num_vars";
