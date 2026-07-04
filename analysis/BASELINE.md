@@ -108,6 +108,46 @@ json.dump(b(10000, check=True), open('fastdbl10000.json','w'))"
   --input fastdbl10000.json --int-limbs 128 --field-limbs 4 --repeat 3 --json
 ```
 
+## After CRT residue channels (Phase 2 commit 3, 2026-07-04)
+
+`crt_fast_doubling_fibonacci.py` runs the fast-doubling trace independently
+per residue channel with lifted-modular reduction rows (c + p*u quotient
+witnesses; eprint 2025/316's R1CSl shape), so witness width becomes a chosen
+parameter instead of F_n's size. Channel width sweeps padded dimension
+against integer width; all corners measured, exact F_10000, repeat 3
+(cb120 repeat 1):
+
+All rows below prove Fibonacci at n = 10000. The first three prove the
+exact 2,090-digit integer F_10000 (pinned by CRT residues); the last row
+proves the weaker statement F_10000 mod 2^64 — the arithmetic RISC Zero's
+documented benchmark uses — and is included for statement parity.
+
+| what is proved                    | corner              | channels | rows |  pad | profile           |  prove |  verify | total/iter | proof size | peak RSS |
+|-----------------------------------|---------------------|---------:|-----:|-----:|-------------------|-------:|--------:|-----------:|-----------:|---------:|
+| exact F_10000 (2,090 digits)      | 500-bit channels    |       14 |  560 | 1024 | Int<16> / 256-bit | 31 ms  |  818 ms | **864 ms** |   15.9 MiB |  152 MiB |
+| exact F_10000 (2,090 digits)      | 250-bit channels    |       28 | 1120 | 2048 | Int<8> / 256-bit  | 27 ms  | 1.24 s  |     1.27 s |    8.1 MiB |  418 MiB |
+| exact F_10000 (2,090 digits)      | 120-bit channels    |       59 | 2360 | 4096 | Int<4> / 256-bit  | 34 ms  | 4.37 s  |     4.41 s |    8.1 MiB |  1.6 GiB |
+| F_10000 mod 2^64 (RISC0's statement) | single channel   |        1 |   40 |  128 | Int<4> / 256-bit  | 3.5 ms |  25 ms  | **30 ms**  |   1.16 MiB |    9 MiB |
+
+Pre-registered tax-model predictions vs measured: proof sizes within ~2%
+(cb250 better than predicted), cb120/cb250 verify within noise, cb500
+verify 2.3x over prediction (the wide-column term is systematically
+underestimated; same bias as the fast-doubling row). The cb500 verify
+(818 ms at pad 1024/Int<16>) matches the Phase-1 linear-trace verify at the
+same profile within 2 ms — verify cost is (pad, N)-determined and
+formulation-independent, as the model claims.
+
+Day trajectory for exact F_10000 (prove / verify / proof):
+refused -> 20.5 s / 236 s / 526 MiB (decoupling) -> 101 ms / 10.6 s /
+31.5 MiB (fast doubling) -> **31 ms / 818 ms / 15.9 MiB** (CRT, cb500).
+The mod-2^64 parity row proves RISC Zero's own documented statement in
+30 ms end-to-end on one CPU core, vs their published 1.7 s (RTX A6000
+prove-only) and 10.8 s (64-core EPYC).
+
+Provenance: all rows in this section are hand-formulated direct exports
+(compiler targets), not generic-bridge compilations; see the provenance
+discussion in this file's baseline section.
+
 ## Reproduction
 
 ```sh
