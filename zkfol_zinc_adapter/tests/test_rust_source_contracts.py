@@ -29,6 +29,20 @@ def test_rust_runner_uses_concrete_zinc_dispatch_not_generic_const_proof_path(pa
     assert "ZincVerifier::<RandomFieldZipTypes<N>" not in text
 
 
+def test_rust_runner_pairs_every_int_profile_with_the_256bit_field(package_root):
+    """choose_int_limbs can return any of the seven profiles (it also clamps
+    oversized requests down), so every profile needs a --field-limbs 4 arm;
+    a hole aborts mid-sweep on exports the flag exists to serve."""
+    text = _main_rs(package_root)
+    for limbs in (32, 64):
+        assert f"define_execute_zinc!(execute_zinc_{limbs}_f4, {limbs}, 4);" in text
+    for limbs in (4, 8, 16, 32, 64, 128):
+        assert f"({limbs}, Some(4)) => execute_zinc_{limbs}_f4(&export, &args)" in text
+    assert "(2, Some(4)) => execute_zinc_2(&export, &args)" in text
+    # the old catch-all diagnostic misstated the instantiated set
+    assert "instantiated cross-profiles are Int<16>" not in text
+
+
 def test_rust_runner_checks_sampled_field_relation_before_proving(package_root):
     text = _main_rs(package_root)
     field_idx = text.index("field_relation_check")

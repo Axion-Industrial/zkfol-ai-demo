@@ -1,12 +1,11 @@
 # Black-box cost model of Zinc (rev `0c9ed21`, NethermindEth/zinc)
 
 Derived 2026-07-04 by code analysis of the pinned checkout
-(`~/.cargo/git/checkouts/zinc-*/0c9ed21`; paths below relative to it) plus the
-paper abstract (eprint 2025/316, Garreta–Waldner–Hristova–Dall'Ava, CRYPTO
-2025 — full text was not accessible; every quantitative claim below is from
-code, paper-only claims are marked). We treat Zinc strictly as a black box:
-this document exists so the frontend compiler can target Zinc's fast paths,
-not so we patch Zinc.
+(`~/.cargo/git/checkouts/zinc-*/0c9ed21`; paths below relative to it). The
+full paper (eprint 2025/316, Garreta–Waldner–Hristova–Dall'Ava, CRYPTO 2025)
+has since been read; paper-verified soundness facts are in §7 below. We treat
+Zinc strictly as a black box: this document exists so the frontend compiler
+can target Zinc's fast paths, not so we patch Zinc.
 
 Notation: `m×n` = padded CCS dims, `t` = #matrices, `d` = max degree,
 `nnz` = total nonzeros, `N` = integer limbs (`Int<N>`, 64N-bit),
@@ -62,14 +61,14 @@ and `SparseMultilinearExtension` already exists in the codebase
 
 ### Scaling summary
 
-| Quantity | Prover | Verifier | Proof size |
-| --- | --- | --- | --- |
-| padded m×n | O(m + n + nnz) | **Θ(t·m·n)** time+memory | O(sqrt(n)) |
-| field limbs F | ×F² (mults), ×F (memory) | ×F² and ×F on the m·n table | ~independent |
-| nnz vs dense | linear in nnz | insensitive (m·n dominates) | independent |
-| degree d / Σ\|S_i\| | ×(d+2)·Σ\|S_i\| on the m term | negligible | +s·(d+2) elems |
-| t matrices | +t sparse matvecs | **×t on the m·n term** | +t elems |
-| int limbs N | PCS int ops ×N² | column checks ×N² | **×N** (dominant) |
+| Quantity             | Prover                           | Verifier                    | Proof size         |
+|----------------------|----------------------------------|-----------------------------|--------------------|
+| padded m×n           | O(m + n + nnz)                   | **Θ(t·m·n)** time+memory    | O(sqrt(n))         |
+| field limbs F        | ×F² (mults), ×F (memory)         | ×F² and ×F on the m·n table | ~independent       |
+| nnz vs dense         | linear in nnz                    | insensitive (m·n dominates) | independent        |
+| degree d / Σ\|S_i\|  | ×(d+2)·Σ\|S_i\| on the m term    | negligible                  | +s·(d+2) elems     |
+| t matrices           | +t sparse matvecs                | **×t on the m·n term**      | +t elems           |
+| int limbs N          | PCS int ops ×N²                  | column checks ×N²           | **×N** (dominant)  |
 
 Prime sampling (`src/prime_gen.rs:15-28`): expected candidates ≈ 22·F, each
 Miller-Rabin ≈ O(64F modexp squarings × F²) → setup ≈ O(F⁴). Negligible at
@@ -119,8 +118,10 @@ Expected costs at Int<128>/RandomField<4>: map_to_field does 8192-bit ÷
 256-bit divisions (n+nnz of them); PCS integer ops at widths up to
 Int<1024>; proof ≈ Q·R·32N bytes ≈ 262 MB at n=8192, N=128 (vs 4.4 MB at
 N=2) — so CRT/fast-doubling formulations that keep N small remain preferable
-to brute-width even after decoupling. Soundness question (norm bounds vs a
-256-bit q) needs the paper's full text / author review.
+to brute-width even after decoupling. Soundness of the pairing is quantified
+in §7.1 (Lemma 2.1, a per-instance bound), conditional on the q-sampling-order
+caveat in §7.2; a general small-field license is what Zinc+'s improved
+soundness provides, not this bound.
 
 ## 5. Proof contents and size
 
@@ -161,3 +162,71 @@ linear in integer width, independent of F. Measured: fib n=100 = 684 KiB
    latency is the product constraint, the levers are pad dimension and t —
    or an upstream sparse-MLE fix to V_xy (O(nnz) in principle,
    `verifier.rs:249-261`).
+
+## 7. Paper-verified facts (from the full text of eprint 2025/316)
+
+Read 2026-07-04 (local copy: `~/Documents/Papers/Math/ZK-SNARKs/2025-316.pdf`).
+Section/lemma pointers are to the paper.
+
+1. **Decoupling is sound, quantitatively (Lemma 2.1 / Prop 4.6).** If witness
+   and coefficient bit-sizes are bounded by B and the constraint polynomial
+   has total partial degree d, the number of "bad" primes (where a false
+   integer relation survives reduction) is at most
+   `(B·d + B + 2^d) / λ` for λ-bit primes. Soundness error = bad primes /
+   sampleable primes. Concretely for exact F_10000 (B ≈ 6,942 bits, d = 2,
+   256-bit q): ≤ ~82 bad primes out of ~2^248 — negligible. **q never needs
+   to exceed witness values**; the F = 2N convention has no mathematical
+   basis. Caveat: the error bound degrades linearly in B, and the guarantee
+   collapses entirely if the PCS does not enforce the bit-size bound
+   (Remark 2.2) — Zip's testing phase (Protocol 3: integrality + magnitude
+   check on a random linear combination of committed rows) is what enforces
+   it, with extracted bound B = 2·B' + (6·dim + 2)·(λ + log dim) for honest
+   bound B' and dim ≈ sqrt(#coefficients) (Eq. 6).
+
+2. **Prime-sampling order is load-bearing (Protocols 1 and 4).** In both the
+   PIOP and the PCS evaluation protocol, the verifier samples q *after* the
+   witness oracles/commitments exist — they are part of the instance. The
+   counting argument in (1) extracts the witness independently of q; if a
+   prover could pick the witness after seeing q, it could craft an error
+   divisible by q and the argument breaks. **The PoC runner derives q from a
+   transcript containing only public inputs ("Fixing the random prime q for
+   now", src/zinc/utils.rs:161-171) — a genuine deviation to report
+   upstream.** In Fiat-Shamir form, q must be derived after absorbing the
+   witness commitment.
+
+3. **The paper's design point is small witnesses (~2λ bits).** The relation
+   REL_R1CSl,Z carries an explicit bit-size bound B on all entries, and the
+   paper argues satisfiable lifted-modular statements always admit witnesses
+   of ~2λ bits (Section 2, "we make sure that the prover and verifier always
+   work with integers of ≈ λ bit-size"). Exact 6,942-bit Fibonacci values are
+   legal (B is a parameter) but far off the intended operating point.
+
+4. **Native lifted-modular arithmetic (R1CSl).** The paper's core relation is
+   `(A·z) ∘ (B·z) = C·z + m ∘ u` with a *public per-row modulus vector* m
+   and a witness quotient vector u: every row can independently compute
+   modulo its own m_y — non-prime moduli like 2^64 explicitly included, at
+   the cost of one quotient witness entry per modular row and **no bit
+   decomposition or range machinery for the modulus itself**. This makes the
+   mod-2^64 and CRT-residue Fibonacci formulations the paper's *intended
+   usage pattern*, not workarounds. (The PoC's CCS_Z path is plain
+   integer CCS; the m ∘ u term can be emulated as an ordinary extra witness
+   column per row with coefficient m_y. Range checks are needed only where a
+   canonical representative must be bound.)
+
+5. **A lookup relation is part of the framework (REL_Look, Protocol 2).**
+   Zinc-PIOP includes a lookup argument over Q, used to force integrality of
+   witnesses. Not implemented in the PoC's public API, but protocol-level
+   support exists — relevant to eventually replacing the O(len^2) one-hot
+   pointer machinery.
+
+6. **Fiat-Shamir is explicitly unanalyzed (Section 2.4).** "We leave as
+   further work the task of analyzing the state-restoration soundness of our
+   schemes, so that we can reliably compile our succinct arguments into a
+   SNARK using the Fiat-Shamir transform." The PoC's non-interactive mode
+   (KeccakTranscript) therefore runs ahead of the paper's own security
+   analysis. All external claims should label results as research-prototype
+   measurements, not production-soundness statements.
+
+7. **Column-opening count.** The evaluation/testing protocols open
+   |J| = Θ(λ) columns (Protocols 3 and 4); the PoC's Q = 1000 is that
+   parameter with margin. Proof-size trade-offs against λ go through here.

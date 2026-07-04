@@ -187,6 +187,32 @@ def test_cargo_runner_cmd_prefers_built_release_binary(tmp_path):
     assert Path(cmd[0]).name == "zkfol-zinc-runner"
 
 
+def test_cargo_runner_cmd_passes_field_limbs_through(tmp_path):
+    runner = tmp_path / "runner"
+    binary = runner / "target" / "release" / "zkfol-zinc-runner"
+    binary.parent.mkdir(parents=True)
+    binary.write_text(f"#!/bin/sh\nprintf 'zkfol-zinc-runner {cli.__version__}\\n'\nexit 0\n", encoding="utf-8")
+    binary.chmod(0o755)
+    args = argparse.Namespace(
+        runner=runner,
+        repeat=3,
+        cargo_run=False,
+        check_only=False,
+        int_limbs=None,
+        field_limbs="4",
+        strict_int_limbs=False,
+        allow_large=False,
+        max_single_allocation_gib=None,
+        json=True,
+        progress=True,
+        quiet=False,
+    )
+    cmd = cli.cargo_runner_cmd(args, Path("input.json"))
+    assert cmd[cmd.index("--field-limbs") + 1] == "4"
+    args.field_limbs = "auto"
+    assert "--field-limbs" not in cli.cargo_runner_cmd(args, Path("input.json"))
+
+
 
 
 def test_cargo_runner_cmd_ignores_stale_release_binary(tmp_path, monkeypatch, capsys):

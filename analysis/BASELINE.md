@@ -11,14 +11,14 @@ Python 3.14.6, Zinc pinned at NethermindEth/zinc rev `0c9ed214`.
 
 ## Measured baseline
 
-| case | what is proved | constraints | padded dim | Int/Field profile | prove | verify | prime setup | total/iter | proof size | peak RSS |
-| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| power 2^4 (typed demo) | exact 2^4 = 16 | 163 | 256 | Int<2> / 256-bit | 3.62 ms | 28.2 ms | 0.51 ms | 32.8 ms | 1.16 MiB | 14.1 MiB |
-| fib n=100 (exact, 69-bit output) | exact F_100, all 21 digits | 101 | 128 | Int<2> / 256-bit | 3.03 ms | 13.6 ms | 0.54 ms | 17.4 ms | 684 KiB | 8.4 MiB |
-| fib n=1000 (exact, 694-bit output) | exact F_1000, all 209 digits | 1,001 | 1,024 | Int<16> / 2048-bit | 234 ms | 4.69 s | 2.33 s | 7.32 s | 15.9 MiB | 594 MiB |
-| fib n=10000 (exact, 6942-bit output) | exact F_10000, all 2090 digits | 10,001 | 16,384 | Int<128> / 16384-bit | — | — | — | **refused**: predicted 768 GiB dense allocation | — | — |
-| standard power 2^32 (typed) | exact 2^32 | 4,755 | 8,192 | Int<2> / 256-bit | 43.7 ms | **17.36 s** | 0.49 ms | 17.42 s | 4.20 MiB | **6.03 GiB** |
-| efficient power 2^32 | exact 2^32 | 325 | 512 | Int<2> / 256-bit | 6.03 ms | 61.4 ms | 0.60 ms | 69.3 ms | 1.19 MiB | 32.9 MiB |
+| case                                 | what is proved                 | constraints | padded dim | Int/Field profile    |   prove |      verify | prime setup |                                      total/iter | proof size |     peak RSS |
+|--------------------------------------|--------------------------------|------------:|-----------:|----------------------|--------:|------------:|------------:|------------------------------------------------:|-----------:|-------------:|
+| power 2^4 (typed demo)               | exact 2^4 = 16                 |         163 |        256 | Int<2> / 256-bit     | 3.62 ms |     28.2 ms |     0.51 ms |                                         32.8 ms |   1.16 MiB |     14.1 MiB |
+| fib n=100 (exact, 69-bit output)     | exact F_100, all 21 digits     |         101 |        128 | Int<2> / 256-bit     | 3.03 ms |     13.6 ms |     0.54 ms |                                         17.4 ms |    684 KiB |      8.4 MiB |
+| fib n=1000 (exact, 694-bit output)   | exact F_1000, all 209 digits   |       1,001 |      1,024 | Int<16> / 2048-bit   |  234 ms |      4.69 s |      2.33 s |                                          7.32 s |   15.9 MiB |      594 MiB |
+| fib n=10000 (exact, 6942-bit output) | exact F_10000, all 2090 digits |      10,001 |     16,384 | Int<128> / 16384-bit |      —  |           — |           — | **refused**: predicted 768 GiB dense allocation |          — |            — |
+| standard power 2^32 (typed)          | exact 2^32                     |       4,755 |      8,192 | Int<2> / 256-bit     | 43.7 ms | **17.36 s** |     0.49 ms |                                         17.42 s |   4.20 MiB | **6.03 GiB** |
+| efficient power 2^32                 | exact 2^32                     |         325 |        512 | Int<2> / 256-bit     | 6.03 ms |     61.4 ms |     0.60 ms |                                         69.3 ms |   1.19 MiB |     32.9 MiB |
 
 Timing figures are the Zinc library calls averaged over `--repeat` (3 for the
 small cases, 1 for fib n=1000 and the power suite). Proof size is the
@@ -51,6 +51,29 @@ sizes above are the gap to close, not just prove time.
 4. Proof size ≈ 1000·sqrt(n)·32·int_limbs bytes: linear in integer width,
    sqrt in circuit size. Fib n=1000's 15.9 MiB is Int<16> tax; the same
    circuit at Int<2> would be ~2 MiB.
+
+## After width decoupling (Phase 1, 2026-07-04)
+
+The runner now accepts `--field-limbs 4` to pair a wide integer profile with
+a 256-bit sampled prime (soundness: eprint 2025/316 Lemma 2.1, a per-instance
+bound; see ZINC_COST_MODEL.md §7.1). Caveat: the pinned PoC samples q from a
+transcript holding only public inputs — before the witness is committed —
+which the Lemma 2.1 counting argument requires (§7.2, reported upstream), so
+the guarantee attaches to these numbers only once that ordering is fixed.
+A general small-field license is what Zinc+'s improved soundness provides,
+not this per-instance bound. Same statements, same machine, measured:
+
+| case                                  | profile              |   prove |  verify | prime setup | total/iter | proof size |  peak RSS | vs baseline |
+|---------------------------------------|----------------------|--------:|--------:|------------:|-----------:|-----------:|----------:|------------:|
+| fib n=1000 (exact, 694-bit output)    | Int<16> / 256-bit    | 34.3 ms |  820 ms |     11.8 ms |     872 ms |   15.9 MiB |   153 MiB | 8.4× faster |
+| fib n=10000 (exact, 6,942-bit output) | Int<128> / 256-bit   |  20.5 s | 235.6 s |      2.8 ms |    257.2 s |  525.6 MiB | 26.96 GiB | was refused (768 GiB predicted at legacy pairing) |
+
+Notes: fib n=10000 is the first completed exact-F_10000 proof in this repo.
+Proof size matched the cost-model formula (1000·sqrt(n)·32·N bytes) within
+0.25% and peak RSS within 5%. Proof size is unchanged by decoupling (it
+scales with integer width N, not field width F) — that is the CRT
+formulation's job. Verify remains dominated by the pad² dense-MLE artifact
+plus N-wide column checks — the fast-doubling formulation's job.
 
 ## Reproduction
 

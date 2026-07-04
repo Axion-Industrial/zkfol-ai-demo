@@ -218,6 +218,8 @@ fn usage() -> ! {
            --version, -V               print runner version\n\n\
          Zinc profile and safety options:\n\
            --int-limbs N, --limbs N    auto, 2, 4, 8, 16, 32, 64, or 128\n\
+           --field-limbs F             auto (legacy pairing F=2N) or 4; decouples the\n\
+                                       sampled-prime width from the integer width\n\
            --strict-int-limbs          honour an oversized --int-limbs request exactly\n\
            --force-int-limbs           alias for --strict-int-limbs\n\
            --allow-oversized-limbs     alias for --strict-int-limbs\n\
@@ -248,6 +250,7 @@ struct Args {
     repeat: usize,
     json: bool,
     int_limbs: Option<usize>,
+    field_limbs: Option<usize>,
     progress: bool,
     strict_int_limbs: bool,
     allow_large: bool,
@@ -260,6 +263,7 @@ fn parse_args() -> Args {
     let mut repeat = 1usize;
     let mut json = false;
     let mut int_limbs: Option<usize> = None;
+    let mut field_limbs: Option<usize> = None;
     let mut progress = false;
     let mut strict_int_limbs = false;
     let mut allow_large = false;
@@ -305,6 +309,18 @@ fn parse_args() -> Args {
                     }
                 }
             }
+            "--field-limbs" => {
+                let raw = args.next().unwrap_or_else(|| usage());
+                if raw == "auto" {
+                    field_limbs = None;
+                } else {
+                    let parsed: usize = raw.parse().unwrap_or_else(|_| usage());
+                    match parsed {
+                        4 => field_limbs = Some(parsed),
+                        _ => usage(),
+                    }
+                }
+            }
             "--help" | "-h" => usage(),
             other if other.starts_with('-') => usage(),
             other => input = Some(other.to_owned()),
@@ -316,6 +332,7 @@ fn parse_args() -> Args {
         repeat,
         json,
         int_limbs,
+        field_limbs,
         progress,
         strict_int_limbs,
         allow_large,
@@ -1476,6 +1493,24 @@ define_execute_zinc!(execute_zinc_32, 32, 64);
 define_execute_zinc!(execute_zinc_64, 64, 128);
 define_execute_zinc!(execute_zinc_128, 128, 256);
 
+// Cross-profile pairings: wide integer representation, small sampled field.
+// Soundness basis: eprint 2025/316 (Zinc), Lemma 2.1 — the number of primes
+// for which a false integer relation survives reduction is at most
+// (B*d + B + 2^d)/lambda for witness/coefficient bit-bound B and constraint
+// degree d, so a 256-bit random prime suffices even for multi-thousand-bit
+// witnesses — as a per-instance bound. Caveat: the counting argument requires
+// q sampled after the witness is committed, and the pinned Zinc PoC derives q
+// from a transcript holding only public inputs (see ZINC_COST_MODEL.md §7.2),
+// so the guarantee attaches only once that upstream ordering is fixed. The
+// F = 2N ladder above is an implementation convention, not a soundness
+// requirement.
+define_execute_zinc!(execute_zinc_4_f4, 4, 4);
+define_execute_zinc!(execute_zinc_8_f4, 8, 4);
+define_execute_zinc!(execute_zinc_16_f4, 16, 4);
+define_execute_zinc!(execute_zinc_32_f4, 32, 4);
+define_execute_zinc!(execute_zinc_64_f4, 64, 4);
+define_execute_zinc!(execute_zinc_128_f4, 128, 4);
+
 /// Peak resident set size of this process in bytes, from Linux procfs.
 /// Returns None on platforms without /proc/self/status.
 fn peak_rss_bytes() -> Option<u64> {
@@ -1571,14 +1606,30 @@ fn main() {
             _ => unreachable!("unsupported limb profile"),
         }
     } else {
-        match limbs {
-            2 => execute_zinc_2(&export, &args),
-            4 => execute_zinc_4(&export, &args),
-            8 => execute_zinc_8(&export, &args),
-            16 => execute_zinc_16(&export, &args),
-            32 => execute_zinc_32(&export, &args),
-            64 => execute_zinc_64(&export, &args),
-            128 => execute_zinc_128(&export, &args),
+        match (limbs, args.field_limbs) {
+            (2, None) => execute_zinc_2(&export, &args),
+            (4, None) => execute_zinc_4(&export, &args),
+            (8, None) => execute_zinc_8(&export, &args),
+            (16, None) => execute_zinc_16(&export, &args),
+            (32, None) => execute_zinc_32(&export, &args),
+            (64, None) => execute_zinc_64(&export, &args),
+            (128, None) => execute_zinc_128(&export, &args),
+            (2, Some(4)) => execute_zinc_2(&export, &args),
+            (4, Some(4)) => execute_zinc_4_f4(&export, &args),
+            (8, Some(4)) => execute_zinc_8_f4(&export, &args),
+            (16, Some(4)) => execute_zinc_16_f4(&export, &args),
+            (32, Some(4)) => execute_zinc_32_f4(&export, &args),
+            (64, Some(4)) => execute_zinc_64_f4(&export, &args),
+            (128, Some(4)) => execute_zinc_128_f4(&export, &args),
+            (n, Some(f)) => {
+                eprintln!(
+                    "unsupported profile pairing Int<{n}>/RandomField<{f}>; \
+                     every Int profile pairs with RandomField<4> \
+                     (--field-limbs 4), or use --field-limbs auto for the \
+                     legacy F=2N pairing"
+                );
+                process::exit(2);
+            }
             _ => unreachable!("unsupported limb profile"),
         }
     };

@@ -173,7 +173,14 @@ def _field_element_bytes_estimate(field_limbs: int) -> int:
     return 12 * int(field_limbs)
 
 
-def estimate_zinc_resources(path: Path | str, *, int_limbs: str | int | None = None) -> ZincResourceEstimate:
+def estimate_zinc_resources(
+    path: Path | str,
+    *,
+    int_limbs: str | int | None = None,
+    field_limbs: str | int | None = None,
+) -> ZincResourceEstimate:
+    """field_limbs None/"auto" keeps the legacy F = 2N pairing; 4 matches the
+    runner's --field-limbs 4 decoupled profile."""
     path = Path(path)
     export = _load_json(path)
     dims = export.get("dimensions", {})
@@ -190,9 +197,12 @@ def estimate_zinc_resources(path: Path | str, *, int_limbs: str | int | None = N
     runner_z_len = public_inputs_runner + 1 + witness_variables
     padded_dim = _next_power_of_two(max(constraints, runner_z_len))
     selected_int_limbs = _choose_int_limbs(export, int_limbs)
-    field_limbs = _field_limbs_for_int_limbs(selected_int_limbs)
-    random_field_bits = 64 * field_limbs
-    field_element_bytes = _field_element_bytes_estimate(field_limbs)
+    if field_limbs in (None, "auto"):
+        selected_field_limbs = _field_limbs_for_int_limbs(selected_int_limbs)
+    else:
+        selected_field_limbs = int(field_limbs)
+    random_field_bits = 64 * selected_field_limbs
+    field_element_bytes = _field_element_bytes_estimate(selected_field_limbs)
     largest_dense = padded_dim * padded_dim * field_element_bytes
     rough_peak = 2 * largest_dense
     name = str(export.get("name") or path.stem)
@@ -207,7 +217,7 @@ def estimate_zinc_resources(path: Path | str, *, int_limbs: str | int | None = N
         runner_z_len=runner_z_len,
         estimated_padded_dim=padded_dim,
         int_limbs=selected_int_limbs,
-        field_limbs=field_limbs,
+        field_limbs=selected_field_limbs,
         field_element_bytes_estimate=field_element_bytes,
         random_field_bits=random_field_bits,
         largest_dense_allocation_bytes=largest_dense,

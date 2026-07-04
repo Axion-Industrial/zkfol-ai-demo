@@ -486,7 +486,9 @@ def run_zinc(args: argparse.Namespace) -> int:
             except ValueError as exc:
                 print(f"Invalid limb profile for {path}: {exc}", file=sys.stderr, flush=True)
                 return 2
-            estimate = estimate_zinc_resources(path, int_limbs=effective_int_limbs)
+            estimate = estimate_zinc_resources(
+                path, int_limbs=effective_int_limbs, field_limbs=getattr(args, "field_limbs", None)
+            )
             skip, reason = would_skip_for_resources(
                 estimate,
                 allow_large=allow_large,
@@ -549,6 +551,9 @@ def run_zinc(args: argparse.Namespace) -> int:
                 cmd.append("--check-only")
             if effective_int_limbs is not None:
                 cmd += ["--int-limbs", str(effective_int_limbs)]
+            field_limbs = getattr(args, "field_limbs", None)
+            if field_limbs not in (None, "auto"):
+                cmd += ["--field-limbs", str(field_limbs)]
             if allow_large:
                 cmd.append("--allow-large")
             cmd += ["--max-single-allocation-gib", str(max_gib)]
@@ -584,6 +589,7 @@ def run_zinc(args: argparse.Namespace) -> int:
             report["case"] = _load_json(path).get("benchmark_case", {}).get("stem", path.stem)
             report["requested_int_limbs"] = str(getattr(args, "int_limbs", None) or "auto")
             report["effective_int_limbs"] = estimate.int_limbs
+            report["requested_field_limbs"] = str(getattr(args, "field_limbs", None) or "auto")
             report["strict_int_limbs"] = bool(getattr(args, "strict_int_limbs", False))
             report.setdefault("resource_preflight", skip_record(estimate, None))
             report["resource_preflight"]["skipped"] = False
@@ -886,6 +892,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--repeat", type=int, default=3, help="number of prove/verify repetitions per input")
     p_run.add_argument("--check-only", action="store_true", help="run only the Rust local integer relation check")
     p_run.add_argument("--int-limbs", default=None, help="auto, 2, 4, 8, 16, 32, 64, or 128; high-level runner uses the smallest safe profile unless --strict-int-limbs is supplied")
+    p_run.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime (the profile CRT exports recommend)")
     p_run.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="force the exact --int-limbs value even when a smaller profile is sufficient; can make random-field setup very slow")
     p_run.add_argument("--quiet", action="store_true", help="print less wrapper output")
     p_run.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True, help="show elapsed time, coarse progress, ETA estimate, CPU usage, and RSS memory while Cargo/Zinc runs")
