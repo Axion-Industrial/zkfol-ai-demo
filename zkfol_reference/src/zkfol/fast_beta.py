@@ -15,7 +15,6 @@ explicit route.
 from __future__ import annotations
 
 from .ast import Add, And, Const, Eq, Formula, Index, Len, MatrixCell, Mul, Or, Term
-from .bits import b2int, bit_at_lsb_first
 from .witness import MatrixInterpretation
 
 
@@ -36,7 +35,10 @@ def beta_matrix_cell_fast(term: MatrixCell, witness: MatrixInterpretation, x: in
         if not 1 <= pointed_column <= witness.length:
             return 0
         value = witness.value(term.row, pointed_column)
-    return b2int(bit_at_lsb_first(value, bit) for bit in range(1, witness.max_bits + 1))
+    # Figure 4 reads the cell as b2int over its max_bits bit expansion, and
+    # b2int(bits(value)) == value because witness.max_bits bounds every entry,
+    # so the decompose/recompose round trip is the identity.
+    return value
 
 
 def beta_term_fast(term: Term, witness: MatrixInterpretation, x: int) -> int:

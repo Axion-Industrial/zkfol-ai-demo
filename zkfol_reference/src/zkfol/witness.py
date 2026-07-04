@@ -14,6 +14,7 @@ uses a composed term ``C_i(C_j(X))``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Iterable, Sequence
 
 from .bits import max_bit_length
@@ -81,8 +82,10 @@ class MatrixInterpretation:
     def length(self) -> int:
         return len(self.rows[0])
 
-    @property
+    @cached_property
     def max_bits(self) -> int:
+        # The matrix is immutable (validated tuples), so this full scan is
+        # computed once; evaluators consult it per matrix-cell visit.
         return max_bit_length(value for row in self.rows for value in row)
 
     def validate_row(self, row: int) -> None:
