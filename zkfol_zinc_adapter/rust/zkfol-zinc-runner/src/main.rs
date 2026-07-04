@@ -195,6 +195,10 @@ struct RunReport {
     zinc_verify_call_ms: Option<f64>,
     measured_iteration_ms: Option<f64>,
     timing_note: Option<String>,
+    proof_size_bytes_estimate: Option<usize>,
+    proof_pcs_bytes: Option<usize>,
+    proof_sumcheck_rounds: Option<usize>,
+    peak_rss_bytes: Option<u64>,
     repeat: usize,
     proved: bool,
     local_relation_satisfied: bool,
@@ -1240,6 +1244,10 @@ fn execute_check_only<const N: usize>(export: &ExportFile, args: &Args) -> RunRe
         zinc_verify_call_ms: None,
         measured_iteration_ms: None,
         timing_note: Some("check-only: no Zinc prove/verify call was made".to_owned()),
+        proof_size_bytes_estimate: None,
+        proof_pcs_bytes: None,
+        proof_sumcheck_rounds: None,
+        peak_rss_bytes: peak_rss_bytes(),
         repeat: args.repeat,
         proved: false,
         local_relation_satisfied: true,
@@ -1276,6 +1284,9 @@ macro_rules! define_execute_zinc {
             let mut field_setup_total = 0.0;
             let mut field_check_total = 0.0;
             let mut iteration_total = 0.0;
+            let mut proof_size_bytes_estimate = None;
+            let mut proof_pcs_bytes = None;
+            let mut proof_sumcheck_rounds = None;
 
             for iteration in 0..args.repeat {
                 let iteration_one_based = iteration + 1;
@@ -1370,6 +1381,18 @@ macro_rules! define_execute_zinc {
                     "Zinc proof generation completed",
                 );
 
+                let lin_rounds = proof.spartan_proof.linearization_sumcheck.0.len();
+                let second_rounds = proof.spartan_proof.second_sumcheck.0.len();
+                proof_pcs_bytes = Some(proof.zip_proof.pcs_proof.len());
+                proof_sumcheck_rounds = Some(lin_rounds + second_rounds);
+                proof_size_bytes_estimate = Some(estimate_proof_bytes(
+                    8 * $field_limbs,
+                    lin_rounds,
+                    second_rounds,
+                    proof.spartan_proof.V_s.len(),
+                    proof.zip_proof.pcs_proof.len(),
+                ));
+
                 let verifier = ZincVerifier::<RandomFieldZipTypes<$int_limbs>, RandomField<$field_limbs>, _>::new(DefaultLinearCodeSpec);
                 let mut verifier_transcript = KeccakTranscript::new();
                 emit_progress(
@@ -1432,6 +1455,10 @@ macro_rules! define_execute_zinc {
                 zinc_verify_call_ms: Some(verify_total / args.repeat as f64),
                 measured_iteration_ms: Some(iteration_total / args.repeat as f64),
                 timing_note: Some("prove_ms is the timed ZincProver::prove call, not total prover-side work; verify_ms is the timed ZincVerifier::verify call. Current Zinc proof-of-concept verification can be slower than proving for these sparse adapter inputs because verifier-side mapping/PCS checks materialize relatively large field objects.".to_owned()),
+                proof_size_bytes_estimate,
+                proof_pcs_bytes,
+                proof_sumcheck_rounds,
+                peak_rss_bytes: peak_rss_bytes(),
                 repeat: args.repeat,
                 proved: true,
                 local_relation_satisfied: true,
@@ -1448,6 +1475,67 @@ define_execute_zinc!(execute_zinc_16, 16, 32);
 define_execute_zinc!(execute_zinc_32, 32, 64);
 define_execute_zinc!(execute_zinc_64, 64, 128);
 define_execute_zinc!(execute_zinc_128, 128, 256);
+
+/// Peak resident set size of this process in bytes, from Linux procfs.
+/// Returns None on platforms without /proc/self/status.
+fn peak_rss_bytes() -> Option<u64> {
+    parse_vm_hwm_kb(&fs::read_to_string("/proc/self/status").ok()?).map(|kb| kb * 1024)
+}
+
+fn parse_vm_hwm_kb(status_text: &str) -> Option<u64> {
+    status_text
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
+}
+
+/// Serialized-size estimate for a ZincProof, in bytes.
+///
+/// pcs_proof is an exact byte vector and the Merkle root is a 32-byte blake3
+/// hash, so those are exact.  Sumcheck prover messages expose only their round
+/// count; each round of the linearization sumcheck carries degree+1 = 4 field
+/// elements and each round of the second sumcheck carries 3, fixed by the
+/// runner's R1CS-as-CCS shape (degree 2 plus the eq multiplier).  Field
+/// elements are counted at value width: 8 bytes per limb.
+fn estimate_proof_bytes(
+    field_bytes: usize,
+    lin_rounds: usize,
+    second_rounds: usize,
+    v_s_len: usize,
+    pcs_bytes: usize,
+) -> usize {
+    const MERKLE_ROOT_BYTES: usize = 32;
+    const LIN_EVALS_PER_ROUND: usize = 4;
+    const SECOND_EVALS_PER_ROUND: usize = 3;
+    let field_elements =
+        1 + v_s_len + lin_rounds * LIN_EVALS_PER_ROUND + second_rounds * SECOND_EVALS_PER_ROUND;
+    pcs_bytes + MERKLE_ROOT_BYTES + field_elements * field_bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_vm_hwm_line_from_proc_status() {
+        let status = "Name:\tzkfol\nVmPeak:\t  200 kB\nVmHWM:\t  606208 kB\nThreads:\t1\n";
+        assert_eq!(parse_vm_hwm_kb(status), Some(606208));
+    }
+
+    #[test]
+    fn vm_hwm_absent_yields_none() {
+        assert_eq!(parse_vm_hwm_kb("Name:\tzkfol\nThreads:\t1\n"), None);
+    }
+
+    #[test]
+    fn proof_size_counts_pcs_exactly_and_field_sections_by_element() {
+        // 32-byte field elements (RandomField<4>); 10 rounds in each sumcheck;
+        // 3 V_s entries; 1000 exact pcs bytes; 32-byte Merkle root.
+        // field elements = v(1) + V_s(3) + lin 10*4 + second 10*3 = 74
+        let bytes = estimate_proof_bytes(32, 10, 10, 3, 1000);
+        assert_eq!(bytes, 1000 + 32 + 74 * 32);
+    }
+}
 
 fn main() {
     let args = parse_args();
