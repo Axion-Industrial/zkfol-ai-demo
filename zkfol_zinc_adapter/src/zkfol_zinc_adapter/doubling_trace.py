@@ -131,3 +131,25 @@ def emit_doubling_trace(builder: R1CSBuilder, schedule: list[int], tag: str, mod
     """Fibonacci special case: walk the bits of n; returns F(n) = U(n)."""
     a, _ = emit_pair_trace(builder, schedule, tag, modulus)
     return a
+
+
+def emit_geometric_trace(
+    builder: R1CSBuilder,
+    schedule: list[int],
+    base: TrackedValue,
+    tag: str,
+    modulus: int | None = None,
+) -> TrackedValue:
+    """base^E by square-and-multiply; the schedule is E's bits after the leading one.
+
+    The order-1 uniform-coefficient case x(k) = b * x(k-1): the compiled
+    derivation of repeated-squaring exponentiation. One squaring row per bit
+    plus one multiply row per set bit.
+    """
+    channel = DoublingChannel(builder, tag, modulus)
+    result = base
+    for step, bit in enumerate(schedule, start=1):
+        result = channel.product(result, result, f"geo[{step}].sq", f"fib_step:square:{tag}:step={step}")
+        if bit:
+            result = channel.product(result, base, f"geo[{step}].mul", f"fib_step:multiply:{tag}:step={step}")
+    return result
