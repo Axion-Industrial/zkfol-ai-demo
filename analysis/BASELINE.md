@@ -148,6 +148,37 @@ Provenance: all rows in this section are hand-formulated direct exports
 (compiler targets), not generic-bridge compilations; see the provenance
 discussion in this file's baseline section.
 
+## The compiler gap, measured (2026-07-04): one statement, three routes
+
+Same statement — exact integer F_32 = 2,178,309 — produced by the generic
+FOL compiler route (`examples.py` fibonacci through the typed mkQ bridge)
+and by the two hand-formulated exports. First actual runs of the generic
+Fibonacci route (previously it was only estimated):
+
+| route                              | rows |  pad |  prove |   verify | proof size |
+|------------------------------------|-----:|-----:|-------:|---------:|-----------:|
+| generic mkQ bridge (the compiler)  | 6,656| 8,192| 48 ms  |   16.5 s |    4.2 MiB |
+| direct compact trace (hand)        |   33 |   64 | 2.5 ms |    12 ms |   0.64 MiB |
+| fast doubling (hand)               |   16 |   32 | 2.2 ms |   7.2 ms |   0.39 MiB |
+
+Generic-route growth measured at n = 8/16/32: 512 / 1,792 / 6,656
+constraints ≈ 7·n² — the pointer one-hot machinery's quadratic, now data.
+Extrapolated to n = 10000 the typed generic route is ~7×10^8 rows: still
+utterly infeasible, but four orders of magnitude below the old 5.5×10^12
+estimate in `GENERIC_MKQ_FIBONACCI_ESTIMATE.md`, which described the
+pre-num/ptr bitwise encoding. The num/ptr PR improved the constant;
+only static-pointer specialization (the determinacy pass) removes the n².
+
+The measured gap at n=32 — 200× rows, ~1,400× verify, ~2,000× total wall
+clock between compiler output and hand formulation of the same claim — is
+the quantified target for the specialization and doubling passes.
+
+Bug note: the generic n=8 export (exactly 512 constraints, z_len 277)
+crashes inside Zinc ("size of evaluations should not exceed 2^num_vars";
+eval len 512, num vars 8) — an apparent m-vs-z MLE bookkeeping edge when
+constraint count is an exact power of two exceeding padded z. Upstream
+finding #3 for the Nethermind list.
+
 ## Reproduction
 
 ```sh
