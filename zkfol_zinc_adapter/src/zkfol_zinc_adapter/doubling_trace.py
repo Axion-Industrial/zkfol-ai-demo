@@ -40,6 +40,9 @@ class TrackedValue:
     def __sub__(self, other: "TrackedValue") -> "TrackedValue":
         return TrackedValue(self.lin - other.lin, self.value - other.value)
 
+    def scale(self, coeff: int) -> "TrackedValue":
+        return TrackedValue(self.lin.scale(coeff), self.value * coeff)
+
 
 class DoublingChannel:
     """Row emitter for one (possibly modular) doubling trace."""
@@ -74,34 +77,57 @@ class DoublingChannel:
         self.builder.add_constraint(x.lin, y.lin, out.lin + q.lin.scale(self.modulus), label)
         return out
 
-    def sum_of_squares(self, x: TrackedValue, y: TrackedValue, name: str, label_x: str, label_y: str) -> TrackedValue:
+    def sum_of_squares(self, x: TrackedValue, y: TrackedValue, name: str, label_x: str, label_y: str, x_sq_coeff: int = 1) -> TrackedValue:
+        """x_sq_coeff * x^2 + y^2; the coefficient rides the linear side for free."""
         if self.modulus is None:
-            return self.product(x, x, f"{name}.x_sq", label_x) + self.product(y, y, f"{name}.y_sq", label_y)
+            x_sq = self.product(x, x, f"{name}.x_sq", label_x)
+            return x_sq.scale(x_sq_coeff) + self.product(y, y, f"{name}.y_sq", label_y)
         x_sq = self._fresh(f"{name}.x_sq", x.value * x.value)
         self.builder.add_constraint(x.lin, x.lin, x_sq.lin, label_x)
-        reduced, quotient = self._reduce(x_sq.value + y.value * y.value)
+        reduced, quotient = self._reduce(x_sq_coeff * x_sq.value + y.value * y.value)
         out = self._fresh(name, reduced)
         q = self._fresh(f"{name}.q", quotient)
-        self.builder.add_constraint(y.lin, y.lin, out.lin + q.lin.scale(self.modulus) - x_sq.lin, label_y)
+        self.builder.add_constraint(y.lin, y.lin, out.lin + q.lin.scale(self.modulus) - x_sq.lin.scale(x_sq_coeff), label_y)
         return out
 
 
-def emit_doubling_trace(builder: R1CSBuilder, schedule: list[int], tag: str, modulus: int | None = None) -> TrackedValue:
-    """Walk the doubling schedule; return F(n) as a tracked value.
+def emit_pair_trace(
+    builder: R1CSBuilder,
+    schedule: list[int],
+    tag: str,
+    modulus: int | None = None,
+    p: int = 1,
+    q: int = 1,
+) -> tuple[TrackedValue, TrackedValue]:
+    """Walk the doubling schedule for U(k) = p*U(k-1) + q*U(k-2), U(1)=1, U(2)=p.
 
-    State pair (a, b) = (F(k), F(k+1)) starting at k = 1, advanced per bit by
-    F(2k) = a*(2b - a) and F(2k+1) = a^2 + b^2. The next pair is built from
-    linear forms over existing wires, so steps cost only their product rows.
+    Returns the pair (U(e), U(e+1)) where e is the index the schedule walks
+    to. The companion-matrix power of any order-2 constant-coefficient
+    recurrence reduces to this pair via the general doubling identities
+
+        U(2e)   = U(e) * (2*U(e+1) - p*U(e))
+        U(2e+1) = q*U(e)^2 + U(e+1)^2
+
+    (p = q = 1 is Fibonacci). Coefficients enter only through free linear
+    scalings; each bit costs exactly the three product rows. The next pair is
+    always built from linear forms over existing wires, so no copy rows.
     """
     channel = DoublingChannel(builder, tag, modulus)
     a = channel.constant(1)
-    b = channel.constant(1)
+    b = channel.constant(p)
     for step, bit in enumerate(schedule, start=1):
-        c = channel.product(a, b + b - a, f"dbl[{step}].c", f"fib_step:double_c:{tag}:step={step}")
+        c = channel.product(a, b + b - a.scale(p), f"dbl[{step}].c", f"fib_step:double_c:{tag}:step={step}")
         d = channel.sum_of_squares(
             a, b, f"dbl[{step}].d",
             f"fib_step:square_a:{tag}:step={step}",
             f"fib_step:square_b:{tag}:step={step}",
+            x_sq_coeff=q,
         )
-        a, b = (d, c + d) if bit else (c, d)
+        a, b = (d, d.scale(p) + c.scale(q)) if bit else (c, d)
+    return a, b
+
+
+def emit_doubling_trace(builder: R1CSBuilder, schedule: list[int], tag: str, modulus: int | None = None) -> TrackedValue:
+    """Fibonacci special case: walk the bits of n; returns F(n) = U(n)."""
+    a, _ = emit_pair_trace(builder, schedule, tag, modulus)
     return a

@@ -1,5 +1,7 @@
 # Performance baseline (2026-07-04)
 
+![Fibonacci scaling: rows vs n per route, and n=10000 wall clock per formulation](fibonacci_scaling.svg)
+
 This is the reference point that all future performance work diffs against.
 Every row below is a real, verified proof (prove + verify both succeeded)
 measured on this machine, except the explicitly refused row.
@@ -122,12 +124,12 @@ exact 2,090-digit integer F_10000 (pinned by CRT residues); the last row
 proves the weaker statement F_10000 mod 2^64 — the arithmetic RISC Zero's
 documented benchmark uses — and is included for statement parity.
 
-| what is proved                    | corner              | channels | rows |  pad | profile           |  prove |  verify | total/iter | proof size | peak RSS |
-|-----------------------------------|---------------------|---------:|-----:|-----:|-------------------|-------:|--------:|-----------:|-----------:|---------:|
-| exact F_10000 (2,090 digits)      | 500-bit channels    |       14 |  560 | 1024 | Int<16> / 256-bit | 31 ms  |  818 ms | **864 ms** |   15.9 MiB |  152 MiB |
-| exact F_10000 (2,090 digits)      | 250-bit channels    |       28 | 1120 | 2048 | Int<8> / 256-bit  | 27 ms  | 1.24 s  |     1.27 s |    8.1 MiB |  418 MiB |
-| exact F_10000 (2,090 digits)      | 120-bit channels    |       59 | 2360 | 4096 | Int<4> / 256-bit  | 34 ms  | 4.37 s  |     4.41 s |    8.1 MiB |  1.6 GiB |
-| F_10000 mod 2^64 (RISC0's statement) | single channel   |        1 |   40 |  128 | Int<4> / 256-bit  | 3.5 ms |  25 ms  | **30 ms**  |   1.16 MiB |    9 MiB |
+| what is proved                       | corner           | channels | rows |  pad | profile           |  prove | verify | total/iter | proof size | peak RSS |
+|--------------------------------------|------------------|---------:|-----:|-----:|-------------------|-------:|-------:|-----------:|-----------:|---------:|
+| exact F_10000 (2,090 digits)         | 500-bit channels |       14 |  560 | 1024 | Int<16> / 256-bit |  31 ms | 818 ms | **864 ms** |   15.9 MiB |  152 MiB |
+| exact F_10000 (2,090 digits)         | 250-bit channels |       28 | 1120 | 2048 | Int<8> / 256-bit  |  27 ms | 1.24 s |     1.27 s |    8.1 MiB |  418 MiB |
+| exact F_10000 (2,090 digits)         | 120-bit channels |       59 | 2360 | 4096 | Int<4> / 256-bit  |  34 ms | 4.37 s |     4.41 s |    8.1 MiB |  1.6 GiB |
+| F_10000 mod 2^64 (RISC0's statement) | single channel   |        1 |   40 |  128 | Int<4> / 256-bit  | 3.5 ms |  25 ms |  **30 ms** |   1.16 MiB |    9 MiB |
 
 Pre-registered tax-model predictions vs measured: proof sizes within ~2%
 (cb250 better than predicted), cb120/cb250 verify within noise, cb500
@@ -147,6 +149,22 @@ prove-only) and 10.8 s (64-core EPYC).
 Provenance: all rows in this section are hand-formulated direct exports
 (compiler targets), not generic-bridge compilations; see the provenance
 discussion in this file's baseline section.
+
+Provenance upgrade (2026-07-04, later): order-2 constant-coefficient
+recurrences are now compiled *from FOL predicates* by detection plus a
+descriptor-driven emitter (`recurrence.py` + `recurrence_compile.py`).
+The C-finite analysis extracts (coefficients p,q; bases x1,x2) from the
+predicate; the emitter walks the kernel pair U by the general doubling
+identities U(2e) = U(e)(2U(e+1) - p U(e)), U(2e+1) = q U(e)^2 + U(e+1)^2
+and binds x(n) = x2 U(n-1) + q x1 U(n-2) as a free linear form. Nothing in
+the emitter is Fibonacci-specific. Measured: compiled Fibonacci F_10000 =
+40 rows, prove 96 ms, verify 10.5 s (agrees with the hand row); and the
+non-vacuous control, a 2,3-coefficient Lucas-style sequence never
+hand-optimized anywhere in this repo: x(600) (951-bit value) detected,
+compiled, proved and verified in 97.8 ms total at pad 32. Factorial and
+repeated-squaring power are refused by detection with stated reasons;
+orders above 2 are refused pending the general companion matrix-power
+emitter. The CRT rows remain hand-formulated.
 
 ## The compiler gap, measured (2026-07-04): one statement, three routes
 
