@@ -75,6 +75,39 @@ scales with integer width N, not field width F) — that is the CRT
 formulation's job. Verify remains dominated by the pad² dense-MLE artifact
 plus N-wide column checks — the fast-doubling formulation's job.
 
+## After fast doubling (Phase 2 commit 2, 2026-07-04)
+
+`fast_doubling_fibonacci.py` proves the same public claim (exact integer F_n
+as a public CCS constant) with a logarithmic trace: 3 multiplication rows per
+bit of n, state carried as linear forms (no copy rows). F_10000 drops from
+10,001 constraints to 40. Measured, repeat 3, same machine:
+
+| case                            | rows | pad | profile            |   prove |  verify | prime setup | total/iter | proof size | peak RSS |
+|---------------------------------|-----:|----:|--------------------|--------:|--------:|------------:|-----------:|-----------:|---------:|
+| fib n=1000, fast-doubling       |   28 |  32 | Int<16> / 256-bit  |  3.7 ms | 81.7 ms |     11.8 ms |    97.4 ms |   2.11 MiB | 11.5 MiB |
+| fib n=10000, fast-doubling      |   40 |  64 | Int<128> / 256-bit |  101 ms |  10.6 s |      2.8 ms |     10.7 s |   31.5 MiB |  100 MiB |
+
+Context: exact F_10000 proving is now 17x faster than RISC Zero's published
+1.7 s GPU Fibonacci number and 107x faster than their 10.8 s 64-core CPU
+number, on a single CPU core, for the exact 2,090-digit integer rather than
+its remainder mod 2^64. Formulation caveat: this is a value claim (F_n equals
+this integer), not a step-by-step trace attestation; both are labelled as
+such in the exports.
+
+Remaining verify cost at pad 64 is almost entirely the N=128 wide-integer
+PCS column checks (proof and verify both scale with integer width) — the
+CRT residue formulation targets exactly this.
+
+Reproduction (until harness wiring lands):
+
+```sh
+python -c "import json; from zkfol_zinc_adapter.fast_doubling_fibonacci import \
+build_fast_doubling_fibonacci_ccs_export as b; \
+json.dump(b(10000, check=True), open('fastdbl10000.json','w'))"
+./zkfol_zinc_adapter/rust/zkfol-zinc-runner/target/release/zkfol-zinc-runner \
+  --input fastdbl10000.json --int-limbs 128 --field-limbs 4 --repeat 3 --json
+```
+
 ## Reproduction
 
 ```sh
