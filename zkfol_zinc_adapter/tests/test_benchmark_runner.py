@@ -120,6 +120,34 @@ def test_run_zinc_downsizes_oversized_int_limb_request_for_tiny_case(tmp_path, s
     assert "using Int<2>" in captured.out
 
 
+def test_run_zinc_passes_field_limbs_through_to_the_runner(tmp_path, synthetic_export, monkeypatch):
+    """The decoupled Int<N>/RandomField<4> profile the CRT exports recommend
+    must be reachable through the wrapper, not only by invoking the Rust
+    runner by hand."""
+    small = synthetic_export(name="crt_case", constraints=8, witness_variables=4, max_bits=900)
+    seen_cmds: list[list[str]] = []
+
+    def fake_run_with_progress(cmd, **kwargs):
+        seen_cmds.append(list(cmd))
+        return ProcessResult(
+            0,
+            json.dumps({"name": "crt_case", "schema": "zkfol-zinc-ccs-v2", "proved": True}),
+            "",
+        )
+
+    monkeypatch.setattr(bench_mod, "run_with_progress", fake_run_with_progress)
+    args = _run_args(tmp_path, [small])
+    args.field_limbs = "4"
+    assert bench_mod.run_zinc(args) == 0
+    cmd = seen_cmds[0]
+    assert cmd[cmd.index("--field-limbs") + 1] == "4"
+    # auto (the default) leaves the runner in the legacy F=2N pairing
+    seen_cmds.clear()
+    args = _run_args(tmp_path, [small])
+    assert bench_mod.run_zinc(args) == 0
+    assert "--field-limbs" not in seen_cmds[0]
+
+
 def test_run_zinc_can_force_oversized_int_limb_request(tmp_path, synthetic_export, monkeypatch):
     tiny = synthetic_export(name="fibonacci_exact_n3_public", constraints=4, witness_variables=3, max_bits=2)
     seen_cmds: list[list[str]] = []

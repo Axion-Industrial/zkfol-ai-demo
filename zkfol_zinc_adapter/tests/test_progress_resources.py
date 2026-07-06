@@ -110,6 +110,16 @@ def test_resource_estimate_normalizes_multi_public_inputs_to_runner_shape(synthe
     assert estimate.public_inputs_runner == 1
 
 
+def test_resource_estimate_honors_decoupled_field_limbs(synthetic_export):
+    path = synthetic_export(name="crt_case", constraints=8, witness_variables=4, max_bits=900)
+    legacy = estimate_zinc_resources(path, int_limbs=16)
+    decoupled = estimate_zinc_resources(path, int_limbs=16, field_limbs=4)
+    assert legacy.field_limbs == 32
+    assert decoupled.field_limbs == 4
+    assert decoupled.random_field_bits == 256
+    assert decoupled.largest_dense_allocation_bytes < legacy.largest_dense_allocation_bytes
+
+
 def test_resource_estimate_rejects_unsupported_limb_profile(synthetic_export):
     path = synthetic_export()
     with pytest.raises(ValueError):

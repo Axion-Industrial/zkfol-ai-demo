@@ -139,6 +139,14 @@ def _write_csv(path: Path, rows: Iterable[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
+def _first_statement_line(statement: Any) -> str:
+    """First line of concrete_statement; a plain string is taken whole
+    (iterating a string would yield its first character)."""
+    if isinstance(statement, str):
+        return statement
+    return next(iter(statement or []), "")
+
+
 def _size_summary_from_export(case: str, path: Path, export: dict[str, Any]) -> dict[str, Any]:
     dims = export["dimensions"]
     stats = export.get("stats", {})
@@ -164,6 +172,7 @@ def _size_summary_from_export(case: str, path: Path, export: dict[str, Any]) -> 
         "zinc_padded_dim_estimate": shape["padded_ccs_dimension_estimate"],
         "exact_output_bits": exact.get("output_bit_length", ""),
         "exact_output_decimal_digits": exact.get("output_decimal_digits", ""),
+        "claim": _first_statement_line(export.get("benchmark_claim", {}).get("concrete_statement", [])),
         "arithmetic": "exact integers" if exact else export.get("benchmark_claim", {}).get("arithmetic", ""),
         "profile": export.get("fibonacci_profile", export.get("adapter_kind", "")),
     }
@@ -477,7 +486,9 @@ def run_zinc(args: argparse.Namespace) -> int:
             except ValueError as exc:
                 print(f"Invalid limb profile for {path}: {exc}", file=sys.stderr, flush=True)
                 return 2
-            estimate = estimate_zinc_resources(path, int_limbs=effective_int_limbs)
+            estimate = estimate_zinc_resources(
+                path, int_limbs=effective_int_limbs, field_limbs=getattr(args, "field_limbs", None)
+            )
             skip, reason = would_skip_for_resources(
                 estimate,
                 allow_large=allow_large,
@@ -540,6 +551,9 @@ def run_zinc(args: argparse.Namespace) -> int:
                 cmd.append("--check-only")
             if effective_int_limbs is not None:
                 cmd += ["--int-limbs", str(effective_int_limbs)]
+            field_limbs = getattr(args, "field_limbs", None)
+            if field_limbs not in (None, "auto"):
+                cmd += ["--field-limbs", str(field_limbs)]
             if allow_large:
                 cmd.append("--allow-large")
             cmd += ["--max-single-allocation-gib", str(max_gib)]
@@ -575,6 +589,7 @@ def run_zinc(args: argparse.Namespace) -> int:
             report["case"] = _load_json(path).get("benchmark_case", {}).get("stem", path.stem)
             report["requested_int_limbs"] = str(getattr(args, "int_limbs", None) or "auto")
             report["effective_int_limbs"] = estimate.int_limbs
+            report["requested_field_limbs"] = str(getattr(args, "field_limbs", None) or "auto")
             report["strict_int_limbs"] = bool(getattr(args, "strict_int_limbs", False))
             report.setdefault("resource_preflight", skip_record(estimate, None))
             report["resource_preflight"]["skipped"] = False
@@ -625,6 +640,100 @@ def _load_zkvm_csv(path: Path | None) -> list[dict[str, Any]]:
         return list(csv.DictReader(f))
 
 
+def _fmt_duration_ms(ms: float) -> str:
+    """Render a millisecond duration in humane units for summary prose."""
+    if ms >= 1000.0:
+        return f"{ms / 1000.0:.2f} s"
+    if ms >= 100.0:
+        return f"{ms:.0f} ms"
+    if ms >= 10.0:
+        return f"{ms:.1f} ms"
+    return f"{ms:.2f} ms"
+
+
+def _fmt_bytes(count: int) -> str:
+    """Render a byte count in humane binary units for summary prose."""
+    value = float(count)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < 1024.0 or unit == "TiB":
+            if unit == "B":
+                return f"{count} B"
+            if value >= 100.0:
+                return f"{value:.0f} {unit}"
+            if value >= 10.0:
+                return f"{value:.1f} {unit}"
+            return f"{value:.2f} {unit}"
+        value /= 1024.0
+    raise AssertionError("unreachable")
+
+
+def _duration_cell(part_ms: Any, total_ms: Any) -> str:
+    if part_ms is None:
+        return "n/a"
+    text = _fmt_duration_ms(float(part_ms))
+    if total_ms:
+        text += f" ({100.0 * float(part_ms) / float(total_ms):.0f}%)"
+    return text
+
+
+def _bytes_cell(count: Any) -> str:
+    return _fmt_bytes(int(count)) if count is not None else "n/a"
+
+
+def _headline_lines(size_rows: list[dict[str, Any]], run_rows: list[dict[str, Any]]) -> list[str]:
+    """Plain-English lead section: what was proved, where the time went."""
+    by_case = {row.get("case", row.get("name", "")): row for row in run_rows}
+    paired = [(row, by_case[row["case"]]) for row in size_rows if row["case"] in by_case]
+    if not paired:
+        return []
+    lines = ["## Headline results", ""]
+    completed = [(row, run) for row, run in paired if not run.get("skipped")]
+    if completed:
+        lines.append(
+            "| what was proved | total wall clock | making the proof | checking the proof "
+            "| prime setup | proof size | peak memory |"
+        )
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+        for row, run in completed:
+            claim = (row.get("claim") or row["case"]).removeprefix("Concrete computation: ").rstrip(".")
+            total = run.get("measured_iteration_ms")
+            lines.append(
+                f"| {claim} | {_fmt_duration_ms(float(total)) if total else 'n/a'} | "
+                f"{_duration_cell(run.get('zinc_prove_call_ms', run.get('prove_ms')), total)} | "
+                f"{_duration_cell(run.get('zinc_verify_call_ms', run.get('verify_ms')), total)} | "
+                f"{_duration_cell(run.get('field_setup_ms'), total)} | "
+                f"{_bytes_cell(run.get('proof_size_bytes_estimate'))} | "
+                f"{_bytes_cell(run.get('peak_rss_bytes'))} |"
+            )
+        lines.append("")
+        lines.append(
+            "Reading guide: `making the proof` is the Zinc prover call. `checking the proof` and "
+            "`prime setup` are overheads of the current Zinc proof-of-concept, not of the FOL "
+            "compilation; on these inputs they dominate the wall clock."
+        )
+    for row, run in paired:
+        if run.get("skipped"):
+            claim = (row.get("claim") or row["case"]).removeprefix("Concrete computation: ").rstrip(".")
+            lines.append("")
+            lines.append(
+                f"- {claim}: **not run** — the resource guard predicted a "
+                f"{run.get('estimated_largest_dense_allocation', 'very large')} dense allocation."
+            )
+    if any("fib" in (row.get("case") or "") for row in size_rows):
+        lines.append("")
+        lines.append(
+            "External reference points (published numbers; different, weaker mod-2^64 arithmetic):"
+        )
+        for ref in RISC0_FIBONACCI_REFERENCE_ROWS:
+            if ref["time"][:1].isdigit():
+                lines.append(
+                    f"- {ref['system']} Fibonacci n={ref['n']} on {ref['hardware']}: "
+                    f"{ref['time']} ({ref['source']})."
+                )
+    lines.append("")
+    return lines
+
+
 def write_markdown_summary(
     path: Path,
     size_rows: list[dict[str, Any]],
@@ -641,6 +750,7 @@ def write_markdown_summary(
     lines.append("")
     lines.append("For Fibonacci, the FOL+Zinc exports in this package use exact, non-modular integer arithmetic. They deliberately do not match RISC Zero's documented modulo-2^64 Fibonacci arithmetic.")
     lines.append("")
+    lines.extend(_headline_lines(size_rows, run_rows))
     lines.append("## FOL+Zinc input sizes")
     lines.append("")
     lines.append("| case | profile | len(C) | constraints | scalar vars | private vars | degree | simplified degree | bit bound delta | coeff bits | witness bits | padded dim est. | exact output bits | exact output digits |")
@@ -782,6 +892,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--repeat", type=int, default=3, help="number of prove/verify repetitions per input")
     p_run.add_argument("--check-only", action="store_true", help="run only the Rust local integer relation check")
     p_run.add_argument("--int-limbs", default=None, help="auto, 2, 4, 8, 16, 32, 64, or 128; high-level runner uses the smallest safe profile unless --strict-int-limbs is supplied")
+    p_run.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime (the profile CRT exports recommend)")
     p_run.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="force the exact --int-limbs value even when a smaller profile is sufficient; can make random-field setup very slow")
     p_run.add_argument("--quiet", action="store_true", help="print less wrapper output")
     p_run.add_argument("--progress", action=argparse.BooleanOptionalAction, default=True, help="show elapsed time, coarse progress, ETA estimate, CPU usage, and RSS memory while Cargo/Zinc runs")

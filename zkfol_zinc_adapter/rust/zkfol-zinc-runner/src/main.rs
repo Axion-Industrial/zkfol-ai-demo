@@ -195,6 +195,10 @@ struct RunReport {
     zinc_verify_call_ms: Option<f64>,
     measured_iteration_ms: Option<f64>,
     timing_note: Option<String>,
+    proof_size_bytes_estimate: Option<usize>,
+    proof_pcs_bytes: Option<usize>,
+    proof_sumcheck_rounds: Option<usize>,
+    peak_rss_bytes: Option<u64>,
     repeat: usize,
     proved: bool,
     local_relation_satisfied: bool,
@@ -214,6 +218,8 @@ fn usage() -> ! {
            --version, -V               print runner version\n\n\
          Zinc profile and safety options:\n\
            --int-limbs N, --limbs N    auto, 2, 4, 8, 16, 32, 64, or 128\n\
+           --field-limbs F             auto (legacy pairing F=2N) or 4; decouples the\n\
+                                       sampled-prime width from the integer width\n\
            --strict-int-limbs          honour an oversized --int-limbs request exactly\n\
            --force-int-limbs           alias for --strict-int-limbs\n\
            --allow-oversized-limbs     alias for --strict-int-limbs\n\
@@ -244,6 +250,7 @@ struct Args {
     repeat: usize,
     json: bool,
     int_limbs: Option<usize>,
+    field_limbs: Option<usize>,
     progress: bool,
     strict_int_limbs: bool,
     allow_large: bool,
@@ -256,6 +263,7 @@ fn parse_args() -> Args {
     let mut repeat = 1usize;
     let mut json = false;
     let mut int_limbs: Option<usize> = None;
+    let mut field_limbs: Option<usize> = None;
     let mut progress = false;
     let mut strict_int_limbs = false;
     let mut allow_large = false;
@@ -301,6 +309,18 @@ fn parse_args() -> Args {
                     }
                 }
             }
+            "--field-limbs" => {
+                let raw = args.next().unwrap_or_else(|| usage());
+                if raw == "auto" {
+                    field_limbs = None;
+                } else {
+                    let parsed: usize = raw.parse().unwrap_or_else(|_| usage());
+                    match parsed {
+                        4 => field_limbs = Some(parsed),
+                        _ => usage(),
+                    }
+                }
+            }
             "--help" | "-h" => usage(),
             other if other.starts_with('-') => usage(),
             other => input = Some(other.to_owned()),
@@ -312,6 +332,7 @@ fn parse_args() -> Args {
         repeat,
         json,
         int_limbs,
+        field_limbs,
         progress,
         strict_int_limbs,
         allow_large,
@@ -1240,6 +1261,10 @@ fn execute_check_only<const N: usize>(export: &ExportFile, args: &Args) -> RunRe
         zinc_verify_call_ms: None,
         measured_iteration_ms: None,
         timing_note: Some("check-only: no Zinc prove/verify call was made".to_owned()),
+        proof_size_bytes_estimate: None,
+        proof_pcs_bytes: None,
+        proof_sumcheck_rounds: None,
+        peak_rss_bytes: peak_rss_bytes(),
         repeat: args.repeat,
         proved: false,
         local_relation_satisfied: true,
@@ -1276,6 +1301,9 @@ macro_rules! define_execute_zinc {
             let mut field_setup_total = 0.0;
             let mut field_check_total = 0.0;
             let mut iteration_total = 0.0;
+            let mut proof_size_bytes_estimate = None;
+            let mut proof_pcs_bytes = None;
+            let mut proof_sumcheck_rounds = None;
 
             for iteration in 0..args.repeat {
                 let iteration_one_based = iteration + 1;
@@ -1370,6 +1398,18 @@ macro_rules! define_execute_zinc {
                     "Zinc proof generation completed",
                 );
 
+                let lin_rounds = proof.spartan_proof.linearization_sumcheck.0.len();
+                let second_rounds = proof.spartan_proof.second_sumcheck.0.len();
+                proof_pcs_bytes = Some(proof.zip_proof.pcs_proof.len());
+                proof_sumcheck_rounds = Some(lin_rounds + second_rounds);
+                proof_size_bytes_estimate = Some(estimate_proof_bytes(
+                    8 * $field_limbs,
+                    lin_rounds,
+                    second_rounds,
+                    proof.spartan_proof.V_s.len(),
+                    proof.zip_proof.pcs_proof.len(),
+                ));
+
                 let verifier = ZincVerifier::<RandomFieldZipTypes<$int_limbs>, RandomField<$field_limbs>, _>::new(DefaultLinearCodeSpec);
                 let mut verifier_transcript = KeccakTranscript::new();
                 emit_progress(
@@ -1432,6 +1472,10 @@ macro_rules! define_execute_zinc {
                 zinc_verify_call_ms: Some(verify_total / args.repeat as f64),
                 measured_iteration_ms: Some(iteration_total / args.repeat as f64),
                 timing_note: Some("prove_ms is the timed ZincProver::prove call, not total prover-side work; verify_ms is the timed ZincVerifier::verify call. Current Zinc proof-of-concept verification can be slower than proving for these sparse adapter inputs because verifier-side mapping/PCS checks materialize relatively large field objects.".to_owned()),
+                proof_size_bytes_estimate,
+                proof_pcs_bytes,
+                proof_sumcheck_rounds,
+                peak_rss_bytes: peak_rss_bytes(),
                 repeat: args.repeat,
                 proved: true,
                 local_relation_satisfied: true,
@@ -1448,6 +1492,85 @@ define_execute_zinc!(execute_zinc_16, 16, 32);
 define_execute_zinc!(execute_zinc_32, 32, 64);
 define_execute_zinc!(execute_zinc_64, 64, 128);
 define_execute_zinc!(execute_zinc_128, 128, 256);
+
+// Cross-profile pairings: wide integer representation, small sampled field.
+// Soundness basis: eprint 2025/316 (Zinc), Lemma 2.1 — the number of primes
+// for which a false integer relation survives reduction is at most
+// (B*d + B + 2^d)/lambda for witness/coefficient bit-bound B and constraint
+// degree d, so a 256-bit random prime suffices even for multi-thousand-bit
+// witnesses — as a per-instance bound. Caveat: the counting argument requires
+// q sampled after the witness is committed, and the pinned Zinc PoC derives q
+// from a transcript holding only public inputs (see ZINC_COST_MODEL.md §7.2),
+// so the guarantee attaches only once that upstream ordering is fixed. The
+// F = 2N ladder above is an implementation convention, not a soundness
+// requirement.
+define_execute_zinc!(execute_zinc_4_f4, 4, 4);
+define_execute_zinc!(execute_zinc_8_f4, 8, 4);
+define_execute_zinc!(execute_zinc_16_f4, 16, 4);
+define_execute_zinc!(execute_zinc_32_f4, 32, 4);
+define_execute_zinc!(execute_zinc_64_f4, 64, 4);
+define_execute_zinc!(execute_zinc_128_f4, 128, 4);
+
+/// Peak resident set size of this process in bytes, from Linux procfs.
+/// Returns None on platforms without /proc/self/status.
+fn peak_rss_bytes() -> Option<u64> {
+    parse_vm_hwm_kb(&fs::read_to_string("/proc/self/status").ok()?).map(|kb| kb * 1024)
+}
+
+fn parse_vm_hwm_kb(status_text: &str) -> Option<u64> {
+    status_text
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse().ok())
+}
+
+/// Serialized-size estimate for a ZincProof, in bytes.
+///
+/// pcs_proof is an exact byte vector and the Merkle root is a 32-byte blake3
+/// hash, so those are exact.  Sumcheck prover messages expose only their round
+/// count; each round of the linearization sumcheck carries degree+1 = 4 field
+/// elements and each round of the second sumcheck carries 3, fixed by the
+/// runner's R1CS-as-CCS shape (degree 2 plus the eq multiplier).  Field
+/// elements are counted at value width: 8 bytes per limb.
+fn estimate_proof_bytes(
+    field_bytes: usize,
+    lin_rounds: usize,
+    second_rounds: usize,
+    v_s_len: usize,
+    pcs_bytes: usize,
+) -> usize {
+    const MERKLE_ROOT_BYTES: usize = 32;
+    const LIN_EVALS_PER_ROUND: usize = 4;
+    const SECOND_EVALS_PER_ROUND: usize = 3;
+    let field_elements =
+        1 + v_s_len + lin_rounds * LIN_EVALS_PER_ROUND + second_rounds * SECOND_EVALS_PER_ROUND;
+    pcs_bytes + MERKLE_ROOT_BYTES + field_elements * field_bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_vm_hwm_line_from_proc_status() {
+        let status = "Name:\tzkfol\nVmPeak:\t  200 kB\nVmHWM:\t  606208 kB\nThreads:\t1\n";
+        assert_eq!(parse_vm_hwm_kb(status), Some(606208));
+    }
+
+    #[test]
+    fn vm_hwm_absent_yields_none() {
+        assert_eq!(parse_vm_hwm_kb("Name:\tzkfol\nThreads:\t1\n"), None);
+    }
+
+    #[test]
+    fn proof_size_counts_pcs_exactly_and_field_sections_by_element() {
+        // 32-byte field elements (RandomField<4>); 10 rounds in each sumcheck;
+        // 3 V_s entries; 1000 exact pcs bytes; 32-byte Merkle root.
+        // field elements = v(1) + V_s(3) + lin 10*4 + second 10*3 = 74
+        let bytes = estimate_proof_bytes(32, 10, 10, 3, 1000);
+        assert_eq!(bytes, 1000 + 32 + 74 * 32);
+    }
+}
 
 fn main() {
     let args = parse_args();
@@ -1483,14 +1606,30 @@ fn main() {
             _ => unreachable!("unsupported limb profile"),
         }
     } else {
-        match limbs {
-            2 => execute_zinc_2(&export, &args),
-            4 => execute_zinc_4(&export, &args),
-            8 => execute_zinc_8(&export, &args),
-            16 => execute_zinc_16(&export, &args),
-            32 => execute_zinc_32(&export, &args),
-            64 => execute_zinc_64(&export, &args),
-            128 => execute_zinc_128(&export, &args),
+        match (limbs, args.field_limbs) {
+            (2, None) => execute_zinc_2(&export, &args),
+            (4, None) => execute_zinc_4(&export, &args),
+            (8, None) => execute_zinc_8(&export, &args),
+            (16, None) => execute_zinc_16(&export, &args),
+            (32, None) => execute_zinc_32(&export, &args),
+            (64, None) => execute_zinc_64(&export, &args),
+            (128, None) => execute_zinc_128(&export, &args),
+            (2, Some(4)) => execute_zinc_2(&export, &args),
+            (4, Some(4)) => execute_zinc_4_f4(&export, &args),
+            (8, Some(4)) => execute_zinc_8_f4(&export, &args),
+            (16, Some(4)) => execute_zinc_16_f4(&export, &args),
+            (32, Some(4)) => execute_zinc_32_f4(&export, &args),
+            (64, Some(4)) => execute_zinc_64_f4(&export, &args),
+            (128, Some(4)) => execute_zinc_128_f4(&export, &args),
+            (n, Some(f)) => {
+                eprintln!(
+                    "unsupported profile pairing Int<{n}>/RandomField<{f}>; \
+                     every Int profile pairs with RandomField<4> \
+                     (--field-limbs 4), or use --field-limbs auto for the \
+                     legacy F=2N pairing"
+                );
+                process::exit(2);
+            }
             _ => unreachable!("unsupported limb profile"),
         }
     };

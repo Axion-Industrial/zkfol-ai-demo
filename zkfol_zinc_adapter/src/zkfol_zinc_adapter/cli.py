@@ -104,7 +104,9 @@ def prepare_int_limb_request(args: argparse.Namespace, input_path: Path) -> int:
 def run_cargo_zinc(args: argparse.Namespace, cmd: Sequence[str], input_path: Path) -> int:
     max_gib = float(getattr(args, "max_single_allocation_gib", DEFAULT_MAX_SINGLE_ALLOCATION_GIB) or DEFAULT_MAX_SINGLE_ALLOCATION_GIB)
     effective_int_limbs = getattr(args, "_effective_int_limbs", getattr(args, "int_limbs", None))
-    estimate = estimate_zinc_resources(input_path, int_limbs=effective_int_limbs)
+    estimate = estimate_zinc_resources(
+        input_path, int_limbs=effective_int_limbs, field_limbs=getattr(args, "field_limbs", None)
+    )
     skip, reason = would_skip_for_resources(
         estimate,
         allow_large=bool(getattr(args, "allow_large", False)),
@@ -328,6 +330,9 @@ def cargo_runner_cmd(args: argparse.Namespace, input_path: Path) -> list[str]:
         effective_limbs = getattr(args, "int_limbs", None)
     if effective_limbs:
         cmd.extend(["--int-limbs", str(effective_limbs)])
+    field_limbs = getattr(args, "field_limbs", None)
+    if field_limbs not in (None, "auto"):
+        cmd.extend(["--field-limbs", str(field_limbs)])
     if bool(getattr(args, "allow_large", False)):
         cmd.append("--allow-large")
     max_gib = getattr(args, "max_single_allocation_gib", None)
@@ -730,6 +735,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("estimate", aliases=["preflight", "resources"], help="estimate padded Zinc dimensions and large dense allocations before running")
     p.add_argument("paths", nargs="+", type=Path, help="exported JSON file(s) to estimate before running Zinc")
     p.add_argument("--int-limbs", default=None, help="maximum Zinc integer profile to consider: auto, 2, 4, 8, 16, 32, 64, or 128")
+    p.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime")
     p.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="honour --int-limbs exactly even when a smaller safe profile would suffice")
     p.add_argument("--max-single-allocation-gib", type=float, default=DEFAULT_MAX_SINGLE_ALLOCATION_GIB, help="preflight safety limit for one predicted dense Zinc allocation")
     p.add_argument("--allow-large", "--allow-large-zinc", "--run-large", dest="allow_large", action="store_true", help="show estimates but do not mark large cases as skipped")
@@ -761,6 +767,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeat", type=int, default=3, help="number of prove/verify repetitions to average")
     p.add_argument("--check-only", action="store_true", help="check the integer relation locally and skip Zinc prove/verify")
     p.add_argument("--int-limbs", default=None, help="maximum Zinc Int<N> profile: auto, 2, 4, 8, 16, 32, 64, or 128")
+    p.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime")
     p.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="honour --int-limbs exactly even when a smaller safe profile would suffice")
     p.add_argument("--json", action="store_true", help="print machine-readable JSON from the Rust runner instead of the human report")
     p.add_argument("--runner", type=Path, default=None, help="Rust runner directory or Cargo.toml to use instead of the bundled runner")
@@ -785,6 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeat", type=int, default=1, help="number of Zinc prove/verify repetitions when --zinc is supplied")
     p.add_argument("--check-only", action="store_true", help="with --zinc, run only the Rust local relation check")
     p.add_argument("--int-limbs", default=None, help="maximum Zinc Int<N> profile: auto, 2, 4, 8, 16, 32, 64, or 128")
+    p.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime")
     p.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="honour --int-limbs exactly even when a smaller safe profile would suffice")
     p.add_argument("--json", action="store_true", help="with --zinc, print machine-readable JSON from the Rust runner")
     p.add_argument("--runner", type=Path, default=None, help="Rust runner directory or Cargo.toml to use instead of the bundled runner")
@@ -814,6 +822,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--repeat", type=int, default=3, help="number of prove/verify repetitions for each case when --run is supplied")
     p.add_argument("--check-only", action="store_true", help="when --run is supplied, run only the Rust local integer relation check")
     p.add_argument("--int-limbs", default=None, help="maximum Zinc Int<N> profile: auto, 2, 4, 8, 16, 32, 64, or 128")
+    p.add_argument("--field-limbs", default=None, choices=("auto", "4"), help="auto keeps the legacy F=2N pairing; 4 pairs any Int profile with a 256-bit sampled prime")
     p.add_argument("--strict-int-limbs", "--force-int-limbs", dest="strict_int_limbs", action="store_true", help="honour --int-limbs exactly even when a smaller safe profile would suffice")
     p.add_argument("--runner", type=Path, default=None, help="Rust runner directory or Cargo.toml to use instead of the bundled runner")
     p.add_argument("--cargo-run", action="store_true", help="force cargo run even if a built release binary exists")
