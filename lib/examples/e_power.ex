@@ -17,6 +17,7 @@ defmodule Examples.EPower do
   alias Zkfol.Interpretation
   alias Zkfol.Range
   alias Zkfol.Semantics
+  alias Zkfol.Uair
 
   @spec power_predicate() :: Ast.pred()
   example power_predicate do
@@ -68,6 +69,13 @@ defmodule Examples.EPower do
 
     refute Semantics.valid?(power_predicate(), pointer_ranges(), tampered)
     tampered
+  end
+
+  @spec out_of_schedule_pointer_is_refused() :: String.t()
+  example out_of_schedule_pointer_is_refused do
+    {:error, reason} = Uair.prove(power_predicate(), out_of_range_pointer_is_rejected())
+    assert reason =~ "column 4"
+    reason
   end
 
   @spec tamper([[non_neg_integer()]], pos_integer(), pos_integer(), non_neg_integer()) ::
