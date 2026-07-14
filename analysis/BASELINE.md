@@ -1,5 +1,8 @@
 # Performance baseline (2026-07-04)
 
+> **Frozen record (2026-07-08).** The `folzinc`/Python commands referenced below belong to the removed Python proof of concept (branch `attic/python`, and git history); these numbers document what was measured on what was then the code. The living pipeline and its reproducible claims are the Elixir application (`mix test`).
+
+
 ![Fibonacci scaling: rows vs n per route, and n=10000 wall clock per formulation](fibonacci_scaling.svg)
 
 This is the reference point that all future performance work diffs against.
