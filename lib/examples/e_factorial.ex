@@ -13,6 +13,7 @@ defmodule Examples.EFactorial do
   alias Zkfol.Interpretation
   alias Zkfol.Range
   alias Zkfol.Semantics
+  alias Zkfol.Witness
 
   @spec factorial_predicate() :: Ast.pred()
   example factorial_predicate do
@@ -33,18 +34,9 @@ defmodule Examples.EFactorial do
     Range.pointer(3)
   end
 
-  @spec rows_for(pos_integer()) :: [[non_neg_integer()]]
-  example rows_for(n \\ 6) do
-    [
-      Enum.to_list(1..n),
-      Enum.scan(1..n, &(&1 * &2)),
-      Enum.map(1..n, &max(&1 - 1, 1))
-    ]
-  end
-
-  @spec factorial_witness() :: Interpretation.t()
-  example factorial_witness do
-    witness = Interpretation.new(rows_for())
+  @spec factorial_witness(pos_integer()) :: Interpretation.t()
+  example factorial_witness(n \\ 6) do
+    {:ok, witness} = Witness.generate(factorial_predicate(), n)
     assert Semantics.valid?(factorial_predicate(), pointer_ranges(), witness)
     witness
   end

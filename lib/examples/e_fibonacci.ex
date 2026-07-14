@@ -15,6 +15,7 @@ defmodule Examples.EFibonacci do
   alias Zkfol.Range
   alias Zkfol.Semantics
   alias Zkfol.Uair
+  alias Zkfol.Witness
 
   @spec fibonacci_predicate() :: Ast.pred()
   example fibonacci_predicate do
@@ -37,26 +38,16 @@ defmodule Examples.EFibonacci do
     Enum.flat_map([3, 4], &Range.pointer/1)
   end
 
-  @spec rows_for(pos_integer()) :: [[non_neg_integer()]]
-  example rows_for(n \\ 8) do
-    [
-      Enum.to_list(1..n),
-      Enum.map(1..n, &fib/1),
-      Enum.map(1..n, &max(&1 - 1, 1)),
-      Enum.map(1..n, &max(&1 - 2, 1))
-    ]
-  end
-
-  @spec fibonacci_witness() :: Interpretation.t()
-  example fibonacci_witness do
-    witness = Interpretation.new(rows_for())
+  @spec fibonacci_witness(pos_integer()) :: Interpretation.t()
+  example fibonacci_witness(n \\ 8) do
+    {:ok, witness} = Witness.generate(fibonacci_predicate(), n, %{{1, 2} => 2})
     assert Semantics.valid?(fibonacci_predicate(), pointer_ranges(), witness)
     witness
   end
 
   @spec big_values_prove(pos_integer()) :: map()
   example big_values_prove(n \\ 99) do
-    {:ok, report} = Uair.prove(fibonacci_predicate(), Interpretation.new(rows_for(n)))
+    {:ok, report} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
 
     assert report.proved
     assert report.backend =~ "int768"

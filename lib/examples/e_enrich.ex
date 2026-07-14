@@ -28,13 +28,9 @@ defmodule Examples.EEnrich do
 
   @spec figure_two_rejects_what_the_oracle_rejects() :: Interpretation.t()
   example figure_two_rejects_what_the_oracle_rejects do
-    # The other direction: on a tampered witness the polynomial must be
-    # nonzero exactly where the predicate is.
-    tampered =
-      EPower.rows_for()
-      |> List.update_at(2, &List.replace_at(&1, 3, 9))
-      |> Interpretation.new()
-
+    # The other direction: on the witness the oracle already rejected,
+    # the polynomial must be nonzero exactly where the predicate is.
+    tampered = EPower.wrong_value_is_rejected()
     phi = EPower.power_predicate()
     poly = Enrich.enrich(phi)
     columns = 1..Interpretation.len(tampered)

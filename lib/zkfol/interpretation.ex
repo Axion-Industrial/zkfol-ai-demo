@@ -8,7 +8,7 @@ defmodule Zkfol.Interpretation do
 
   ### Public API
 
-  - `new/1`
+  - `new/1`, `rows/1`
   - `at/3`, `fetch/3`, `arity/1`, `len/1`
   """
 
@@ -39,6 +39,11 @@ defmodule Zkfol.Interpretation do
 
     %__MODULE__{rows: rows |> Enum.map(&List.to_tuple/1) |> List.to_tuple()}
   end
+
+  @doc "I am my rows as lists: the shape `new/1` accepts."
+  @spec rows(t()) :: [[non_neg_integer()]]
+  def rows(%__MODULE__{rows: rows}),
+    do: rows |> Tuple.to_list() |> Enum.map(&Tuple.to_list/1)
 
   @doc "I return C@i,x."
   @spec at(t(), pos_integer(), pos_integer()) :: non_neg_integer()

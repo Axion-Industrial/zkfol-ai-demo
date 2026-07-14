@@ -10,7 +10,6 @@ defmodule Examples.ELog do
 
   alias Examples.EFibonacci
   alias Examples.EPower
-  alias Zkfol.Interpretation
   alias Zkfol.Log
   alias Zkfol.Uair
 
@@ -45,7 +44,7 @@ defmodule Examples.ELog do
       |> Log.push({:define, :fibonacci, pred})
       |> Log.push({:prove_requested, %{name: "fibonacci n=8"}}, 1)
 
-    {:ok, report} = Uair.prove(pred, Interpretation.new(EFibonacci.rows_for(8)))
+    {:ok, report} = Uair.prove(pred, EFibonacci.fibonacci_witness())
     log = Log.push(log, {:proved, %{report: report}}, 2)
 
     %Log.Event{body: {:proved, observed}, basedon: intent_id} =

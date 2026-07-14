@@ -164,7 +164,7 @@ defmodule Zkfol.Uair do
     syntax =
       pred
       |> Ast.branches()
-      |> Enum.flat_map(&parts/1)
+      |> Enum.flat_map(&Ast.conjuncts/1)
       |> Enum.flat_map(fn
         {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
         {:eq, {:cell, i}, {:add, k, {:cell, i, j}}} when is_integer(k) -> [{j, k}]
@@ -177,7 +177,7 @@ defmodule Zkfol.Uair do
     # We note this as j may be a pointer
     pins =
       for branch <- Ast.branches(pred),
-          parts = parts(branch),
+          parts = Ast.conjuncts(branch),
           {:eq, :x, k} when is_integer(k) <- parts,
           {:eq, {:cell, j}, m} when is_integer(m) <- parts,
           # We simply note how many rows we must look
@@ -211,7 +211,7 @@ defmodule Zkfol.Uair do
     pred
     |> Ast.branches()
     |> Enum.map(fn branch ->
-      parts = parts(branch)
+      parts = Ast.conjuncts(branch)
       # Only a pin to a constant or an explicit X-binding already fixes
       # the row to its schedule; an equality to another cell does not,
       # and must not skip the binding.
@@ -272,9 +272,6 @@ defmodule Zkfol.Uair do
       x -> {:error, "the witness does not satisfy the scheduled statement at column #{x}"}
     end
   end
-
-  defp parts({:conj, preds}), do: Enum.flat_map(preds, &parts/1)
-  defp parts(pred), do: [pred]
 
   # The detector: every dereferenced pointer must have landed a schedule, else
   # the deref has no shift to lower to (and no lookup fallback at this zinc+ rev).

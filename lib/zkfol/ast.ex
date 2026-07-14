@@ -15,7 +15,7 @@ defmodule Zkfol.Ast do
 
   - `x/0`, `len/0`, `cell/1`, `cell/2`, `add/2`, `mul/2`, `reify/1`
   - `eq/2`, `conj/1`, `disj/1`
-  - `branches/1`, `children/1`, `map_children/2`, `postwalk/2`, `reduce/3`
+  - `branches/1`, `conjuncts/1`, `children/1`, `map_children/2`, `postwalk/2`, `reduce/3`
   """
 
   @typedoc "Figure 2's enriched polynomials: the reify-free subsyntax of terms."
@@ -84,6 +84,11 @@ defmodule Zkfol.Ast do
   @spec branches(pred()) :: [pred()]
   def branches({:disj, preds}), do: preds
   def branches(pred), do: [pred]
+
+  @doc "I am the conjuncts of `pred`: a conjunction's members flattened, any other predicate alone."
+  @spec conjuncts(pred()) :: [pred()]
+  def conjuncts({:conj, preds}), do: Enum.flat_map(preds, &conjuncts/1)
+  def conjuncts(pred), do: [pred]
 
   @doc "I rebuild a node with `fun` applied to each immediate child."
   @spec map_children(node, (node -> node)) :: node when node: var

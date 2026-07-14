@@ -18,6 +18,7 @@ defmodule Examples.EPower do
   alias Zkfol.Range
   alias Zkfol.Semantics
   alias Zkfol.Uair
+  alias Zkfol.Witness
 
   @spec power_predicate() :: Ast.pred()
   example power_predicate do
@@ -38,34 +39,31 @@ defmodule Examples.EPower do
     Range.pointer(4)
   end
 
-  @spec rows_for(non_neg_integer()) :: [[non_neg_integer()]]
-  example rows_for(exponent \\ 3) do
-    [
-      List.duplicate(2, exponent + 1),
-      Enum.to_list(0..exponent),
-      Enum.map(0..exponent, &Integer.pow(2, &1)),
-      [1 | Enum.to_list(1..exponent)]
-    ]
-  end
-
-  @spec power_witness() :: Interpretation.t()
-  example power_witness do
-    witness = Interpretation.new(rows_for())
+  @spec power_witness(non_neg_integer()) :: Interpretation.t()
+  example power_witness(exponent \\ 3) do
+    {:ok, witness} = Witness.generate(power_predicate(), exponent + 1, %{{1, 1} => 2})
     assert Semantics.valid?(power_predicate(), pointer_ranges(), witness)
     witness
   end
 
-  @spec wrong_value_is_rejected() :: non_neg_integer()
+  @spec unseeded_base_is_knowledge() :: String.t()
+  example unseeded_base_is_knowledge do
+    {:error, reason} = Witness.generate(power_predicate(), 4)
+    assert reason =~ "row 1"
+    reason
+  end
+
+  @spec wrong_value_is_rejected() :: Interpretation.t()
   example wrong_value_is_rejected do
-    tampered = rows_for() |> tamper(3, 4, 9) |> Interpretation.new()
+    tampered = tamper(power_witness(), 3, 4, 9)
 
     refute Semantics.valid?(power_predicate(), pointer_ranges(), tampered)
-    Semantics.eval(power_predicate(), tampered, 4)
+    tampered
   end
 
   @spec out_of_range_pointer_is_rejected() :: Interpretation.t()
   example out_of_range_pointer_is_rejected do
-    tampered = rows_for() |> tamper(4, 4, 7) |> Interpretation.new()
+    tampered = tamper(power_witness(), 4, 4, 7)
 
     refute Semantics.valid?(power_predicate(), pointer_ranges(), tampered)
     tampered
@@ -78,9 +76,12 @@ defmodule Examples.EPower do
     reason
   end
 
-  @spec tamper([[non_neg_integer()]], pos_integer(), pos_integer(), non_neg_integer()) ::
-          [[non_neg_integer()]]
-  defp tamper(rows, i, x, value) do
-    List.update_at(rows, i - 1, &List.replace_at(&1, x - 1, value))
+  @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), non_neg_integer()) ::
+          Interpretation.t()
+  defp tamper(witness, i, x, value) do
+    witness
+    |> Interpretation.rows()
+    |> List.update_at(i - 1, &List.replace_at(&1, x - 1, value))
+    |> Interpretation.new()
   end
 end
