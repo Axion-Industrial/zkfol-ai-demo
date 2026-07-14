@@ -2,6 +2,10 @@ defmodule Examples.EPowerTest do
   use ExExample.ExUnit, for: Examples.EPower
 end
 
+defmodule Examples.ELogTest do
+  use ExExample.ExUnit, for: Examples.ELog
+end
+
 defmodule Examples.EEnrichTest do
   use ExExample.ExUnit, for: Examples.EEnrich
 end
