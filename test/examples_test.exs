@@ -25,3 +25,7 @@ end
 defmodule Examples.EEfficientPowerTest do
   use ExExample.ExUnit, for: Examples.EEfficientPower
 end
+
+defmodule Examples.EDoublingTest do
+  use ExExample.ExUnit, for: Examples.EDoubling
+end
