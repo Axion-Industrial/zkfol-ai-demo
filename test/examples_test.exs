@@ -17,3 +17,11 @@ end
 defmodule Examples.EFactorialTest do
   use ExExample.ExUnit, for: Examples.EFactorial
 end
+
+defmodule Examples.EFactsTest do
+  use ExExample.ExUnit, for: Examples.EFacts
+end
+
+defmodule Examples.EEfficientPowerTest do
+  use ExExample.ExUnit, for: Examples.EEfficientPower
+end
