@@ -1,0 +1,31 @@
+[package]
+name = "zkfol_zinc_plus"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "zkfol_zinc_plus"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.38"
+rand = "0.9"
+crypto-bigint = { version = "= 0.7.0-rc.9", features = ["zeroize"] }
+crypto-primitives = { git = "https://github.com/NethermindEth/crypto-primitives.git", rev = "aa65fab", features = ["std", "crypto_bigint", "rand"] }
+zinc-protocol = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-uair = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-test-uair = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-poly = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-utils = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-transcript = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zinc-primality = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+zip-plus = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+
+[features]
+default = ["parallel", "simd"]
+parallel = ["zinc-protocol/parallel", "zip-plus/parallel"]
+simd = ["zinc-protocol/simd", "zip-plus/simd"]
+
+[profile.release]
+opt-level = 3
