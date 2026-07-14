@@ -10,6 +10,10 @@ defmodule Examples.EEnrichTest do
   use ExExample.ExUnit, for: Examples.EEnrich
 end
 
+defmodule Examples.EBenchTest do
+  use ExExample.ExUnit, for: Examples.EBench
+end
+
 defmodule Examples.EFibonacciTest do
   use ExExample.ExUnit, for: Examples.EFibonacci
 end
