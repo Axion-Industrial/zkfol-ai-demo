@@ -47,7 +47,7 @@ defmodule Examples.EFibonacci do
 
   @spec big_values_prove(pos_integer()) :: map()
   example big_values_prove(n \\ 99) do
-    {:ok, report} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
+    {:ok, report, _id} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
 
     assert report.proved
     assert report.backend =~ "int768"
@@ -75,7 +75,7 @@ defmodule Examples.EFibonacci do
       |> Enum.map(&Task.async/1)
       |> Task.await_many(:infinity)
 
-    assert Enum.all?(reports, fn {:ok, r} -> r.proved end)
+    assert Enum.all?(reports, fn {:ok, r, _id} -> r.proved end)
     reports
   end
 

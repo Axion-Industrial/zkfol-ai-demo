@@ -53,11 +53,11 @@ defmodule Examples.EBench do
     [measured_power(), measured_fibonacci(), measured_doubled_fibonacci()]
   end
 
-  @doc "I prove `phi` under `witness` and keep the numbers."
+  @doc "I prove `phi` under `witness` through the journal and keep the numbers."
   @spec measurement(String.t(), Zkfol.Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           map()
   def measurement(statement, phi, witness, claims \\ []) do
-    {:ok, report} = Uair.prove(phi, witness, claims)
+    {:ok, report, _id} = Uair.prove(phi, witness, name: statement, claims: claims)
     assert report.proved
 
     %{
