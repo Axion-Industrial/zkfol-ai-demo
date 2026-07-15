@@ -33,3 +33,7 @@ end
 defmodule Examples.EDoublingTest do
   use ExExample.ExUnit, for: Examples.EDoubling
 end
+
+defmodule Examples.EPipelineTest do
+  use ExExample.ExUnit, for: Examples.EPipeline
+end

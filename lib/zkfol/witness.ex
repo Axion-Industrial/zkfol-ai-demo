@@ -15,16 +15,33 @@ defmodule Zkfol.Witness do
 
   ### Public API
 
-  - `generate/3`
+  - `generate/3`, `run/2`
   """
+
+  @behaviour Zkfol.Pipeline
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Semantics
+  alias Zkfol.Statement
   alias Zkfol.Uair
 
   @typedoc "Prover knowledge: the cell at row, column carries the value."
   @type seeds :: %{{pos_integer(), pos_integer()} => non_neg_integer()}
+
+  @doc """
+  I am generation as a pass: I fill a nil witness from `:len` and
+  `:seeds`; a witness already provided passes through untouched.
+  """
+  @impl Zkfol.Pipeline
+  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, String.t()}
+  def run(%Statement{witness: nil, pred: pred} = statement, opts) do
+    with {:ok, witness} <-
+           generate(pred, Keyword.fetch!(opts, :len), Keyword.get(opts, :seeds, %{})),
+         do: {:ok, %{statement | witness: witness}}
+  end
+
+  def run(statement, _opts), do: {:ok, statement}
 
   @typep cells :: %{pos_integer() => integer()}
   @typep columns :: %{pos_integer() => cells()}

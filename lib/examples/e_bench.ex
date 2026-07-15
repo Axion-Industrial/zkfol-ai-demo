@@ -10,8 +10,12 @@ defmodule Examples.EBench do
   alias Examples.EDoubling
   alias Examples.EFibonacci
   alias Examples.EPower
+  alias Zkfol.Doubling
   alias Zkfol.Interpretation
+  alias Zkfol.Pipeline
+  alias Zkfol.Statement
   alias Zkfol.Uair
+  alias Zkfol.Witness
 
   @spec measured_power(non_neg_integer()) :: map()
   example measured_power(exponent \\ 32) do
@@ -29,6 +33,18 @@ defmodule Examples.EBench do
   example measured_doubled_fibonacci(n \\ 10_000) do
     statement = EDoubling.rewritten_fibonacci(n)
     measurement("fibonacci n=#{n}, doubled", statement.pred, statement.witness, statement.claims)
+  end
+
+  @spec measured_default_fibonacci(pos_integer()) :: map()
+  example measured_default_fibonacci(n \\ 10_000) do
+    {:ok, count, seeds} = Doubling.seeds(EFibonacci.fibonacci_predicate(), n)
+    goal = {Witness, len: count, seeds: seeds}
+    pipeline = %Pipeline{passes: Pipeline.default().passes ++ [goal]}
+
+    {:ok, statement, _trace} =
+      Pipeline.run(pipeline, %Statement{pred: EFibonacci.fibonacci_predicate()})
+
+    measurement("fibonacci n=#{n}, default", statement.pred, statement.witness)
   end
 
   @spec frozen_shapes() :: [map()]
@@ -50,7 +66,12 @@ defmodule Examples.EBench do
 
   @spec report() :: [map()]
   example report do
-    [measured_power(), measured_fibonacci(), measured_doubled_fibonacci()]
+    [
+      measured_power(),
+      measured_fibonacci(),
+      measured_doubled_fibonacci(),
+      measured_default_fibonacci()
+    ]
   end
 
   @doc "I prove `phi` under `witness` through the journal and keep the numbers."

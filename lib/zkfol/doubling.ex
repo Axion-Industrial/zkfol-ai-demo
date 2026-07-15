@@ -25,9 +25,11 @@ defmodule Zkfol.Doubling do
 
   ### Public API
 
-  - `rewrite/1`, `rewrite/3`
+  - `rewrite/1`, `rewrite/3`, `run/2`
   - `seeds/2`
   """
+
+  @behaviour Zkfol.Pipeline
 
   alias Zkfol.Ast
   alias Zkfol.Facts
@@ -40,6 +42,26 @@ defmodule Zkfol.Doubling do
   @result_row 4
   @bit_row 5
   @walked_row 6
+
+  @doc """
+  I am the rewrite as a pass. With `:n` I am the full statement, and a
+  refusal is loud. Without it I am a try: the kernel when the facts
+  certify, the statement unchanged when they do not.
+  """
+  @impl Zkfol.Pipeline
+  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, String.t()}
+  def run(%Statement{pred: pred} = statement, opts) do
+    case Keyword.fetch(opts, :n) do
+      {:ok, n} ->
+        rewrite(pred, n, opts)
+
+      :error ->
+        case rewrite(pred) do
+          {:ok, rewritten} -> {:ok, rewritten}
+          {:error, _outside} -> {:ok, statement}
+        end
+    end
+  end
 
   @doc "I am the kernel alone: no n, the witness slot empty, the claims to come."
   @spec rewrite(Ast.pred()) :: {:ok, Statement.t()} | {:error, String.t()}

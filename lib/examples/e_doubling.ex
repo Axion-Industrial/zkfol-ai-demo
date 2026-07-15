@@ -1,8 +1,10 @@
 defmodule Examples.EDoubling do
   @moduledoc """
   I am the doubling rewrite's evidence: one predicate for every n, the
-  oracle validating it, claims agreeing with the generic route, and
-  refusal of the walk that leaves N.
+  oracle validating it, claims agreeing with the generic route, the
+  witness arriving late from seeds, the try leaving other statements
+  alone, the position claim's absence keeping n private, and refusal
+  of the walk that leaves N.
   """
 
   use ExExample
@@ -11,12 +13,16 @@ defmodule Examples.EDoubling do
 
   alias Examples.EFacts
   alias Examples.EFibonacci
+  alias Examples.EPower
   alias Zkfol.Ast
   alias Zkfol.Doubling
   alias Zkfol.Facts
   alias Zkfol.Interpretation
+  alias Zkfol.Pipeline
   alias Zkfol.Semantics
   alias Zkfol.Statement
+  alias Zkfol.Uair
+  alias Zkfol.Witness
 
   @spec rewritten_fibonacci(pos_integer()) :: Statement.t()
   example rewritten_fibonacci(n \\ 8) do
@@ -54,6 +60,66 @@ defmodule Examples.EDoubling do
     assert Interpretation.len(statement.witness) == 14
     assert claimed(statement) == EFibonacci.fib(10_000)
     statement
+  end
+
+  @spec proves_with_its_claims() :: map()
+  example proves_with_its_claims do
+    statement = rewritten_fibonacci(100)
+
+    {:ok, report, _id} =
+      Uair.prove(statement.pred, statement.witness,
+        claims: statement.claims,
+        name: :doubled_fibonacci
+      )
+
+    assert [{_claim, value}, {_position, walked}] = report.claims
+    assert value == EFibonacci.fib(100)
+    assert walked == 98
+    report
+  end
+
+  @spec the_witness_arrives_later() :: Statement.t()
+  example the_witness_arrives_later do
+    fused = rewritten_fibonacci(100)
+
+    # The bits seed the slot; the walk derives.
+    {:ok, count, seeds} = Doubling.seeds(EFibonacci.fibonacci_predicate(), 100)
+    pipeline = %Pipeline{passes: [{Doubling, []}, {Witness, len: count, seeds: seeds}]}
+
+    source = %Statement{pred: EFibonacci.fibonacci_predicate()}
+    {:ok, statement, trace} = Pipeline.run(pipeline, source)
+
+    assert [{Doubling, bare}, {Witness, ^statement}] = trace
+    assert bare.pred == fused.pred
+    assert bare.witness == nil
+    assert statement.witness == fused.witness
+    %{statement | claims: fused.claims}
+  end
+
+  @spec the_try_leaves_other_statements_alone() :: Statement.t()
+  example the_try_leaves_other_statements_alone do
+    source = %Statement{pred: EPower.power_predicate()}
+
+    {:ok, statement, trace} = Pipeline.run(%Pipeline{passes: [{Doubling, []}]}, source)
+
+    assert statement == source
+    assert [{Doubling, ^source}] = trace
+    statement
+  end
+
+  @spec unclaimed_position_keeps_n_private() :: map()
+  example unclaimed_position_keeps_n_private do
+    pipeline = %Pipeline{passes: [{Doubling, n: 100, private: true}]}
+    source = %Statement{pred: EFibonacci.fibonacci_predicate()}
+
+    {:ok, statement, _trace} = Pipeline.run(pipeline, source)
+    {:ok, uair} = Uair.emit(statement.pred, statement.witness, statement.claims)
+
+    assert uair.num_public == 1
+    {:ok, report, _id} = Uair.prove_uair(uair, name: :private_n)
+    assert [{_claim, value}] = report.claims
+    assert value == EFibonacci.fib(100)
+    report
   end
 
   @doc "I read the claimed result out of a rewritten statement's witness."
