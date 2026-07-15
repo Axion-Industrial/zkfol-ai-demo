@@ -23,6 +23,7 @@ defmodule Examples.EBench do
     measurement("power 2^#{exponent}", EPower.power_predicate(), witness)
   end
 
+  # The pinned code caps traces at 2048 columns; the suite default stays small.
   @spec measured_fibonacci(pos_integer()) :: map()
   example measured_fibonacci(n \\ 32) do
     witness = EFibonacci.fibonacci_witness(n)
@@ -82,14 +83,17 @@ defmodule Examples.EBench do
   @spec measurement(String.t(), Zkfol.Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           map()
   def measurement(statement, phi, witness, claims \\ []) do
-    {:ok, report, _id} = Uair.prove(phi, witness, name: statement, claims: claims)
+    {:ok, uair} = Uair.emit(phi, witness, claims)
+    {:ok, report, _id} = Uair.prove_uair(uair, name: statement, timeout: :infinity)
     assert report.proved
 
     %{
       statement: statement,
       backend: report.backend,
       prove_ms: report.prove_ms,
-      verify_ms: report.verify_ms
+      verify_ms: report.verify_ms,
+      proof_bytes: report.proof_bytes,
+      program: length(uair.program)
     }
   end
 end
