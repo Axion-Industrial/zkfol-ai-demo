@@ -56,12 +56,22 @@ defmodule Zkfol.Ast do
   @spec cell(pos_integer(), pos_integer()) :: term_t()
   def cell(i, j), do: {:cell, i, j}
 
-  @doc "I am t + u."
+  @doc "I am t + u, born canonical: constants fold and ride right, zero vanishes."
   @spec add(term_t(), term_t()) :: term_t()
+  def add(q, r) when is_integer(q) and is_integer(r), do: q + r
+  def add(0, t), do: t
+  def add(t, 0), do: t
+  def add(q, t) when is_integer(q), do: {:add, t, q}
   def add(t, u), do: {:add, t, u}
 
-  @doc "I am t * u."
+  @doc "I am t * u, born canonical: constants fold and ride right, zero and one vanish."
   @spec mul(term_t(), term_t()) :: term_t()
+  def mul(q, r) when is_integer(q) and is_integer(r), do: q * r
+  def mul(0, _t), do: 0
+  def mul(_t, 0), do: 0
+  def mul(1, t), do: t
+  def mul(t, 1), do: t
+  def mul(q, t) when is_integer(q), do: {:mul, t, q}
   def mul(t, u), do: {:mul, t, u}
 
   @doc "I am reify(phi): the truth value of `phi` as a term."

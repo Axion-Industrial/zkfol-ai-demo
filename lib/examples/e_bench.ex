@@ -61,6 +61,10 @@ defmodule Examples.EBench do
     assert generic.num_vars == 5
     assert generic.num_cols == 5
 
+    # Canonical construction keeps programs at these lengths.
+    assert length(kernel.program) == 271
+    assert length(generic.program) == 111
+
     [kernel, generic]
   end
 

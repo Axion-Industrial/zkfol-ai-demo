@@ -188,8 +188,8 @@ defmodule Zkfol.Uair do
       |> Ast.branches()
       |> Enum.flat_map(&Ast.conjuncts/1)
       |> Enum.flat_map(fn
+        # Constants ride right in canonical terms, so one shape suffices.
         {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
-        {:eq, {:cell, i}, {:add, k, {:cell, i, j}}} when is_integer(k) -> [{j, k}]
         # A pointer bound to X by a constant declares its own schedule.
         {:eq, {:cell, j}, {:add, :x, k}} when is_integer(k) -> [{j, -k}]
         _part -> []
