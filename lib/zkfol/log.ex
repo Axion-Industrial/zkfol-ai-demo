@@ -59,7 +59,7 @@ defmodule Zkfol.Log do
   """
   @spec push(term(), pos_integer() | nil) :: pos_integer()
   def push(body, basedon \\ nil) do
-    {:atomic, id} =
+    {:atomic, event} =
       :mnesia.transaction(fn ->
         id =
           case :mnesia.last(@table) do
@@ -68,10 +68,11 @@ defmodule Zkfol.Log do
           end
 
         :ok = :mnesia.write({@table, id, basedon, body})
-        id
+        %Event{id: id, basedon: basedon, body: body}
       end)
 
-    id
+    EventBroker.event(%EventBroker.Event{source_module: __MODULE__, body: event})
+    event.id
   end
 
   @doc "I am the table as a value, newest event first."

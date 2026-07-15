@@ -10,6 +10,6 @@ defmodule Zkfol.Application do
   @spec start(Application.start_type(), term()) :: {:ok, pid()}
   def start(_type, _args) do
     Zkfol.Log.setup()
-    Supervisor.start_link([], strategy: :one_for_one, name: Zkfol.Supervisor)
+    Supervisor.start_link([Zkfol.Prover], strategy: :one_for_one, name: Zkfol.Supervisor)
   end
 end

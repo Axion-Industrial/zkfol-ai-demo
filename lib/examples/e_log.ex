@@ -13,6 +13,7 @@ defmodule Examples.ELog do
 
   alias Examples.EFibonacci
   alias Zkfol.Log
+  alias Zkfol.Prover
   alias Zkfol.Uair
 
   @spec redefinition_keeps_the_lifeline() :: [Log.Event.t()]
@@ -59,5 +60,23 @@ defmodule Examples.ELog do
     assert Log.definer(snap, :fibonacci) == observation
 
     report
+  end
+
+  @spec a_dead_prover_settles_its_debts() :: String.t()
+  example a_dead_prover_settles_its_debts do
+    intent = Log.push({:prove_requested, :doomed})
+    filter = [%Prover.Settled{intent: intent}]
+    EventBroker.subscribe_me(filter)
+
+    # Fault injection: owe the prover a verdict, then bring it down.
+    # The supervisor restarts it; the debt settles on the log first.
+    :sys.replace_state(Prover, &Map.put(&1, 0, {intent, []}))
+    GenServer.stop(Prover, :shutdown)
+
+    assert_receive %EventBroker.Event{body: %Log.Event{body: {:prove_failed, reason}}}, 1_000
+    EventBroker.unsubscribe_me(filter)
+
+    assert reason =~ "died"
+    reason
   end
 end
