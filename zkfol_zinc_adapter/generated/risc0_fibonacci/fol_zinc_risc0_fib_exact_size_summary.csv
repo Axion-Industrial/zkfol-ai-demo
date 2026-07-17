@@ -1,4 +1,0 @@
-case,path,name,length,max_bits,public_inputs,constraints,witness_variables,z_len,max_abs_value_bit_length,exact_output_bits,exact_output_decimal_digits,arithmetic,profile
-fibonacci_exact_n100_public,zkfol_zinc_adapter/generated/risc0_fibonacci/fibonacci_exact_n100_public.json,fibonacci_exact_n100,100,69,1,101,100,102,69,69,21,exact integers,compact
-fibonacci_exact_n1000_public,zkfol_zinc_adapter/generated/risc0_fibonacci/fibonacci_exact_n1000_public.json,fibonacci_exact_n1000,1000,694,1,1001,1000,1002,694,694,209,exact integers,compact
-fibonacci_exact_n10000_public,zkfol_zinc_adapter/generated/risc0_fibonacci/fibonacci_exact_n10000_public.json,fibonacci_exact_n10000,10000,6942,1,10001,10000,10002,6942,6942,2090,exact integers,compact

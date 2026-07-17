@@ -1,5 +1,8 @@
 # Black-box cost model of Zinc (rev `0c9ed21`, NethermindEth/zinc)
 
+> **Frozen record (2026-07-08).** The `folzinc`/Python commands referenced below belong to the removed Python proof of concept (branch `attic/python`, and git history); these numbers document what was measured on what was then the code. The living pipeline and its reproducible claims are the Elixir application (`mix test`).
+
+
 Derived 2026-07-04 by code analysis of the pinned checkout
 (`~/.cargo/git/checkouts/zinc-*/0c9ed21`; paths below relative to it). The
 full paper (eprint 2025/316, Garreta–Waldner–Hristova–Dall'Ava, CRYPTO 2025)

@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT="$(cd "$ROOT/.." && pwd)"
-export PYTHONPATH="$ROOT/src:$PROJECT/vendor:${PYTHONPATH:-}"
-exec python3 "$ROOT/run.py" "$@"

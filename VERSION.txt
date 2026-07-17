@@ -1,5 +1,0 @@
-FOL-Zinc development bundle
-Bundle version: 2026-06-27-v3
-Adapter version: 0.5.14
-Reference implementation version: 0.1.3
-Paper file status: supplied fol-zinc.pdf included; SHA-256 401a150fa225d337728cd85a20c49563c56ef3e6863ad721a5f9fc63706b07b0

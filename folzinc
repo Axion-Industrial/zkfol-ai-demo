@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ ! -x "$ROOT/.venv/bin/python" ]; then
-  echo "No .venv found. Run ./setup.sh first." >&2
-  exit 2
-fi
-export PYTHONPATH="$ROOT/zkfol_reference/src:$ROOT/zkfol_zinc_adapter/src:$ROOT/vendor:${PYTHONPATH:-}"
-exec "$ROOT/.venv/bin/python" -m zkfol_zinc_adapter.cli "$@"
