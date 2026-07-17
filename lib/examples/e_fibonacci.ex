@@ -47,7 +47,7 @@ defmodule Examples.EFibonacci do
 
   @spec big_values_prove(pos_integer()) :: map()
   example big_values_prove(n \\ 99) do
-    {:ok, report} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
+    {:ok, report, _id} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
 
     assert report.proved
     assert report.backend =~ "int768"
@@ -59,9 +59,27 @@ defmodule Examples.EFibonacci do
     {:ok, uair} = Uair.emit(fibonacci_predicate(), fibonacci_witness())
     tampered = %{uair | columns: List.update_at(uair.columns, 1, &List.replace_at(&1, 4, 999))}
 
-    {:ok, id} = Uair.request(tampered)
-    {:error, reason} = Uair.await(id)
+    {:error, reason} = Uair.prove_uair(tampered)
     assert reason =~ "failed"
+    reason
+  end
+
+  @spec out_of_range_claim_is_refused() :: String.t()
+  example out_of_range_claim_is_refused do
+    {:error, reason} =
+      Uair.prove(fibonacci_predicate(), fibonacci_witness(), claims: [{"n", 9, 1}])
+
+    assert reason =~ "outside"
+    reason
+  end
+
+  @spec negative_cell_is_refused() :: String.t()
+  example negative_cell_is_refused do
+    {:ok, uair} = Uair.emit(fibonacci_predicate(), fibonacci_witness())
+    negated = %{uair | columns: List.update_at(uair.columns, 0, &List.replace_at(&1, 0, -1))}
+
+    {:error, reason} = Uair.request(negated)
+    assert reason =~ "negative"
     reason
   end
 
@@ -75,7 +93,7 @@ defmodule Examples.EFibonacci do
       |> Enum.map(&Task.async/1)
       |> Task.await_many(:infinity)
 
-    assert Enum.all?(reports, fn {:ok, r} -> r.proved end)
+    assert Enum.all?(reports, fn {:ok, r, _id} -> r.proved end)
     reports
   end
 

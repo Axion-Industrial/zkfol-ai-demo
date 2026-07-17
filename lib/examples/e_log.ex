@@ -1,7 +1,10 @@
 defmodule Examples.ELog do
   @moduledoc """
-  I show the command log: push is the only write, images are the only reads,
-  and earlier surfaces stay reachable.
+  I show the reads the journal affords over the ambient log: the
+  surface and time axis of a redefinition, its lifeline, the thread of
+  a proof from its intent to the report observed, and that a proof
+  defines what it proves. I do the journaling here; every read is a
+  pure function of a snapshot.
   """
 
   use ExExample
@@ -9,52 +12,71 @@ defmodule Examples.ELog do
   import ExUnit.Assertions
 
   alias Examples.EFibonacci
-  alias Examples.EPower
   alias Zkfol.Log
+  alias Zkfol.Prover
   alias Zkfol.Uair
 
-  @spec defined_power() :: Log.t()
-  example defined_power do
-    log =
-      Log.new()
-      |> Log.push({:define, :power, EPower.power_predicate()})
-      |> Log.push({:define, :power_ranges, EPower.pointer_ranges()})
-
-    assert %{power: _, power_ranges: _} = Log.image(log)
-    log
-  end
-
-  @spec redefinition_keeps_the_lifeline() :: Log.t()
+  @spec redefinition_keeps_the_lifeline() :: [Log.Event.t()]
   example redefinition_keeps_the_lifeline do
-    log = Log.push(defined_power(), {:define, :power, :revised}, 2)
+    first = Log.push({:define, :pedagogy, :v1})
+    second = Log.push({:define, :pedagogy, :v2}, first)
+    snap = Log.snapshot()
 
-    assert Log.image(log).power == :revised
-    assert Log.image_down(log, 2).power == EPower.power_predicate()
-    log
+    assert Log.image(snap).pedagogy == :v2
+    assert Log.definer(snap, :pedagogy) == second
+    assert Log.image_down(snap, first).pedagogy == :v1
+
+    lifeline = Log.lifeline(snap, :pedagogy)
+    assert [%Log.Event{id: ^first}, %Log.Event{id: ^second}] = Enum.take(lifeline, -2)
+    lifeline
   end
 
-  @spec journaled_proving() :: Log.t()
+  @spec journaled_proving() :: map()
   example journaled_proving do
     pred = EFibonacci.fibonacci_predicate()
+    define = Log.push({:define, :fibonacci, pred})
 
-    # The intent is journaled before the boundary is crossed: an intent
-    # with no observation is crash forensics, not a gap.
-    log =
-      Log.new()
-      |> Log.push({:define, :fibonacci, pred})
-      |> Log.push({:prove_requested, %{name: "fibonacci n=8"}}, 1)
+    {:ok, report, id} =
+      Uair.prove(pred, EFibonacci.fibonacci_witness(), name: :fibonacci, basedon: define)
 
-    {:ok, report} = Uair.prove(pred, EFibonacci.fibonacci_witness())
-    log = Log.push(log, {:proved, %{report: report}}, 2)
+    # The intent rides ahead of the boundary, the report follows it.
+    assert [
+             %Log.Event{body: {:prove_requested, :fibonacci}},
+             %Log.Event{body: {:proved, ^report}}
+           ] =
+             Log.thread(Log.snapshot(), id)
 
-    %Log.Event{body: {:proved, observed}, basedon: intent_id} =
-      Enum.find(log.events, &match?(%Log.Event{body: {:proved, _}}, &1))
+    # A proof defines what it proves: the image carries the report, the
+    # lifeline runs from statement through intent to observation.
+    snap = Log.snapshot()
 
-    %Log.Event{body: {:prove_requested, _intent}, basedon: defined} =
-      Enum.find(log.events, &(&1.id == intent_id))
+    assert [
+             %Log.Event{body: {:define, :fibonacci, _pred}},
+             %Log.Event{body: {:prove_requested, :fibonacci}},
+             %Log.Event{id: observation, body: {:proved, ^report}}
+           ] = Enum.take(Log.lifeline(snap, :fibonacci), -3)
 
-    assert observed.report.proved
-    assert %Log.Event{body: {:define, _, _}} = Enum.find(log.events, &(&1.id == defined))
-    log
+    assert Log.image(snap).fibonacci == report
+    assert Log.definer(snap, :fibonacci) == observation
+
+    report
+  end
+
+  @spec a_dead_prover_settles_its_debts() :: String.t()
+  example a_dead_prover_settles_its_debts do
+    intent = Log.push({:prove_requested, :doomed})
+    filter = [%Prover.Settled{intent: intent}]
+    EventBroker.subscribe_me(filter)
+
+    # Fault injection: owe the prover a verdict, then bring it down.
+    # The supervisor restarts it; the debt settles on the log first.
+    :sys.replace_state(Prover, &Map.put(&1, 0, {intent, []}))
+    GenServer.stop(Prover, :shutdown)
+
+    assert_receive %EventBroker.Event{body: %Log.Event{body: {:prove_failed, reason}}}, 1_000
+    EventBroker.unsubscribe_me(filter)
+
+    assert reason =~ "died"
+    reason
   end
 end

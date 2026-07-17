@@ -16,12 +16,14 @@ defmodule Zkfol.Uair do
   oracle: the pinned zinc-plus leaves lookup groups unimplemented.
 
   Proving is asynchronous underneath: `request/1` queues the UAIR and
-  returns an id, and the verdict arrives as `{:zinc_plus, id, result}`.
+  the verdict arrives as `{:zinc_plus, id, result}`. `prove/3` journals
+  an intent, hands the UAIR to `Zkfol.Prover`, and waits on the log for
+  the observation the prover records there.
 
   ### Public API
 
-  - `prove/3`, `emit/3`
-  - `request/1`, `await/1`
+  - `prove/3`, `prove_uair/2`, `emit/3`
+  - `request/1`
   - `schedules/1`
   """
 
@@ -30,6 +32,8 @@ defmodule Zkfol.Uair do
   alias Zkfol.Ast
   alias Zkfol.Enrich
   alias Zkfol.Interpretation
+  alias Zkfol.Log
+  alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.ZincPlus
 
@@ -40,14 +44,41 @@ defmodule Zkfol.Uair do
   @big_bound Integer.pow(2, 766)
   @huge_bound Integer.pow(2, 7038)
 
-  @doc "I prove `pred` against `witness` on Zinc+ and return the report."
-  @spec prove(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
-          {:ok, map()} | {:error, String.t()}
-  def prove(pred, witness, claims \\ []) do
-    with {:ok, uair} <- emit(pred, witness, claims),
-         {:ok, id} <- request(uair),
-         {:ok, report} <- await(id) do
-      {:ok, Map.put(report, :claims, uair.claims)}
+  @doc """
+  I prove `pred` against `witness` and journal it: an intent, then the
+  report observed. `opts` takes `:name`, `:basedon`, `:claims`. I return
+  `{:ok, report, id}`.
+  """
+  @spec prove(Ast.pred(), Interpretation.t(), keyword()) ::
+          {:ok, map(), pos_integer()} | {:error, String.t()}
+  def prove(pred, witness, opts \\ []) do
+    with {:ok, uair} <- emit(pred, witness, Keyword.get(opts, :claims, [])) do
+      prove_uair(uair, opts)
+    end
+  end
+
+  @doc "I prove an already-emitted `uair`, journaling it and awaiting it through the log."
+  @spec prove_uair(map(), keyword()) :: {:ok, map(), pos_integer()} | {:error, String.t()}
+  def prove_uair(uair, opts \\ []) do
+    id = Log.push({:prove_requested, Keyword.get(opts, :name)}, Keyword.get(opts, :basedon))
+    filter = [%Prover.Settled{intent: id}]
+    EventBroker.subscribe_me(filter)
+
+    try do
+      with :ok <- Prover.run(uair, id), do: settled(id)
+    after
+      EventBroker.unsubscribe_me(filter)
+    end
+  end
+
+  # I wait on the log for the observation that settles intent `id`.
+  @spec settled(pos_integer()) :: {:ok, map(), pos_integer()} | {:error, String.t()}
+  defp settled(id) do
+    receive do
+      %EventBroker.Event{body: %Log.Event{body: {:proved, report}}} -> {:ok, report, id}
+      %EventBroker.Event{body: %Log.Event{body: {:prove_failed, reason}}} -> {:error, reason}
+    after
+      60_000 -> {:error, "the prover did not settle intent #{id} in time"}
     end
   end
 
@@ -68,16 +99,7 @@ defmodule Zkfol.Uair do
     end
   end
 
-  @doc "I await the verdict addressed to `id`."
-  @spec await(pos_integer()) :: {:ok, map()} | {:error, String.t()}
-  def await(id) do
-    receive do
-      {:zinc_plus, ^id, result} -> result
-    end
-  end
-
-  # Wide cells transport as unsigned limbs, so a negative value has no
-  # encoding: refused here rather than crashing the decode across the NIF.
+  # Unsigned limbs have no negative; refuse before the NIF decode crashes.
   @spec non_negative([integer()]) :: :ok | {:error, String.t()}
   defp non_negative(values) do
     case Enum.find(values, &(&1 < 0)) do
@@ -241,9 +263,7 @@ defmodule Zkfol.Uair do
     end)
   end
 
-  # A claim names a cell the verifier reads in the clear, so it must land
-  # inside the witness. Validating a claim and resolving its value are the
-  # same read, so I do both at once; an out-of-range claim refuses.
+  # Validate each claim by resolving its value; out of range refuses.
   @spec resolve_claims([Interpretation.claim()], Interpretation.t()) ::
           {:ok, [{String.t(), non_neg_integer()}]} | {:error, String.t()}
   defp resolve_claims(claims, witness) do

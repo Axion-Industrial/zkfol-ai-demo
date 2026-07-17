@@ -76,6 +76,15 @@ defmodule Examples.EPower do
     reason
   end
 
+  @spec unguarded_out_of_range_is_false() :: boolean()
+  example unguarded_out_of_range_is_false do
+    # With no range guarding the pointer, the oracle meets the out-of-range
+    # dereference itself, and answers false rather than raising.
+    result = Semantics.valid?(power_predicate(), [], out_of_range_pointer_is_rejected())
+    refute result
+    result
+  end
+
   @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), non_neg_integer()) ::
           Interpretation.t()
   defp tamper(witness, i, x, value) do
