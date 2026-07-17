@@ -1,0 +1,23 @@
+* V0.1.0
+** Features
+- Replaced python codebase with an Elixir one
+- The paper's logic (eprint 2024/954) as a typed AST: Figure 1 terms
+  over one matrix, composed cells as pointers, reify, len
+- Figure 3 as the single oracle: Semantics.eval judges terms and
+  predicates over the integers, and every witness answers to it
+- Statements carry ranges and claims; interpretations are the
+  matrices they judge
+- Zinc+ driven in process over a Rustler NIF, pinned to the fork at
+  F7340033, traces to 2^15 columns, three cell widths
+- Uair emission of canonical constraint programs, sizes held by
+  regression gates: 271 rows for the doubled kernel, 111 generic
+- The prover as an actor behind a broker; proving journals to the
+  log at the backend boundary
+- A pipeline of passes over statements, the trace a value
+- The doubling compiler: order-2 recurrences rewritten to kernels
+  logarithmic in n; fibonacci at 10,000 is 6 rows by 14 columns and
+  proves in tens of milliseconds, claiming the full value
+- Witness generation from seeds, every column oracle judged
+- The registers layout: the zkVM loop as a statement
+- Examples are the tests, composed with ex_example; every number
+  claimed here is asserted in Examples.EBench
