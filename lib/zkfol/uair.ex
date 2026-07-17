@@ -57,7 +57,11 @@ defmodule Zkfol.Uair do
     end
   end
 
-  @doc "I prove an already-emitted `uair`, journaling it and awaiting it through the log."
+  @doc """
+  I prove an already-emitted `uair`, journaling it and awaiting it
+  through the log. `opts` takes `:name`, `:basedon`, and `:timeout`
+  (milliseconds or `:infinity`, one minute by default).
+  """
   @spec prove_uair(map(), keyword()) :: {:ok, map(), pos_integer()} | {:error, String.t()}
   def prove_uair(uair, opts \\ []) do
     id = Log.push({:prove_requested, Keyword.get(opts, :name)}, Keyword.get(opts, :basedon))
@@ -65,20 +69,21 @@ defmodule Zkfol.Uair do
     EventBroker.subscribe_me(filter)
 
     try do
-      with :ok <- Prover.run(uair, id), do: settled(id)
+      with :ok <- Prover.run(uair, id),
+           do: settled(id, Keyword.get(opts, :timeout, 60_000))
     after
       EventBroker.unsubscribe_me(filter)
     end
   end
 
   # I wait on the log for the observation that settles intent `id`.
-  @spec settled(pos_integer()) :: {:ok, map(), pos_integer()} | {:error, String.t()}
-  defp settled(id) do
+  @spec settled(pos_integer(), timeout()) :: {:ok, map(), pos_integer()} | {:error, String.t()}
+  defp settled(id, timeout) do
     receive do
       %EventBroker.Event{body: %Log.Event{body: {:proved, report}}} -> {:ok, report, id}
       %EventBroker.Event{body: %Log.Event{body: {:prove_failed, reason}}} -> {:error, reason}
     after
-      60_000 -> {:error, "the prover did not settle intent #{id} in time"}
+      timeout -> {:error, "the prover did not settle intent #{id} in time"}
     end
   end
 
@@ -188,8 +193,8 @@ defmodule Zkfol.Uair do
       |> Ast.branches()
       |> Enum.flat_map(&Ast.conjuncts/1)
       |> Enum.flat_map(fn
+        # Constants ride right in canonical terms, so one shape suffices.
         {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
-        {:eq, {:cell, i}, {:add, k, {:cell, i, j}}} when is_integer(k) -> [{j, k}]
         # A pointer bound to X by a constant declares its own schedule.
         {:eq, {:cell, j}, {:add, :x, k}} when is_integer(k) -> [{j, -k}]
         _part -> []
