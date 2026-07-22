@@ -2,11 +2,6 @@ defmodule Zkfol.Range do
   @moduledoc """
   I am the range checks R of Figure 1: `t < C_i` and `C_i < t`,
   with `t` any term, checked natively at every column.
-
-  ### Public API
-
-  - `below/2`, `above/2`, `pointer/1`
-  - `holds?/2`
   """
 
   alias Zkfol.Ast

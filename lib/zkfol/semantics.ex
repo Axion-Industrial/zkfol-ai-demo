@@ -8,11 +8,6 @@ defmodule Zkfol.Semantics do
   (Lemma 2.17), which is what makes conjunction-as-sum sound over Z.
   A term and a predicate evaluate by the same rules to one integer,
   so a single `eval/3` serves both.
-
-  ### Public API
-
-  - `eval/3`
-  - `valid?/3`
   """
 
   alias Zkfol.Ast

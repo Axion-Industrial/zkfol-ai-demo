@@ -5,11 +5,6 @@ defmodule Zkfol.Interpretation do
   I hold one rectangular matrix of non-negative integers, indexed 1-based as
   `C@i,x` (row `i`, column `x`). The number of rows is the arity; the number
   of columns is len(C).
-
-  ### Public API
-
-  - `new/1`, `rows/1`
-  - `at/3`, `fetch/3`, `arity/1`, `len/1`
   """
 
   use TypedStruct
