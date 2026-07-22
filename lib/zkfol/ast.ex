@@ -10,30 +10,28 @@ defmodule Zkfol.Ast do
   the constructors below build well-formed nodes. `e` is the reify-free
   subsyntax: Figure 2's enriched polynomials, `t:ep/0`, of which terms
   are the reify-closure.
-
-  ### Public API
-
-  - `x/0`, `len/0`, `cell/1`, `cell/2`, `add/2`, `mul/2`, `reify/1`
-  - `eq/2`, `conj/1`, `disj/1`
-  - `branches/1`, `conjuncts/1`, `children/1`, `map_children/2`, `postwalk/2`, `reduce/3`
   """
 
+  @typedoc """
+  A polynomial over some leaf: what `add/2` and `mul/2` build, whatever the
+  leaf is. The algebra only ever special-cases integers, so the same two
+  constructors serve Figure 1's terms, Figure 2's polynomials, and any
+  lowering that carries its own leaves.
+  """
+  @type poly(leaf) ::
+          leaf
+          | integer()
+          | {:add, poly(leaf), poly(leaf)}
+          | {:mul, poly(leaf), poly(leaf)}
+
+  @typedoc "The leaves Figure 2's polynomials stand on."
+  @type ep_leaf :: :x | :len | {:cell, pos_integer()} | {:cell, pos_integer(), pos_integer()}
+
   @typedoc "Figure 2's enriched polynomials: the reify-free subsyntax of terms."
-  @type ep ::
-          integer()
-          | :x
-          | :len
-          | {:cell, pos_integer()}
-          | {:cell, pos_integer(), pos_integer()}
-          | {:add, ep(), ep()}
-          | {:mul, ep(), ep()}
+  @type ep :: poly(ep_leaf())
 
   @typedoc "Figure 1's terms: `t:ep/0` plus reify, closed under + and ×."
-  @type term_t ::
-          ep()
-          | {:reify, pred()}
-          | {:add, term_t(), term_t()}
-          | {:mul, term_t(), term_t()}
+  @type term_t :: poly(ep_leaf() | {:reify, pred()})
 
   @type pred ::
           {:eq, term_t(), term_t()}
@@ -57,7 +55,7 @@ defmodule Zkfol.Ast do
   def cell(i, j), do: {:cell, i, j}
 
   @doc "I am t + u, born canonical: constants fold and ride right, zero vanishes."
-  @spec add(term_t(), term_t()) :: term_t()
+  @spec add(poly(l), poly(l)) :: poly(l) when l: var
   def add(q, r) when is_integer(q) and is_integer(r), do: q + r
   def add(0, t), do: t
   def add(t, 0), do: t
@@ -65,7 +63,7 @@ defmodule Zkfol.Ast do
   def add(t, u), do: {:add, t, u}
 
   @doc "I am t * u, born canonical: constants fold and ride right, zero and one vanish."
-  @spec mul(term_t(), term_t()) :: term_t()
+  @spec mul(poly(l), poly(l)) :: poly(l) when l: var
   def mul(q, r) when is_integer(q) and is_integer(r), do: q * r
   def mul(0, _t), do: 0
   def mul(_t, 0), do: 0
@@ -89,6 +87,36 @@ defmodule Zkfol.Ast do
   @doc "I am the disjunction of `preds`; the grammar has no empty disjunction."
   @spec disj([pred(), ...]) :: pred()
   def disj([_ | _] = preds), do: {:disj, preds}
+
+  @doc """
+  I am Figure 2's polynomial for `pred`: equality squares the
+  difference, conjunction sums, disjunction multiplies, and reify
+  unwraps to the polynomial it denotes. Semantics evaluates the same
+  rules independently, on purpose: the redundancy is what lets the
+  oracle catch a bad lowering.
+
+      Ast.arithmetize(Ast.eq(Ast.x(), 1))
+  """
+  @spec arithmetize(pred()) :: ep()
+  def arithmetize(pred) do
+    postwalk(pred, fn
+      {:eq, t, u} ->
+        difference = add(t, mul(u, -1))
+        mul(difference, difference)
+
+      {:conj, preds} ->
+        Enum.reduce(preds, &add/2)
+
+      {:disj, preds} ->
+        Enum.reduce(preds, &mul/2)
+
+      {:reify, t} ->
+        t
+
+      node ->
+        node
+    end)
+  end
 
   @doc "I am the branches of `pred`: a disjunction's disjuncts, any other predicate alone."
   @spec branches(pred()) :: [pred()]
@@ -125,4 +153,22 @@ defmodule Zkfol.Ast do
   @spec reduce(node, acc, (node, acc -> acc)) :: acc when node: var, acc: var
   def reduce(node, acc, fun),
     do: Enum.reduce(children(node), fun.(node, acc), &reduce(&1, &2, fun))
+
+  @doc "I am the rows `pred` reads through as pointers, each once, in order."
+  @spec pointer_reads(pred()) :: [pos_integer()]
+  def pointer_reads(pred) do
+    pred |> pointer_derefs() |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+  end
+
+  @doc "I am the {value row, pointer row} of every composed read, each once, in order."
+  @spec pointer_derefs(pred()) :: [{pos_integer(), pos_integer()}]
+  def pointer_derefs(pred) do
+    pred
+    |> reduce([], fn
+      {:cell, i, j}, acc -> [{i, j} | acc]
+      _node, acc -> acc
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
 end
