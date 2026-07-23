@@ -12,18 +12,18 @@ crate-type = ["cdylib"]
 rustler = "0.38"
 rand = "0.9"
 crypto-bigint = { version = "= 0.7.0-rc.9", features = ["zeroize"] }
-crypto-primitives = { git = "https://github.com/NethermindEth/crypto-primitives.git", rev = "aa65fab", features = ["std", "crypto_bigint", "rand"] }
-zinc-protocol = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-uair = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-test-uair = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-poly = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-utils = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-transcript = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zinc-primality = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
-zip-plus = { git = "https://github.com/NethermindEth/zinc-plus.git", rev = "13f540d" }
+crypto-primitives = { git = "https://github.com/NethermindEth/crypto-primitives.git", rev = "9ce6d879a43ae6806612225c95d8b03ce5173b55", features = ["std", "crypto_bigint", "rand"] }
+zinc-protocol = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zinc-uair = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zinc-poly = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zinc-utils = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zinc-transcript = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zinc-primality = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
+zip-plus = { git = "https://github.com/mariari/zinc-plus.git", rev = "7cf72c4ee65256aba7b74d140dca2bea75c02592" }
 
 [features]
-default = ["parallel", "simd"]
+# simd stays off: binary-poly widening wants avx512, absent on this CPU.
+default = ["parallel"]
 parallel = ["zinc-protocol/parallel", "zip-plus/parallel"]
 simd = ["zinc-protocol/simd", "zip-plus/simd"]
 

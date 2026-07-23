@@ -41,23 +41,19 @@ defmodule Zkfol.Refusal do
   # a refusal is named once, under what it asks the caller to do. Adding
   # one means a name here and a message clause below.
   @by_kind %{
-    restructure:
-      ~w(not_an_index_relation facts_not_consecutive fact_not_ground step_clauses
+    restructure: ~w(not_an_index_relation facts_not_consecutive fact_not_ground step_clauses
          step_head_not_indexed step_beyond_history
          step_needs_an_equation not_order_two step_not_linear no_relations
          raw_predicate_has_no_clauses unbound_variable relation_not_in_scope
          call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
          row_undetermined unliftable_term head_not_a_column
          lookup_width_mismatch lookup_chunk_indivisible)a,
-    out_of_range:
-      ~w(precedes_base_case len_exceeds_index_bits read_row_outside_witness
+    out_of_range: ~w(precedes_base_case len_exceeds_index_bits read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
-    capability:
-      ~w(one_bound_input_only calls_between_relations composed_read_awaits_backend
+    capability: ~w(one_bound_input_only calls_between_relations composed_read_awaits_backend
          lookup_awaits_backend)a,
-    false_statement:
-      ~w(no_derivation no_derivation_at_depth column_unsatisfied
+    false_statement: ~w(no_derivation no_derivation_at_depth column_unsatisfied
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }

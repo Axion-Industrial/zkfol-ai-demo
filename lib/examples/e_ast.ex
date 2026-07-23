@@ -1,7 +1,7 @@
-defmodule Examples.EEnrich do
+defmodule Examples.EAst do
   @moduledoc """
-  I am the compilation's evidence: the enriched polynomial (Figure 2)
-  agrees with the oracle at every column.
+  I am the compilation's evidence: the arithmetized polynomial
+  (Figure 2) agrees with the oracle at every column.
   """
 
   use ExExample
@@ -9,7 +9,7 @@ defmodule Examples.EEnrich do
   import ExUnit.Assertions
 
   alias Examples.EPower
-  alias Zkfol.Enrich
+  alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Semantics
 
@@ -17,7 +17,7 @@ defmodule Examples.EEnrich do
   example figure_two_agrees_with_the_oracle do
     witness = EPower.power_witness()
     phi = EPower.power_predicate()
-    poly = Enrich.enrich(phi)
+    poly = Ast.arithmetize(phi)
 
     for x <- 1..Interpretation.len(witness) do
       assert Semantics.eval(poly, witness, x) == Semantics.eval(phi, witness, x)
@@ -32,7 +32,7 @@ defmodule Examples.EEnrich do
     # the polynomial must be nonzero exactly where the predicate is.
     tampered = EPower.wrong_value_is_rejected()
     phi = EPower.power_predicate()
-    poly = Enrich.enrich(phi)
+    poly = Ast.arithmetize(phi)
     columns = 1..Interpretation.len(tampered)
 
     for x <- columns do

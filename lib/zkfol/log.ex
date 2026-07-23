@@ -11,16 +11,13 @@ defmodule Zkfol.Log do
 
   A name is defined by a `{:define, name, value}` event, and equally by
   a proof observed under a named intent: the image is what is known,
-  stated or proven.
-
-  ### Public API
-
-  - `setup/0`, `push/2`, `snapshot/0`, `events/0`
-  - `image/1`, `image_down/2`, `definer/2`
-  - `thread/2`, `lifeline/2`
+  stated or proven. A journaled pipeline act leaves a `Ran`: a receipt
+  of ids whose trail is a query and whose stages are pure re-runs.
   """
 
   use TypedStruct
+
+  alias Zkfol.Refusal
 
   @table :zkfol_log
 
@@ -30,6 +27,21 @@ defmodule Zkfol.Log do
     field(:id, pos_integer())
     field(:basedon, pos_integer() | nil)
     field(:body, term())
+  end
+
+  typedstruct module: Ran, enforce: true do
+    @moduledoc """
+    I am the receipt of one journaled act: the route and source it
+    ran, and the ids it left, the route defined, the verdicts piped,
+    the proof intended. I remember no history: my trail is a query
+    over the log, and every stage of me is re-run from the source.
+    """
+
+    field(:pipeline, Zkfol.Pipeline.t())
+    field(:source, Zkfol.Statement.t())
+    field(:defined, pos_integer())
+    field(:piped, pos_integer())
+    field(:intended, pos_integer() | nil, default: nil)
   end
 
   typedstruct do
@@ -121,6 +133,36 @@ defmodule Zkfol.Log do
   @doc "I am event `id` and everything transitively based on it, oldest first."
   @spec thread(t(), pos_integer()) :: [Event.t()]
   def thread(log, id), do: descend(log, MapSet.new([id]))
+
+  @doc "I am the trail `ran` left: its define event and everything based on it, oldest first."
+  @spec trail(t(), Ran.t()) :: [Event.t()]
+  def trail(log, %Ran{defined: defined}), do: thread(log, defined)
+
+  @doc "I am the report settling `ran`'s intent, off the log, or nil while none has landed."
+  @spec report(t(), Ran.t()) :: Zkfol.Prover.Report.t() | nil
+  def report(%__MODULE__{}, %Ran{intended: nil}), do: nil
+
+  def report(%__MODULE__{events: events}, %Ran{intended: intended}) do
+    Enum.find_value(events, fn
+      %Event{basedon: ^intended, body: {:proved, report}} -> report
+      _event -> nil
+    end)
+  end
+
+  @doc """
+  I am the statement after `ran`'s first `k` passes, re-run from the
+  source: passes are pure, so a stage is recomputed, never stored.
+  Stage 0 is the source itself.
+  """
+  @spec stage(Ran.t(), non_neg_integer()) :: {:ok, Zkfol.Statement.t()} | {:error, Refusal.t()}
+  def stage(%Ran{pipeline: pipeline, source: source}, k) do
+    shortened = %Zkfol.Pipeline{passes: Enum.take(pipeline.passes, k)}
+
+    case Zkfol.Pipeline.run(shortened, source) do
+      {:ok, statement, _trace} -> {:ok, statement}
+      {:error, _pass, reason, _trace} -> {:error, reason}
+    end
+  end
 
   @doc "I am `name`'s lifeline: its definitions and everything based on them, oldest first."
   @spec lifeline(t(), term()) :: [Event.t()]

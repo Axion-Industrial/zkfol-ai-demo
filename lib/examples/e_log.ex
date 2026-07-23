@@ -3,8 +3,8 @@ defmodule Examples.ELog do
   I show the reads the journal affords over the ambient log: the
   surface and time axis of a redefinition, its lifeline, the thread of
   a proof from its intent to the report observed, and that a proof
-  defines what it proves. I do the journaling here; every read is a
-  pure function of a snapshot.
+  defines what it proves. I journal by hand or let the front door do
+  it; every read is a pure function of a snapshot.
   """
 
   use ExExample
@@ -12,8 +12,11 @@ defmodule Examples.ELog do
   import ExUnit.Assertions
 
   alias Examples.EFibonacci
+  alias Examples.ELang
   alias Zkfol.Log
+  alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Statement
   alias Zkfol.Uair
 
   @spec redefinition_keeps_the_lifeline() :: [Log.Event.t()]
@@ -31,34 +34,49 @@ defmodule Examples.ELog do
     lifeline
   end
 
-  @spec journaled_proving() :: map()
+  @spec journaled_proving() :: Log.Ran.t()
   example journaled_proving do
-    pred = EFibonacci.fibonacci_predicate()
-    define = Log.push({:define, :fibonacci, pred})
-
-    {:ok, report, id} =
-      Uair.prove(pred, EFibonacci.fibonacci_witness(), name: :fibonacci, basedon: define)
+    ran = Zkfol.compile(%Statement{rels: [ELang.fib()], args: [8]}, name: :fibonacci)
+    snap = Log.snapshot()
+    assert %Prover.Report{} = report = Log.report(snap, ran)
 
     # The intent rides ahead of the boundary, the report follows it.
     assert [
              %Log.Event{body: {:prove_requested, :fibonacci}},
              %Log.Event{body: {:proved, ^report}}
-           ] =
-             Log.thread(Log.snapshot(), id)
+           ] = Log.thread(snap, ran.intended)
 
     # A proof defines what it proves: the image carries the report, the
-    # lifeline runs from statement through intent to observation.
-    snap = Log.snapshot()
-
+    # lifeline runs from route through derivation and intent to observation.
     assert [
-             %Log.Event{body: {:define, :fibonacci, _pred}},
+             %Log.Event{body: {:define, :fibonacci, %Pipeline{}}},
+             %Log.Event{body: {:al_solved, _derivation}},
+             %Log.Event{body: {:piped, _verdicts}},
              %Log.Event{body: {:prove_requested, :fibonacci}},
              %Log.Event{id: observation, body: {:proved, ^report}}
-           ] = Enum.take(Log.lifeline(snap, :fibonacci), -3)
+           ] = Enum.take(Log.lifeline(snap, :fibonacci), -5)
 
     assert Log.image(snap).fibonacci == report
     assert Log.definer(snap, :fibonacci) == observation
 
+    ran
+  end
+
+  # A verdict lingering from an abandoned wait is not this wait's.
+  @spec stale_verdicts_are_not_heard() :: Prover.Report.t()
+  example stale_verdicts_are_not_heard do
+    stale = %EventBroker.Event{
+      source_module: __MODULE__,
+      body: %Log.Event{id: 1, basedon: 1, body: {:proved, %{stale: true}}}
+    }
+
+    send(self(), stale)
+
+    {:ok, report, _id} =
+      Uair.prove(EFibonacci.fibonacci_predicate(), EFibonacci.fibonacci_witness())
+
+    # The stale body is a bare map; a verdict actually heard is a Report.
+    assert %Prover.Report{} = report
     report
   end
 
@@ -76,7 +94,7 @@ defmodule Examples.ELog do
     assert_receive %EventBroker.Event{body: %Log.Event{body: {:prove_failed, reason}}}, 1_000
     EventBroker.unsubscribe_me(filter)
 
-    assert reason =~ "died"
+    assert {:prover_died, _} = reason
     reason
   end
 end

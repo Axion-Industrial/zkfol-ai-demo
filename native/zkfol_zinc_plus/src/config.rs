@@ -19,10 +19,7 @@ use zinc_poly::univariate::{
     dense::{DensePolyInnerProduct, DensePolynomial},
 };
 use zinc_primality::MillerRabin;
-use zinc_protocol::{
-    fold::{FoldBinaryTrace4x, FoldTrace},
-    ZincTypes,
-};
+use zinc_protocol::ZincTypes;
 use zinc_utils::inner_product::{MBSInnerProduct, ScalarProduct};
 use zip_plus::{
     code::iprs::{IprsCode, PnttConfigF65537},
@@ -31,10 +28,10 @@ use zip_plus::{
 
 /// Degree + 1 of the protocol's polynomials, including the trace.
 pub const D: usize = 32;
-pub const HALF_D: usize = D / 2;
-pub const QUARTER_D: usize = D / 4;
 const INT_LIMBS: usize = U64::LIMBS;
-pub const FIELD_LIMBS: usize = U64::LIMBS * 3;
+/// Four limbs: main-beta projects through the fixed secp256k1 prime,
+/// so the modulus type must hold exactly 256 bits.
+pub const FIELD_LIMBS: usize = U64::LIMBS * 4;
 /// Repetition factor for the linear code, an inverse rate.
 const REP_FACTOR: usize = 8;
 /// Prover-side self-checks, off in earnest runs as in the upstream bench.
@@ -63,17 +60,16 @@ macro_rules! tier {
 
         impl ZipTypes for $binary {
             const NUM_COLUMN_OPENINGS: usize = 100;
-            type Eval = BinaryPoly<QUARTER_D>;
-            type Cw = DensePolynomial<i64, QUARTER_D>;
+            type Eval = BinaryPoly<D>;
+            type Cw = DensePolynomial<i64, D>;
             type Fmod = Fmod;
             type PrimeTest = MillerRabin;
             type Chal = Chal;
             type Pt = i128;
             type CombR = $comb;
-            type Comb = DensePolynomial<$comb, QUARTER_D>;
-            type EvalDotChal = BinaryPolyInnerProduct<Chal, QUARTER_D>;
-            type CombDotChal =
-                DensePolyInnerProduct<$comb, Chal, $comb, MBSInnerProduct, QUARTER_D>;
+            type Comb = DensePolynomial<$comb, D>;
+            type EvalDotChal = BinaryPolyInnerProduct<Chal, D>;
+            type CombDotChal = DensePolyInnerProduct<$comb, Chal, $comb, MBSInnerProduct, D>;
             type ArrCombRDotChal = MBSInnerProduct;
         }
 
@@ -119,19 +115,16 @@ macro_rules! tier {
         #[derive(Clone, Copy, Debug)]
         pub struct $cfg;
 
-        impl ZincTypes<D, QUARTER_D> for $cfg {
+        impl ZincTypes<D> for $cfg {
             type Int = $int;
             type Chal = Chal;
             type Pt = i128;
-            type CombR = $comb;
             type Fmod = Fmod;
             type PrimeTest = MillerRabin;
 
             type BinaryZt = $binary;
             type ArbitraryZt = $arbitrary;
             type IntZt = $int_cfg;
-
-            type BinaryFold = FoldBinaryTrace4x<D, HALF_D, QUARTER_D>;
 
             type BinaryLc = IprsCode<$binary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>;
             type ArbitraryLc = IprsCode<$arbitrary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>;
@@ -151,28 +144,25 @@ macro_rules! tier {
         );
 
         /// Public parameters: row size equal to poly size, flat single-row matrices.
+        /// The optimal-depth heuristic wants 8^depth | rows; traces under
+        /// 64 rows sit below that grain, so they take the deepest depth
+        /// that divides.
         pub fn $setup(num_vars: usize) -> Result<$pp, String> {
-            let folded_num_vars = num_vars
-                + <$cfg as ZincTypes<D, QUARTER_D>>::BinaryFold::FOLDING_FACTOR.ilog2() as usize;
             let poly_size = 1 << num_vars;
-            let folded_poly_size = 1 << folded_num_vars;
+
+            // One block per tuple slot, each inferring its own code type.
+            macro_rules! code {
+                () => {
+                    IprsCode::new_with_optimal_depth(poly_size)
+                        .or_else(|_| IprsCode::new(poly_size, num_vars / 3))
+                        .map_err(|e| format!("code setup: {e:?}"))?
+                };
+            }
 
             Ok((
-                ZipPlus::setup(
-                    folded_poly_size,
-                    IprsCode::new_with_optimal_depth(folded_poly_size)
-                        .map_err(|e| format!("code setup: {e:?}"))?,
-                ),
-                ZipPlus::setup(
-                    poly_size,
-                    IprsCode::new_with_optimal_depth(poly_size)
-                        .map_err(|e| format!("code setup: {e:?}"))?,
-                ),
-                ZipPlus::setup(
-                    poly_size,
-                    IprsCode::new_with_optimal_depth(poly_size)
-                        .map_err(|e| format!("code setup: {e:?}"))?,
-                ),
+                ZipPlus::setup(poly_size, code!()),
+                ZipPlus::setup(poly_size, code!()),
+                ZipPlus::setup(poly_size, code!()),
             ))
         }
     };

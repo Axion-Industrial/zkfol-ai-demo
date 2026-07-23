@@ -13,8 +13,8 @@ defmodule Zkfol.Doubling do
   The bits ride a committed row, one bit-guarded branch pair interprets
   them, and the result row carries the combination at every column, so
   the predicate is one statement for every n: only the witness, the
-  length, and the claims change. The witness derives from the bits as
-  seeds through the generating semantics.
+  length, and the claims change. The witness is derived: the walked
+  position, bound to the goal, descends and the bits fall out.
 
   Rows: 1 and 2 the kernel pair, 3 the pointer, 4 the result, 5 the
   bit, 6 the position walked so far, ending at m - 2, which is what
@@ -22,162 +22,185 @@ defmodule Zkfol.Doubling do
   (`private: true`) keeps n secret up to its bit length: the trace
   length stays public. Positions at the base cases become a single
   pinned column.
-
-  ### Public API
-
-  - `rewrite/1`, `rewrite/3`, `run/2`
-  - `seeds/2`
   """
 
   @behaviour Zkfol.Pipeline
 
-  alias Zkfol.Ast
+  alias Zkfol.Al
   alias Zkfol.Facts
+  require Zkfol.Lang
+  alias Zkfol.Lang.Rel
   alias Zkfol.Range
+  alias Zkfol.Refusal
   alias Zkfol.Statement
-  alias Zkfol.Witness
 
   @claim "claim_recurrence_n_exact"
   @position "claim_recurrence_position"
-  @result_row 4
-  @bit_row 5
-  @walked_row 6
+  # e sits fourth in kernel(x, u, w, e, r).
+  @walked_row 4
 
   @doc """
-  I am the rewrite as a pass. With `:n` I am the full statement, and a
-  refusal is loud. Without it I am a try: the kernel when the facts
-  certify, the statement unchanged when they do not.
+  I am the rewrite as a pass, and always a try: statements the facts
+  do not certify pass through unchanged. Past certification a refusal
+  is loud: with an argument I am the full statement, without one the
+  bare kernel.
   """
   @impl Zkfol.Pipeline
-  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, String.t()}
-  def run(%Statement{pred: pred} = statement, opts) do
-    case Keyword.fetch(opts, :n) do
-      {:ok, n} ->
-        rewrite(pred, n, opts)
+  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  def run(%Statement{rels: [root | _rest], args: args} = statement, opts) do
+    case Facts.recurrence(root) do
+      {:error, _outside} ->
+        {:ok, statement}
 
-      :error ->
-        case rewrite(pred) do
-          {:ok, rewritten} -> {:ok, rewritten}
-          {:error, _outside} -> {:ok, statement}
+      {:ok, _descriptor} ->
+        case args do
+          [n | _rest] -> rewrite(root, n, named(statement, opts))
+          [] -> rewrite(root)
         end
     end
   end
 
-  @doc "I am the kernel alone: no n, the witness slot empty, the claims to come."
-  @spec rewrite(Ast.pred()) :: {:ok, Statement.t()} | {:error, String.t()}
-  def rewrite(pred) do
-    with {:ok, descriptor} <- Facts.recurrence(pred) do
-      {:ok, %Statement{pred: kernel(descriptor), ranges: Range.pointer(3)}}
+  def run(statement, _opts), do: {:ok, statement}
+
+  @doc "I am my verdict: `:rewrites` under the facts' certificate, `:declines` outside it."
+  @impl Zkfol.Pipeline
+  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
+  def plan(%Statement{rels: [root | _rest]}, _opts) do
+    case Facts.recurrence(root) do
+      {:ok, _descriptor} -> :rewrites
+      {:error, _outside} -> :declines
     end
   end
 
-  @doc "I rewrite `pred`'s claim about position `n`, or refuse with the facts' reason."
-  @spec rewrite(Ast.pred(), integer(), keyword()) ::
-          {:ok, Statement.t()} | {:error, String.t()}
-  def rewrite(pred, n, opts \\ []) do
-    with {:ok, descriptor} <- Facts.recurrence(pred) do
+  def plan(_statement, _opts), do: :declines
+
+  @doc "I am the kernel alone: no n, the witness slot empty, the claims to come."
+  @spec rewrite(Zkfol.Lang.Rel.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  def rewrite(rel) do
+    with {:ok, descriptor} <- Facts.recurrence(rel),
+         krel = kernel(descriptor),
+         {:ok, %{pred: pred, rows: %{kernel: rows}}} <- Zkfol.Lang.compile(krel, [krel]) do
+      {:ok,
+       %Statement{
+         rels: [krel],
+         ranges: Range.pointer(List.last(rows) + 1),
+         stage: %Statement.Lowered{pred: pred}
+       }}
+    end
+  end
+
+  @doc "I am the goal as a binding: the trace length and the walked position for `n`."
+  @spec goal(Zkfol.Lang.Rel.t(), integer()) ::
+          {:ok, pos_integer(), %{pos_integer() => integer()}} | {:error, Refusal.t()}
+  def goal(rel, n) do
+    with {:ok, %Facts{initial: [{start, _value} | _rest]}} <- Facts.recurrence(rel) do
+      m = n - start + 1
+      {:ok, count(m), %{@walked_row => m - 2}}
+    end
+  end
+
+  @doc "I rewrite `rel`'s claim about position `n`, or refuse with the facts' reason."
+  @spec rewrite(Zkfol.Lang.Rel.t(), integer(), keyword()) ::
+          {:ok, Statement.t()} | {:error, Refusal.t()}
+  def rewrite(rel, n, opts \\ []) do
+    with {:ok, descriptor} <- Facts.recurrence(rel) do
       [{start, x1}, {_, x2}] = descriptor.initial
 
       case n - start + 1 do
-        m when m < 1 -> {:error, "n=#{n} precedes the base case index #{start}"}
-        1 -> trivial(x1)
-        2 -> trivial(x2)
-        m -> build(descriptor, m, Keyword.get(opts, :private, false))
+        m when m < 1 ->
+          {:error, {:precedes_base_case, %{n: n, base: start}}}
+
+        1 ->
+          trivial(x1, opts)
+
+        2 ->
+          trivial(x2, opts)
+
+        m ->
+          build(
+            descriptor,
+            m,
+            Keyword.get(opts, :private, false),
+            Keyword.take(opts, [:branch, :heap, :name, :basedon])
+          )
       end
     end
   end
 
-  @doc "I am the goal as seeds: the trace length and the bits walking to position `n`."
-  @spec seeds(Ast.pred(), integer()) ::
-          {:ok, pos_integer(), Witness.seeds()} | {:error, String.t()}
-  def seeds(pred, n) do
-    with {:ok, %Facts{initial: [{start, _value} | _rest]}} <- Facts.recurrence(pred) do
-      {count, seeds} = goal(n - start + 1)
-      {:ok, count, seeds}
-    end
-  end
+  # The kernel walks beside the relation it doubles, named after it;
+  # one new atom per relation, bounded by the program.
+  defp named(%Statement{rels: [root | _rest]}, opts),
+    do: Keyword.put_new(opts, :name, :"#{root.name}_kernel")
 
-  @spec trivial(integer()) :: {:ok, Statement.t()} | {:error, String.t()}
-  defp trivial(value) do
-    pred = Ast.conj([Ast.eq(Ast.x(), 1), Ast.eq(Ast.cell(@result_row), value)])
+  defp named(_statement, opts), do: opts
 
-    with {:ok, witness} <- Witness.generate(pred, 1),
-         do: {:ok, %Statement{pred: pred, witness: witness, claims: [{@claim, @result_row, 1}]}}
-  end
+  @spec trivial(integer(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp trivial(value, opts) do
+    one =
+      Zkfol.Lang.rel :one do
+        one(1, ^value)
+      end
 
-  @spec build(Facts.t(), pos_integer(), boolean()) ::
-          {:ok, Statement.t()} | {:error, String.t()}
-  defp build(descriptor, m, private) do
-    {count, seeds} = goal(m)
-    pred = kernel(descriptor)
-
-    claims =
-      [{@claim, @result_row, count}] ++
-        if(private, do: [], else: [{@position, @walked_row, count}])
-
-    with {:ok, witness} <- Witness.generate(pred, count, seeds),
+    with {:ok, %{pred: pred}} <- Zkfol.Lang.compile(one, [one]),
+         {:ok, witness} <- Al.solve(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
          do:
            {:ok,
-            %Statement{pred: pred, ranges: Range.pointer(3), witness: witness, claims: claims}}
+            %Statement{
+              rels: [one],
+              claims: [{@claim, 2, 1}],
+              stage: %Statement.Solved{pred: pred, witness: witness}
+            }}
   end
 
-  @spec goal(pos_integer()) :: {pos_integer(), Witness.seeds()}
-  defp goal(m) do
-    bits = bits_after_leading(m - 2)
-    seeds = for {bit, x} <- Enum.with_index(bits, 2), into: %{}, do: {{@bit_row, x}, bit}
-    {length(bits) + 1, seeds}
+  @spec build(Facts.t(), pos_integer(), boolean(), keyword()) ::
+          {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp build(descriptor, m, private, solve_opts) do
+    count = count(m)
+    krel = kernel(descriptor)
+
+    with {:ok, %{pred: pred, rows: %{kernel: [_x, _u, _w, walked, result]}}} <-
+           Zkfol.Lang.compile(krel, [krel]) do
+      claims =
+        [{@claim, result, count}] ++
+          if(private, do: [], else: [{@position, walked, count}])
+
+      with {:ok, witness} <- Al.solve(krel, [count], [bind: %{walked => m - 2}] ++ solve_opts),
+           do:
+             {:ok,
+              %Statement{
+                rels: [krel],
+                ranges: Range.pointer(result + 1),
+                claims: claims,
+                stage: %Statement.Solved{pred: pred, witness: witness}
+              }}
+    end
   end
 
-  @spec bits_after_leading(pos_integer()) :: [0 | 1]
-  defp bits_after_leading(k), do: k |> Integer.digits(2) |> tl()
+  @spec count(pos_integer()) :: pos_integer()
+  defp count(m), do: (m - 2) |> Integer.digits(2) |> length()
 
-  # One branch pins the base, two interpret a bit. The pointer binds
-  # itself to X, declaring its schedule; the result rides every branch.
-  @spec kernel(Facts.t()) :: Ast.pred()
+  # The kernel is itself a relation: one base fact, two step clauses
+  # interpreting a bit, the result riding every clause.
+  @spec kernel(Facts.t()) :: Rel.t()
   defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}]}) do
-    a = Ast.cell(1, 3)
-    b = Ast.cell(2, 3)
-    doubled = Ast.mul(a, Ast.add(Ast.mul(2, b), Ast.mul(-p, a)))
-    squares = Ast.add(Ast.mul(q, Ast.mul(a, a)), Ast.mul(b, b))
+    Zkfol.Lang.rel :kernel do
+      kernel(1, 1, ^p, 1, ^(x2 * p + q * x1))
 
-    result =
-      Ast.eq(
-        Ast.cell(@result_row),
-        Ast.add(Ast.mul(x2, Ast.cell(2)), Ast.mul(q * x1, Ast.cell(1)))
-      )
-
-    pointed = Ast.eq(Ast.cell(3), Ast.add(Ast.x(), -1))
-
-    walked =
-      Ast.eq(
-        Ast.cell(@walked_row),
-        Ast.add(Ast.mul(2, Ast.cell(@walked_row, 3)), Ast.cell(@bit_row))
-      )
-
-    base = [
-      Ast.eq(Ast.x(), 1),
-      Ast.eq(Ast.cell(1), 1),
-      Ast.eq(Ast.cell(2), p),
-      Ast.eq(Ast.cell(@walked_row), 1)
-    ]
-
-    steps =
-      for bit <- [0, 1] do
-        pair =
-          case bit do
-            0 ->
-              [Ast.eq(Ast.cell(1), doubled), Ast.eq(Ast.cell(2), squares)]
-
-            1 ->
-              [
-                Ast.eq(Ast.cell(1), squares),
-                Ast.eq(Ast.cell(2), Ast.add(Ast.mul(p, Ast.cell(1)), Ast.mul(q, doubled)))
-              ]
-          end
-
-        [Ast.eq(Ast.cell(@bit_row), bit), pointed, walked | pair]
+      kernel(x, u, w, e, r) do
+        kernel(x - 1, uu, ww, ee, _rr)
+        e = 2 * ee + 0
+        u = uu * (2 * ww + ^(-p) * uu)
+        w = ^q * (uu * uu) + ww * ww
+        r = ^x2 * w + ^(q * x1) * u
       end
 
-    Ast.disj(for parts <- [base | steps], do: Ast.conj(parts ++ [result]))
+      kernel(x, u, w, e, r) do
+        kernel(x - 1, uu, ww, ee, _rr)
+        e = 2 * ee + 1
+        u = ^q * (uu * uu) + ww * ww
+        w = ^p * u + ^q * (uu * (2 * ww + ^(-p) * uu))
+        r = ^x2 * w + ^(q * x1) * u
+      end
+    end
   end
 end

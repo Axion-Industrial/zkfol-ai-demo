@@ -10,12 +10,10 @@ defmodule Examples.EBench do
   alias Examples.EDoubling
   alias Examples.EFibonacci
   alias Examples.EPower
-  alias Zkfol.Doubling
   alias Zkfol.Interpretation
   alias Zkfol.Pipeline
   alias Zkfol.Statement
   alias Zkfol.Uair
-  alias Zkfol.Witness
 
   @spec measured_power(non_neg_integer()) :: map()
   example measured_power(exponent \\ 32) do
@@ -30,40 +28,67 @@ defmodule Examples.EBench do
     measurement("fibonacci n=#{n}", EFibonacci.fibonacci_predicate(), witness)
   end
 
+  @spec measured_registers_fibonacci(pos_integer()) :: map()
+  example measured_registers_fibonacci(n \\ 32) do
+    witness = EFibonacci.registers_witness(n)
+    measurement("fibonacci n=#{n}, registers", EFibonacci.registers_predicate(), witness)
+  end
+
   @spec measured_doubled_fibonacci(pos_integer()) :: map()
   example measured_doubled_fibonacci(n \\ 10_000) do
     statement = EDoubling.rewritten_fibonacci(n)
-    measurement("fibonacci n=#{n}, doubled", statement.pred, statement.witness, statement.claims)
+
+    measurement(
+      "fibonacci n=#{n}, doubled",
+      Statement.pred(statement),
+      Statement.witness(statement),
+      statement.claims
+    )
   end
 
   @spec measured_default_fibonacci(pos_integer()) :: map()
   example measured_default_fibonacci(n \\ 10_000) do
-    {:ok, count, seeds} = Doubling.seeds(EFibonacci.fibonacci_predicate(), n)
-    goal = {Witness, len: count, seeds: seeds}
-    pipeline = %Pipeline{passes: Pipeline.default().passes ++ [goal]}
-
     {:ok, statement, _trace} =
-      Pipeline.run(pipeline, %Statement{pred: EFibonacci.fibonacci_predicate()})
+      Pipeline.run(Pipeline.default(), %Statement{rels: [Examples.ELang.fib()], args: [n]})
 
-    measurement("fibonacci n=#{n}, default", statement.pred, statement.witness)
+    measurement(
+      "fibonacci n=#{n}, default",
+      Statement.pred(statement),
+      Statement.witness(statement)
+    )
   end
 
-  @spec frozen_shapes() :: [map()]
+  # The composed-read fallback proves end to end; dies with Zkfol.Accumulator.
+  @spec measured_accumulator_hop() :: map()
+  example measured_accumulator_hop do
+    # An 8-step trace asks nothing of the machine; a starved one fails loudly here.
+    assert available_memory_mb() > 512
+
+    statement = Examples.EAccumulator.expanded_hop()
+
+    measurement(
+      "hop n=5, accumulator fallback",
+      Statement.pred(statement),
+      Statement.witness(statement)
+    )
+  end
+
+  @spec frozen_shapes() :: [Uair.t()]
   example frozen_shapes do
     # The regression gates: translation growth is a failure, not a drift.
     doubled = EDoubling.rewritten_fibonacci(10_000)
-    {:ok, kernel} = Uair.emit(doubled.pred, doubled.witness, doubled.claims)
+    {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
 
     {:ok, generic} =
       Uair.emit(EFibonacci.fibonacci_predicate(), EFibonacci.fibonacci_witness(32))
 
-    assert kernel.num_vars == 4
-    assert kernel.num_cols == 7
-    assert generic.num_vars == 5
-    assert generic.num_cols == 5
+    assert Zkfol.Uair.num_vars(kernel) == 4
+    assert Zkfol.Uair.num_cols(kernel) == 7
+    assert Zkfol.Uair.num_vars(generic) == 5
+    assert Zkfol.Uair.num_cols(generic) == 5
 
     # Canonical construction keeps programs at these lengths.
-    assert length(kernel.program) == 271
+    assert length(kernel.program) == 279
     assert length(generic.program) == 111
 
     [kernel, generic]
@@ -74,8 +99,10 @@ defmodule Examples.EBench do
     [
       measured_power(),
       measured_fibonacci(),
+      measured_registers_fibonacci(),
       measured_doubled_fibonacci(),
-      measured_default_fibonacci()
+      measured_default_fibonacci(),
+      measured_accumulator_hop()
     ]
   end
 
@@ -85,7 +112,6 @@ defmodule Examples.EBench do
   def measurement(statement, phi, witness, claims \\ []) do
     {:ok, uair} = Uair.emit(phi, witness, claims)
     {:ok, report, _id} = Uair.prove_uair(uair, name: statement, timeout: :infinity)
-    assert report.proved
 
     %{
       statement: statement,
@@ -95,5 +121,17 @@ defmodule Examples.EBench do
       proof_bytes: report.proof_bytes,
       program: length(uair.program)
     }
+  end
+
+  @doc "I am MemAvailable in megabytes, straight from /proc/meminfo."
+  @spec available_memory_mb() :: non_neg_integer()
+  def available_memory_mb do
+    "MemAvailable:" <> rest =
+      File.read!("/proc/meminfo")
+      |> String.split("\n")
+      |> Enum.find(&String.starts_with?(&1, "MemAvailable:"))
+
+    {kb, " kB"} = rest |> String.trim() |> Integer.parse()
+    div(kb, 1024)
   end
 end

@@ -9,24 +9,17 @@ defmodule Examples.EFactorial do
 
   import ExUnit.Assertions
 
+  alias Zkfol.Al
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Range
   alias Zkfol.Semantics
-  alias Zkfol.Witness
 
   @spec factorial_predicate() :: Ast.pred()
   example factorial_predicate do
-    n = Ast.cell(1)
-    value = Ast.cell(2)
-
-    Ast.disj([
-      Ast.conj([Ast.eq(n, 1), Ast.eq(value, 1)]),
-      Ast.conj([
-        Ast.eq(n, Ast.add(Ast.cell(1, 3), 1)),
-        Ast.eq(value, Ast.mul(n, Ast.cell(2, 3)))
-      ])
-    ])
+    rel = Examples.EFacts.factorial()
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(rel, [rel])
+    pred
   end
 
   @spec pointer_ranges() :: [Range.check()]
@@ -36,7 +29,7 @@ defmodule Examples.EFactorial do
 
   @spec factorial_witness(pos_integer()) :: Interpretation.t()
   example factorial_witness(n \\ 6) do
-    {:ok, witness} = Witness.generate(factorial_predicate(), n)
+    {:ok, witness} = Al.solve(Examples.EFacts.factorial(), [n])
     assert Semantics.valid?(factorial_predicate(), pointer_ranges(), witness)
     witness
   end

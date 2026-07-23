@@ -258,7 +258,7 @@ dependencies = [
 [[package]]
 name = "crypto-primitives"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/crypto-primitives.git?rev=aa65fab#aa65fabc18e3a038b61082ee01be17f11d4d2921"
+source = "git+https://github.com/NethermindEth/crypto-primitives.git?rev=9ce6d879a43ae6806612225c95d8b03ce5173b55#9ce6d879a43ae6806612225c95d8b03ce5173b55"
 dependencies = [
  "ark-ff",
  "ark-std",
@@ -276,7 +276,7 @@ dependencies = [
 [[package]]
 name = "crypto-primitives-proc-macros"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/crypto-primitives.git?rev=aa65fab#aa65fabc18e3a038b61082ee01be17f11d4d2921"
+source = "git+https://github.com/NethermindEth/crypto-primitives.git?rev=9ce6d879a43ae6806612225c95d8b03ce5173b55#9ce6d879a43ae6806612225c95d8b03ce5173b55"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -873,8 +873,9 @@ dependencies = [
 [[package]]
 name = "zinc-piop"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
+ "ahash",
  "crypto-primitives",
  "derive_more",
  "itertools 0.14.0",
@@ -891,7 +892,7 @@ dependencies = [
 [[package]]
 name = "zinc-poly"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "crypto-bigint",
  "crypto-primitives",
@@ -909,7 +910,7 @@ dependencies = [
 [[package]]
 name = "zinc-primality"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "crypto-bigint",
  "crypto-primes",
@@ -919,7 +920,7 @@ dependencies = [
 [[package]]
 name = "zinc-protocol"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "crypto-primitives",
  "itertools 0.14.0",
@@ -936,23 +937,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "zinc-test-uair"
-version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
-dependencies = [
- "crypto-primitives",
- "itertools 0.14.0",
- "num-traits",
- "rand 0.9.5",
- "zinc-poly",
- "zinc-uair",
- "zinc-utils",
-]
-
-[[package]]
 name = "zinc-transcript"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "blake3",
  "crypto-bigint",
@@ -966,20 +953,21 @@ dependencies = [
 [[package]]
 name = "zinc-uair"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "crypto-primitives",
  "num-traits",
  "rayon",
  "thiserror",
  "zinc-poly",
+ "zinc-transcript",
  "zinc-utils",
 ]
 
 [[package]]
 name = "zinc-utils"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "crypto-bigint",
  "crypto-primitives",
@@ -991,7 +979,7 @@ dependencies = [
 [[package]]
 name = "zip-plus"
 version = "0.1.0"
-source = "git+https://github.com/NethermindEth/zinc-plus.git?rev=13f540d#13f540d9345d467833ac6cc095af966987c65c4a"
+source = "git+https://github.com/mariari/zinc-plus.git?rev=7cf72c4ee65256aba7b74d140dca2bea75c02592#7cf72c4ee65256aba7b74d140dca2bea75c02592"
 dependencies = [
  "ark-ff",
  "ark-poly",
@@ -1023,7 +1011,6 @@ dependencies = [
  "zinc-poly",
  "zinc-primality",
  "zinc-protocol",
- "zinc-test-uair",
  "zinc-transcript",
  "zinc-uair",
  "zinc-utils",

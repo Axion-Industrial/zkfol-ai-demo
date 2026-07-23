@@ -18,10 +18,12 @@ defmodule Zkfol.Lang do
       Lang.compile(fib(), [fib()])
   """
 
+  @behaviour Zkfol.Pipeline
 
   alias Zkfol.Ast
   alias Zkfol.Range
   alias Zkfol.Refusal
+  alias Zkfol.Statement
 
   @typep rows :: %{atom() => [pos_integer()]}
   @typep env :: %{atom() => Ast.term_t()}
@@ -140,11 +142,34 @@ defmodule Zkfol.Lang do
   # Surface goals: equations and calls.
   @spec goal(Macro.t()) :: term()
   defp goal({:=, _meta, [a, b]}), do: {:eq, term(a), term(b)}
+
   defp goal({name, _meta, args}) when is_atom(name) and is_list(args),
     do: {:call, name, Enum.map(args, &term/1)}
 
   defp goal(form),
     do: raise(ArgumentError, "a goal is an equation or a call, not #{Macro.to_string(form)}")
+
+  @doc "As a pass I lower a statement's relations to its predicate; the first is the root."
+  @impl Zkfol.Pipeline
+  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  def run(%Statement{rels: []} = statement, _opts), do: {:ok, statement}
+
+  def run(%Statement{rels: [root | _rest] = rels} = statement, _opts) do
+    with {:ok, %{pred: pred, ranges: ranges}} <- compile(root, rels),
+         do: {:ok, Statement.lowered(%{statement | ranges: ranges}, pred)}
+  end
+
+  @doc "I am my verdict: `:lowers` when the closure compiles, the refusal it would earn if not."
+  @impl Zkfol.Pipeline
+  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
+  def plan(%Statement{rels: []}, _opts), do: :declines
+
+  def plan(%Statement{rels: [root | _rest] = rels}, _opts) do
+    case compile(root, rels) do
+      {:ok, _compiled} -> :lowers
+      {:error, reason} -> {:refuses, reason}
+    end
+  end
 
   @doc """
   I compile a root relation against the relations in scope, walking

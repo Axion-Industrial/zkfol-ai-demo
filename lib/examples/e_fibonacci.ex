@@ -10,10 +10,17 @@ defmodule Examples.EFibonacci do
   import ExUnit.Assertions
 
   alias Examples.EFactorial
+  alias Examples.ELang
+  alias Zkfol.Al
+  alias Zkfol.Refusal
   alias Zkfol.Ast
   alias Zkfol.Interpretation
+  alias Zkfol.Log
+  alias Zkfol.Pipeline
+  alias Zkfol.Prover
   alias Zkfol.Range
   alias Zkfol.Semantics
+  alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.Witness
 
@@ -40,50 +47,67 @@ defmodule Examples.EFibonacci do
 
   @spec fibonacci_witness(pos_integer()) :: Interpretation.t()
   example fibonacci_witness(n \\ 8) do
-    {:ok, witness} = Witness.generate(fibonacci_predicate(), n, %{{1, 2} => 2})
+    {:ok, witness} = Al.solve(Examples.ELang.fib(), [n])
     assert Semantics.valid?(fibonacci_predicate(), pointer_ranges(), witness)
     witness
   end
 
-  @spec big_values_prove(pos_integer()) :: map()
-  example big_values_prove(n \\ 99) do
-    {:ok, report, _id} = Uair.prove(fibonacci_predicate(), fibonacci_witness(n))
-
-    assert report.proved
-    assert report.backend =~ "int768"
-    report
+  # The zkVM loop as a statement: what the registers relation compiles to.
+  @spec registers_predicate() :: Ast.pred()
+  example registers_predicate do
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(Examples.ELang.regs(), [Examples.ELang.regs()])
+    pred
   end
 
-  @spec tampered_is_rejected() :: String.t()
+  @spec registers_witness(pos_integer()) :: Interpretation.t()
+  example registers_witness(n \\ 8) do
+    {:ok, witness} = Al.solve(Examples.ELang.regs(), [n])
+
+    assert Interpretation.at(witness, 3, n) == fib(n)
+    witness
+  end
+
+  @spec big_values_prove(pos_integer()) :: Log.Ran.t()
+  example big_values_prove(n \\ 99) do
+    # The plain route on purpose: the trace's own values need int768.
+    route = %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, []}]}
+    ran = Zkfol.compile(%Statement{rels: [ELang.fib()], args: [n]}, pipeline: route)
+
+    assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
+    assert report.backend =~ "int768"
+    ran
+  end
+
+  @spec tampered_is_rejected() :: Refusal.t()
   example tampered_is_rejected do
     {:ok, uair} = Uair.emit(fibonacci_predicate(), fibonacci_witness())
     tampered = %{uair | columns: List.update_at(uair.columns, 1, &List.replace_at(&1, 4, 999))}
 
     {:error, reason} = Uair.prove_uair(tampered)
-    assert reason =~ "failed"
+    assert {:verifier_rejected, _} = reason
     reason
   end
 
-  @spec out_of_range_claim_is_refused() :: String.t()
+  @spec out_of_range_claim_is_refused() :: Refusal.t()
   example out_of_range_claim_is_refused do
     {:error, reason} =
       Uair.prove(fibonacci_predicate(), fibonacci_witness(), claims: [{"n", 9, 1}])
 
-    assert reason =~ "outside"
+    assert {:claim_outside_witness, _} = reason
     reason
   end
 
-  @spec negative_cell_is_refused() :: String.t()
+  @spec negative_cell_is_refused() :: Refusal.t()
   example negative_cell_is_refused do
     {:ok, uair} = Uair.emit(fibonacci_predicate(), fibonacci_witness())
     negated = %{uair | columns: List.update_at(uair.columns, 0, &List.replace_at(&1, 0, -1))}
 
     {:error, reason} = Uair.request(negated)
-    assert reason =~ "negative"
+    assert {:witness_value_negative, %{value: -1}} = reason
     reason
   end
 
-  @spec concurrent_proves_hold() :: [{:ok, map()}]
+  @spec concurrent_proves_hold() :: [{:ok, Prover.Report.t(), pos_integer()}]
   example concurrent_proves_hold do
     reports =
       [
@@ -93,7 +117,7 @@ defmodule Examples.EFibonacci do
       |> Enum.map(&Task.async/1)
       |> Task.await_many(:infinity)
 
-    assert Enum.all?(reports, fn {:ok, r, _id} -> r.proved end)
+    assert Enum.all?(reports, &match?({:ok, %Prover.Report{}, _id}, &1))
     reports
   end
 

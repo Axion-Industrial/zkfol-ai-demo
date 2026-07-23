@@ -6,12 +6,19 @@ defmodule Examples.ELogTest do
   use ExExample.ExUnit, for: Examples.ELog
 end
 
-defmodule Examples.EEnrichTest do
-  use ExExample.ExUnit, for: Examples.EEnrich
+defmodule Examples.EAstTest do
+  use ExExample.ExUnit, for: Examples.EAst
 end
 
-defmodule Examples.EBenchTest do
-  use ExExample.ExUnit, for: Examples.EBench
+defmodule Examples.ELangTest do
+  use ExExample.ExUnit, for: Examples.ELang
+end
+
+# Benchmarks assert our published numbers; BENCH=1 mix test runs them.
+if System.get_env("BENCH") do
+  defmodule Examples.EBenchTest do
+    use ExExample.ExUnit, for: Examples.EBench
+  end
 end
 
 defmodule Examples.EFibonacciTest do
@@ -36,4 +43,16 @@ end
 
 defmodule Examples.EPipelineTest do
   use ExExample.ExUnit, for: Examples.EPipeline
+end
+
+defmodule Examples.EAlTest do
+  use ExExample.ExUnit, for: Examples.EAl
+end
+
+defmodule Examples.EAccumulatorTest do
+  use ExExample.ExUnit, for: Examples.EAccumulator
+end
+
+defmodule Examples.ELookupTest do
+  use ExExample.ExUnit, for: Examples.ELookup
 end

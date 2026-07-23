@@ -30,3 +30,4 @@ native/*/target/
 
 # Editor droppings.
 *.~undo-tree~
+.mnesiastore-test/

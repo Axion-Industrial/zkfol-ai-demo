@@ -10,46 +10,67 @@ defmodule Examples.EPower do
   """
 
   use ExExample
+  use Zkfol.Lang
 
   import ExUnit.Assertions
 
+  alias Zkfol.Al
+  alias Zkfol.Refusal
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Range
   alias Zkfol.Semantics
   alias Zkfol.Uair
-  alias Zkfol.Witness
+
+  # The base rides as a value: prover's knowledge enters at construction.
+  @spec power_rel(integer()) :: Zkfol.Lang.Rel.t()
+  def power_rel(base) do
+    rel :power do
+      power(1, ^base, 0, 1)
+
+      power(x, b, e, v) do
+        power(x - 1, bb, ee, w)
+        b = bb
+        e = ee + 1
+        v = b * w
+      end
+    end
+  end
 
   @spec power_predicate() :: Ast.pred()
   example power_predicate do
-    base_case = Ast.conj([Ast.eq(Ast.cell(2), 0), Ast.eq(Ast.cell(3), 1)])
-
-    step =
-      Ast.conj([
-        Ast.eq(Ast.cell(1), Ast.cell(1, 4)),
-        Ast.eq(Ast.cell(2), Ast.add(Ast.cell(2, 4), 1)),
-        Ast.eq(Ast.cell(3), Ast.mul(Ast.cell(1), Ast.cell(3, 4)))
-      ])
-
-    Ast.disj([base_case, step])
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(power_rel(2), [power_rel(2)])
+    pred
   end
 
   @spec pointer_ranges() :: [Range.check()]
   example pointer_ranges do
-    Range.pointer(4)
+    Range.pointer(5)
   end
 
   @spec power_witness(non_neg_integer()) :: Interpretation.t()
   example power_witness(exponent \\ 3) do
-    {:ok, witness} = Witness.generate(power_predicate(), exponent + 1, %{{1, 1} => 2})
+    {:ok, witness} = Al.solve(power_rel(2), [exponent + 1])
     assert Semantics.valid?(power_predicate(), pointer_ranges(), witness)
     witness
   end
 
-  @spec unseeded_base_is_knowledge() :: String.t()
+  @spec unseeded_base_is_knowledge() :: Refusal.t()
   example unseeded_base_is_knowledge do
-    {:error, reason} = Witness.generate(power_predicate(), 4)
-    assert reason =~ "row 1"
+    unseeded =
+      rel :power do
+        power(1, b, 0, 1)
+
+        power(x, b, e, v) do
+          power(x - 1, bb, ee, w)
+          b = bb
+          e = ee + 1
+          v = b * w
+        end
+      end
+
+    {:error, reason} = Al.solve(unseeded, [4])
+    assert elem(reason, 0) in [:no_derivation, :no_derivation_at_depth, :witness_value_negative]
     reason
   end
 
@@ -69,10 +90,10 @@ defmodule Examples.EPower do
     tampered
   end
 
-  @spec out_of_schedule_pointer_is_refused() :: String.t()
+  @spec out_of_schedule_pointer_is_refused() :: Refusal.t()
   example out_of_schedule_pointer_is_refused do
     {:error, reason} = Uair.prove(power_predicate(), out_of_range_pointer_is_rejected())
-    assert reason =~ "column 4"
+    assert {:witness_unsatisfies_schedule, %{column: 4}} = reason
     reason
   end
 
