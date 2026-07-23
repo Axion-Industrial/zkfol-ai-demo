@@ -30,3 +30,8 @@ native/*/target/
 
 # Editor droppings.
 *.~undo-tree~
+
+# AL keeps its mnesia image in the host cwd; reseeded from packages at boot.
+/.mnesiastore/
+.idea/
+MnesiaCore.*
