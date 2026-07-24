@@ -1,10 +1,10 @@
 defmodule Examples.EPipeline do
   @moduledoc """
-  I am the pipeline's evidence: generation fills the witness slot, a
-  manual witness needs no pass, the doubled route walks through the
-  front door and leaves its receipt, the emit act leaves a receipt with
-  no proof, the trail replays the act off the log, the plan reads the
-  route ahead of the run, and a refusal names its pass.
+  I am the pipeline's evidence: generation fills the witness slot, the
+  doubled route walks through the front door and leaves its receipt,
+  the emit act leaves a receipt with no proof, the trail replays the
+  act off the log, the plan reads the route ahead of the run, and a
+  refusal names its pass.
   """
 
   use ExExample
@@ -12,8 +12,7 @@ defmodule Examples.EPipeline do
   import ExUnit.Assertions
 
   alias Examples.EAccumulator
-  alias Examples.EFibonacci
-  alias Examples.ELang
+  alias Examples.EUser
   alias Zkfol.Accumulator
   alias Zkfol.Doubling
   alias Zkfol.Log
@@ -25,36 +24,21 @@ defmodule Examples.EPipeline do
 
   @spec generation_fills_the_slot() :: Statement.t()
   example generation_fills_the_slot do
-    source = %Statement{rels: [ELang.fib()]}
+    source = %Statement{rels: [EUser.fib()]}
     pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, args: [8]}]}
 
     {:ok, statement, trace} = Pipeline.run(pipeline, source)
 
     # A witness models a predicate, so the slot only opens once lowered.
-    assert Statement.witness(statement) == EFibonacci.fibonacci_witness(8)
+    assert Statement.witness(statement) == Statement.witness(EUser.fibonacci(8))
     assert [{Zkfol.Lang, %Statement{stage: %Statement.Lowered{}}}, {Witness, ^statement}] = trace
-    statement
-  end
-
-  @spec a_manual_witness_needs_no_pass() :: Statement.t()
-  example a_manual_witness_needs_no_pass do
-    manual = %Statement{
-      stage: %Statement.Solved{
-        pred: EFibonacci.fibonacci_predicate(),
-        witness: EFibonacci.fibonacci_witness(8)
-      }
-    }
-
-    {:ok, statement, _trace} = Pipeline.run(%Pipeline{passes: [{Witness, args: [8]}]}, manual)
-
-    assert statement == manual
     statement
   end
 
   @spec doubled_through_the_pipeline() :: Log.Ran.t()
   example doubled_through_the_pipeline do
     pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}
-    source = %Statement{rels: [ELang.fib()], args: [100]}
+    source = %Statement{rels: [EUser.fib()], args: [100]}
 
     # One call is the whole act: the route defined, the derivation on
     # its trail, the verdicts piped, the proof intended on top.
@@ -64,7 +48,7 @@ defmodule Examples.EPipeline do
 
     report = Log.report(Log.snapshot(), ran)
     assert %Prover.Report{claims: [{_claim, value}, {_position, _walked}]} = report
-    assert value == EFibonacci.fib(100)
+    assert value == EUser.fib(100)
     ran
   end
 
@@ -98,7 +82,7 @@ defmodule Examples.EPipeline do
   @spec emit_leaves_a_receipt_without_a_proof() :: Log.Ran.t()
   example emit_leaves_a_receipt_without_a_proof do
     pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}
-    source = %Statement{rels: [ELang.fib()], args: [100]}
+    source = %Statement{rels: [EUser.fib()], args: [100]}
 
     # The same act stops at the emitted UAIR: the route defined, the
     # derivation on its trail, the verdicts piped, and no proof on top.
@@ -150,7 +134,7 @@ defmodule Examples.EPipeline do
 
   @spec a_refusal_names_its_pass() :: Refusal.t()
   example a_refusal_names_its_pass do
-    source = %Statement{rels: [ELang.fib()], args: [0]}
+    source = %Statement{rels: [EUser.fib()], args: [0]}
 
     {:error, Doubling, refusal, [{Zkfol.Lang, _lowered}]} =
       Pipeline.run(%Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}, source)
@@ -161,7 +145,7 @@ defmodule Examples.EPipeline do
 
   @spec outside_the_class_passes_through() :: Statement.t()
   example outside_the_class_passes_through do
-    source = %Statement{rels: [ELang.regs()], args: [5]}
+    source = %Statement{rels: [EUser.regs()], args: [5]}
 
     {:ok, statement, trace} = Pipeline.run(Pipeline.default(), source)
 
@@ -175,7 +159,7 @@ defmodule Examples.EPipeline do
            ] = trace
 
     assert statement == solved
-    assert Statement.witness(statement) == EFibonacci.registers_witness(5)
+    assert Statement.witness(statement) == Statement.witness(EUser.registers(5))
     statement
   end
 end

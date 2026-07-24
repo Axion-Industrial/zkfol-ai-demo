@@ -4,7 +4,7 @@ defmodule Zkfol.Facts do
   values from its facts, the coefficients from its step equation. What
   the rows only imply, the clauses declare.
 
-      Facts.recurrence(Examples.ELang.fib())
+      Facts.recurrence(Examples.EUser.fib())
   """
 
   use TypedStruct
@@ -80,7 +80,8 @@ defmodule Zkfol.Facts do
     end
   end
 
-  @spec history([{integer(), atom()}]) :: {:ok, atom(), atom()} | {:error, Refusal.t(Refusal.restructure())}
+  @spec history([{integer(), atom()}]) ::
+          {:ok, atom(), atom()} | {:error, Refusal.t(Refusal.restructure())}
   defp history(offsets) do
     case Enum.sort(offsets, :desc) do
       [{-1, back_one}, {-2, back_two}] -> {:ok, back_one, back_two}

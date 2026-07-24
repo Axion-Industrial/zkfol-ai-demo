@@ -1,22 +1,25 @@
 defmodule Examples.EAst do
   @moduledoc """
-  I am the compilation's evidence: the arithmetized polynomial
-  (Figure 2) agrees with the oracle at every column.
+  I am the algebra's evidence: the arithmetized polynomial (Figure 2)
+  agrees with the oracle at every column, in both directions, and the
+  oracle's judgements reject a witness that lies, guarded by ranges or
+  meeting the out-of-range dereference itself.
   """
 
   use ExExample
 
   import ExUnit.Assertions
 
-  alias Examples.EPower
+  alias Examples.EUser
   alias Zkfol.Ast
   alias Zkfol.Interpretation
+  alias Zkfol.Statement
   alias Zkfol.Semantics
 
   @spec figure_two_agrees_with_the_oracle() :: Zkfol.Ast.ep()
   example figure_two_agrees_with_the_oracle do
-    witness = EPower.power_witness()
-    phi = EPower.power_predicate()
+    witness = Statement.witness(EUser.power())
+    phi = Statement.pred(EUser.power())
     poly = Ast.arithmetize(phi)
 
     for x <- 1..Interpretation.len(witness) do
@@ -26,12 +29,39 @@ defmodule Examples.EAst do
     poly
   end
 
+  @spec wrong_value_is_rejected() :: Interpretation.t()
+  example wrong_value_is_rejected do
+    tampered = tamper(Statement.witness(EUser.power()), 3, 4, 9)
+
+    refute Semantics.valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    tampered
+  end
+
+  @spec out_of_range_pointer_is_rejected() :: Interpretation.t()
+  example out_of_range_pointer_is_rejected do
+    tampered = tamper(Statement.witness(EUser.power()), 4, 4, 7)
+
+    refute Semantics.valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    tampered
+  end
+
+  @spec unguarded_out_of_range_is_false() :: boolean()
+  example unguarded_out_of_range_is_false do
+    # With no range guarding the pointer, the oracle meets the out-of-range
+    # dereference itself, and answers false rather than raising.
+    result =
+      Semantics.valid?(Statement.pred(EUser.power()), [], out_of_range_pointer_is_rejected())
+
+    refute result
+    result
+  end
+
   @spec figure_two_rejects_what_the_oracle_rejects() :: Interpretation.t()
   example figure_two_rejects_what_the_oracle_rejects do
     # The other direction: on the witness the oracle already rejected,
     # the polynomial must be nonzero exactly where the predicate is.
-    tampered = EPower.wrong_value_is_rejected()
-    phi = EPower.power_predicate()
+    tampered = wrong_value_is_rejected()
+    phi = Statement.pred(EUser.power())
     poly = Ast.arithmetize(phi)
     columns = 1..Interpretation.len(tampered)
 
@@ -42,5 +72,14 @@ defmodule Examples.EAst do
 
     assert Enum.any?(columns, &(Semantics.eval(phi, tampered, &1) != 0))
     tampered
+  end
+
+  @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), non_neg_integer()) ::
+          Interpretation.t()
+  defp tamper(witness, i, x, value) do
+    witness
+    |> Interpretation.rows()
+    |> List.update_at(i - 1, &List.replace_at(&1, x - 1, value))
+    |> Interpretation.new()
   end
 end

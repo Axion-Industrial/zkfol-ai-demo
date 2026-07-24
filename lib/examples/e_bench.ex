@@ -8,8 +8,7 @@ defmodule Examples.EBench do
   import ExUnit.Assertions
 
   alias Examples.EDoubling
-  alias Examples.EFibonacci
-  alias Examples.EPower
+  alias Examples.EUser
   alias Zkfol.Interpretation
   alias Zkfol.Pipeline
   alias Zkfol.Statement
@@ -17,21 +16,21 @@ defmodule Examples.EBench do
 
   @spec measured_power(non_neg_integer()) :: map()
   example measured_power(exponent \\ 32) do
-    witness = EPower.power_witness(exponent)
-    measurement("power 2^#{exponent}", EPower.power_predicate(), witness)
+    witness = Statement.witness(EUser.power(exponent))
+    measurement("power 2^#{exponent}", Statement.pred(EUser.power(exponent)), witness)
   end
 
   # The pinned code caps traces at 2048 columns; the suite default stays small.
   @spec measured_fibonacci(pos_integer()) :: map()
   example measured_fibonacci(n \\ 32) do
-    witness = EFibonacci.fibonacci_witness(n)
-    measurement("fibonacci n=#{n}", EFibonacci.fibonacci_predicate(), witness)
+    witness = Statement.witness(EUser.fibonacci(n))
+    measurement("fibonacci n=#{n}", Statement.pred(EUser.fibonacci()), witness)
   end
 
   @spec measured_registers_fibonacci(pos_integer()) :: map()
   example measured_registers_fibonacci(n \\ 32) do
-    witness = EFibonacci.registers_witness(n)
-    measurement("fibonacci n=#{n}, registers", EFibonacci.registers_predicate(), witness)
+    witness = Statement.witness(EUser.registers(n))
+    measurement("fibonacci n=#{n}, registers", Statement.pred(EUser.registers(n)), witness)
   end
 
   @spec measured_doubled_fibonacci(pos_integer()) :: map()
@@ -49,7 +48,7 @@ defmodule Examples.EBench do
   @spec measured_default_fibonacci(pos_integer()) :: map()
   example measured_default_fibonacci(n \\ 10_000) do
     {:ok, statement, _trace} =
-      Pipeline.run(Pipeline.default(), %Statement{rels: [Examples.ELang.fib()], args: [n]})
+      Pipeline.run(Pipeline.default(), %Statement{rels: [EUser.fib()], args: [n]})
 
     measurement(
       "fibonacci n=#{n}, default",
@@ -80,7 +79,7 @@ defmodule Examples.EBench do
     {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
 
     {:ok, generic} =
-      Uair.emit(EFibonacci.fibonacci_predicate(), EFibonacci.fibonacci_witness(32))
+      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(32)))
 
     assert Zkfol.Uair.num_vars(kernel) == 4
     assert Zkfol.Uair.num_cols(kernel) == 7

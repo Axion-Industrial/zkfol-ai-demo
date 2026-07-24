@@ -13,15 +13,16 @@ defmodule Examples.EAl do
   import ExUnit.Assertions
 
   alias Examples.EDoubling
-  alias Examples.EFibonacci
+  alias Examples.EUser
   alias Zkfol.Al
+  alias Zkfol.Statement
   alias Zkfol.Refusal
   alias Zkfol.Interpretation
   alias Zkfol.Uair
 
   @spec registers_program() :: Al.program()
   example registers_program do
-    {:ok, program} = Al.translate(Examples.ELang.regs())
+    {:ok, program} = Al.translate(Examples.EUser.regs())
 
     # The class row, the retraction, one clause per clause: facts first.
     assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
@@ -33,8 +34,8 @@ defmodule Examples.EAl do
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
-    {:ok, first} = Al.solve(Examples.ELang.regs(), [8], branch: branch.id)
-    {:ok, second} = Al.solve(Examples.ELang.regs(), [8], branch: branch.id)
+    {:ok, first} = Al.solve(Examples.EUser.regs(), [8], branch: branch.id)
+    {:ok, second} = Al.solve(Examples.EUser.regs(), [8], branch: branch.id)
     AL.Branch.discard(branch)
 
     assert first == second
@@ -54,7 +55,7 @@ defmodule Examples.EAl do
     # kernel(x, u, w, e, r): e walks in row 4, the result rides row 5.
     last = Interpretation.len(witness)
     assert Interpretation.at(witness, 4, last) == n - 2
-    assert Interpretation.at(witness, 5, last) == EFibonacci.fib(n)
+    assert Interpretation.at(witness, 5, last) == EUser.fib(n)
     witness
   end
 
@@ -73,17 +74,17 @@ defmodule Examples.EAl do
   # projection derives the same witness, which is the parity net.
   @spec clauses_go_straight_down() :: Interpretation.t()
   example clauses_go_straight_down do
-    {:ok, direct} = Al.solve(Examples.ELang.fib(), [8])
+    {:ok, direct} = Al.solve(EUser.fib(), [8])
 
-    assert direct == EFibonacci.fibonacci_witness(8)
+    assert direct == Statement.witness(EUser.fibonacci(8))
     direct
   end
 
   @spec registers_go_straight_down() :: Interpretation.t()
   example registers_go_straight_down do
-    {:ok, direct} = Al.solve(Examples.ELang.regs(), [8])
+    {:ok, direct} = Al.solve(Examples.EUser.regs(), [8])
 
-    assert direct == EFibonacci.registers_witness(8)
+    assert direct == Statement.witness(EUser.registers(8))
     direct
   end
 
@@ -210,7 +211,7 @@ defmodule Examples.EAl do
   @spec scheduled_pointers_skip_the_bits() :: Uair.t()
   example scheduled_pointers_skip_the_bits do
     {:ok, uair} =
-      Uair.emit(EFibonacci.registers_predicate(), EFibonacci.registers_witness())
+      Uair.emit(Statement.pred(EUser.registers()), Statement.witness(EUser.registers()))
 
     assert %Zkfol.Uair.Plain{} = uair.mode
     assert uair.shifts != []

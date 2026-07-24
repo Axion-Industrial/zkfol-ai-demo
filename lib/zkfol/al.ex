@@ -39,7 +39,7 @@ defmodule Zkfol.Al do
   I emit the AL program of a relation under its own name, or refuse
   with the reason.
 
-      translate(Examples.ELang.regs())
+      translate(Examples.EUser.regs())
   """
   @spec translate(Rel.t() | [Rel.t()], atom() | nil) :: {:ok, program()} | {:error, Refusal.t()}
   def translate(target, name \\ nil)
@@ -54,7 +54,7 @@ defmodule Zkfol.Al do
   @doc """
   I derive the witness at `arguments`, or refuse with the reason.
 
-      solve(Examples.ELang.fib(), [8])
+      solve(Examples.EUser.fib(), [8])
       solve(kernel_statement, [:_, n - 2])
       solve(Examples.EFacts.factorial(), [6], branch: :head)
 
