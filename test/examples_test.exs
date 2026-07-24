@@ -6,6 +6,10 @@ defmodule Examples.EUairTest do
   use ExExample.ExUnit, for: Examples.EUair
 end
 
+defmodule Examples.EFaceTest do
+  use ExExample.ExUnit, for: Examples.EFace
+end
+
 defmodule Examples.ELogTest do
   use ExExample.ExUnit, for: Examples.ELog
 end
