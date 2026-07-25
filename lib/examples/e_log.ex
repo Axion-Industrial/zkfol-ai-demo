@@ -11,8 +11,7 @@ defmodule Examples.ELog do
 
   import ExUnit.Assertions
 
-  alias Examples.EFibonacci
-  alias Examples.ELang
+  alias Examples.EUser
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
@@ -36,7 +35,7 @@ defmodule Examples.ELog do
 
   @spec journaled_proving() :: Log.Ran.t()
   example journaled_proving do
-    ran = Zkfol.compile(%Statement{rels: [ELang.fib()], args: [8]}, name: :fibonacci)
+    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]}, name: :fibonacci)
     snap = Log.snapshot()
     assert %Prover.Report{} = report = Log.report(snap, ran)
 
@@ -73,7 +72,7 @@ defmodule Examples.ELog do
     send(self(), stale)
 
     {:ok, report, _id} =
-      Uair.prove(EFibonacci.fibonacci_predicate(), EFibonacci.fibonacci_witness())
+      Uair.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
 
     # The stale body is a bare map; a verdict actually heard is a Report.
     assert %Prover.Report{} = report

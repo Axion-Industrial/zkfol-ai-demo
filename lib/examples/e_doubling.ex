@@ -12,9 +12,7 @@ defmodule Examples.EDoubling do
   import ExUnit.Assertions
 
   alias Examples.EFacts
-  alias Examples.EFibonacci
-  alias Examples.ELang
-  alias Examples.EPower
+  alias Examples.EUser
   alias Zkfol.Ast
   alias Zkfol.Refusal
   alias Zkfol.Doubling
@@ -28,7 +26,7 @@ defmodule Examples.EDoubling do
 
   @spec rewritten_fibonacci(pos_integer()) :: Statement.t()
   example rewritten_fibonacci(n \\ 8) do
-    {:ok, statement} = Doubling.rewrite(ELang.fib(), n)
+    {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
 
     assert Semantics.valid?(
              Statement.pred(statement),
@@ -55,7 +53,7 @@ defmodule Examples.EDoubling do
     for n <- [1, 2, 3, 4, 8, 20] do
       value = claimed(rewritten_fibonacci(n))
 
-      assert value == EFibonacci.fib(n)
+      assert value == EUser.fib(n)
       {n, value}
     end
   end
@@ -65,7 +63,7 @@ defmodule Examples.EDoubling do
     statement = rewritten_fibonacci(10_000)
 
     assert Interpretation.len(Statement.witness(statement)) == 14
-    assert claimed(statement) == EFibonacci.fib(10_000)
+    assert claimed(statement) == EUser.fib(10_000)
     statement
   end
 
@@ -80,7 +78,7 @@ defmodule Examples.EDoubling do
       )
 
     assert [{_claim, value}, {_position, walked}] = report.claims
-    assert value == EFibonacci.fib(100)
+    assert value == EUser.fib(100)
     assert walked == 98
     report
   end
@@ -90,10 +88,10 @@ defmodule Examples.EDoubling do
     fused = rewritten_fibonacci(100)
 
     # The bits seed the slot; the walk derives.
-    {:ok, count, bind} = Doubling.goal(ELang.fib(), 100)
+    {:ok, count, bind} = Doubling.goal(EUser.fib(), 100)
     pipeline = %Pipeline{passes: [{Doubling, []}, {Witness, args: [count], bind: bind}]}
 
-    source = %Statement{rels: [ELang.fib()]}
+    source = %Statement{rels: [EUser.fib()]}
     {:ok, statement, trace} = Pipeline.run(pipeline, source)
 
     assert [{Doubling, bare}, {Witness, ^statement}] = trace
@@ -105,7 +103,7 @@ defmodule Examples.EDoubling do
 
   @spec the_try_leaves_other_statements_alone() :: Statement.t()
   example the_try_leaves_other_statements_alone do
-    source = %Statement{stage: %Statement.Lowered{pred: EPower.power_predicate()}}
+    source = %Statement{stage: %Statement.Lowered{pred: Statement.pred(EUser.power())}}
 
     {:ok, statement, trace} = Pipeline.run(%Pipeline{passes: [{Doubling, []}]}, source)
 
@@ -117,7 +115,7 @@ defmodule Examples.EDoubling do
   @spec unclaimed_position_keeps_n_private() :: map()
   example unclaimed_position_keeps_n_private do
     pipeline = %Pipeline{passes: [{Doubling, private: true}]}
-    source = %Statement{rels: [ELang.fib()], args: [100]}
+    source = %Statement{rels: [EUser.fib()], args: [100]}
 
     {:ok, statement, _trace} = Pipeline.run(pipeline, source)
 
@@ -127,7 +125,7 @@ defmodule Examples.EDoubling do
     assert uair.num_public == 1
     {:ok, report, _id} = Uair.prove_uair(uair, name: :private_n)
     assert [{_claim, value}] = report.claims
-    assert value == EFibonacci.fib(100)
+    assert value == EUser.fib(100)
     report
   end
 

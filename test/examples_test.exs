@@ -1,5 +1,13 @@
-defmodule Examples.EPowerTest do
-  use ExExample.ExUnit, for: Examples.EPower
+defmodule Examples.EUserTest do
+  use ExExample.ExUnit, for: Examples.EUser
+end
+
+defmodule Examples.EUairTest do
+  use ExExample.ExUnit, for: Examples.EUair
+end
+
+defmodule Examples.EFaceTest do
+  use ExExample.ExUnit, for: Examples.EFace
 end
 
 defmodule Examples.ELogTest do
@@ -10,10 +18,6 @@ defmodule Examples.EAstTest do
   use ExExample.ExUnit, for: Examples.EAst
 end
 
-defmodule Examples.ELangTest do
-  use ExExample.ExUnit, for: Examples.ELang
-end
-
 # Benchmarks assert our published numbers; BENCH=1 mix test runs them.
 if System.get_env("BENCH") do
   defmodule Examples.EBenchTest do
@@ -21,20 +25,8 @@ if System.get_env("BENCH") do
   end
 end
 
-defmodule Examples.EFibonacciTest do
-  use ExExample.ExUnit, for: Examples.EFibonacci
-end
-
-defmodule Examples.EFactorialTest do
-  use ExExample.ExUnit, for: Examples.EFactorial
-end
-
 defmodule Examples.EFactsTest do
   use ExExample.ExUnit, for: Examples.EFacts
-end
-
-defmodule Examples.EEfficientPowerTest do
-  use ExExample.ExUnit, for: Examples.EEfficientPower
 end
 
 defmodule Examples.EDoublingTest do
