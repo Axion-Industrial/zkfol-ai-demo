@@ -1,3 +1,31 @@
+* V0.2.0
+** Features
+- The relational surface: defrel writes a relation as clauses over
+  the core language, compiled to the same IR the handwritten
+  predicates produced; the handwritten predicates are gone
+- The witness oracle unified: interpretation, semantics and range
+  live together, and witnesses are derived from the statement,
+  never restated
+- Typed refusals: a pass that declines says why with a value
+- The order-2 descriptor: Facts reads a recurrence off a relation,
+  and the doubling pass consumes descriptors
+- The compiler core: Zkfol.compile evaluates a Statement through
+  the pipeline stages; passes implement one behaviour (run/2,
+  plan/2); a journaled act leaves a Ran receipt whose trail is a
+  query over the log and whose stages are pure re-runs
+- The face: Zkfol.Face shapes statements, grids, routes and runs
+  for a viewer; every feed is a pure function of a log snapshot
+- One examples book: Examples.EUser defines the corpus with defrel
+  and threads default arguments; everything derivable is derived
+- Glamorous Toolkit views declared Elixir side over gt_bridge
+  0.19.1: the pipeline route as a mondrian, its passes as a list,
+  and a Pass tab on the module coder reading journaled runs off
+  the log
+- AL support: FOL expressions evaluate on AL, and the witness is
+  obtained from it
+- The review skill stands alone; formatter and dialyzer settings
+  ride the docs topic
+
 * V0.1.0
 ** Features
 - Replaced python codebase with an Elixir one
