@@ -5,17 +5,19 @@ description: Review code for architectural fit, dead code, and complexity. Use w
 
 # Code Review
 
-Review the specified code using the code-reviewer agent.
+Review the specified code against the project conventions.
 
 ## Instructions
 
-1. Spawn the `code-reviewer` agent (from `.claude/agents/code-reviewer.md`)
-   via the Task tool with subagent_type "general-purpose".
-2. Pass it the file path or module name provided by the user.
-3. Include in the prompt: "Follow the instructions in
-   `.claude/agents/code-reviewer.md`. Review the following: [target]"
-4. When the agent returns, present its findings to the user concisely.
+1. Spawn a reviewer via the Task tool with subagent_type
+   "general-purpose".
+2. Tell it to read `.claude/skills/general-conventions/SKILL.md`
+   (especially Review Principles and Implementation Anti-Patterns) and
+   `.claude/skills/elixir-conventions/SKILL.md`, then review the target
+   the user named: run its examples rather than reasoning from
+   signatures, and verify every finding before reporting it.
+3. When the agent returns, present its findings to the user concisely.
    Group by severity: architectural issues first, then complexity,
    then style.
-5. If the agent ran examples or queries interactively, include
+4. If the agent ran examples or queries interactively, include
    those observations — they're the strongest evidence.
