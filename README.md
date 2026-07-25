@@ -5,75 +5,78 @@ arithmetised to a uniform AIR and proved through Zinc+.
 
 ## The pipeline
 
-| Stage                                              | Module                 |
-|----------------------------------------------------|------------------------|
-| Figure 1 syntax (terms, predicates)                | `Zkfol.Ast`            |
-| Figure 1 range checks R                            | `Zkfol.Range`          |
-| Definition 2.16 interpretations                    | `Zkfol.Interpretation` |
-| Figure 3 semantics + judgement (the one oracle)    | `Zkfol.Semantics`      |
-| Figure 2 arithmetisation (predicate to polynomial) | `Zkfol.Enrich`         |
-| statement to UAIR, proved on Zinc+ through the NIF | `Zkfol.Uair`           |
-| generating semantics (seeds to witness)            | `Zkfol.Witness`        |
+| Stage                                                | Module                 |
+|------------------------------------------------------|------------------------|
+| Figure 1 syntax + Figure 2 arithmetisation           | `Zkfol.Ast`            |
+| Figure 1 range checks R                              | `Zkfol.Range`          |
+| Definition 2.16 interpretations                      | `Zkfol.Interpretation` |
+| Figure 3 semantics + judgement (the one oracle)      | `Zkfol.Semantics`      |
+| the relational surface: `defrel`/`rel` to predicates | `Zkfol.Lang`           |
+| order-2 descriptors read off a relation              | `Zkfol.Facts`          |
+| the doubling rewrite to a log-depth kernel           | `Zkfol.Doubling`       |
+| the AL backend: the derivation is the witness        | `Zkfol.Al`             |
+| witness generation as a pass                         | `Zkfol.Witness`        |
+| statement to UAIR, proved on Zinc+ through the NIF   | `Zkfol.Uair`           |
+| the front door: one call from relations to a receipt | `Zkfol`                |
+| the system shaped for a viewer                       | `Zkfol.Face`           |
 
 The only essential state is the command log (`Zkfol.Log`): events are appended,
 never rewritten; every other datum -- witnesses, UAIRs, claims, reports -- is
 derived on demand. Worked examples in `lib/examples/` (`ExExample`) are the
-documentation, the fixtures, and the tests at once; every performance claim is an
-assertion in `Examples.EBench`, re-derived on the machine that runs it.
+documentation, the fixtures, and the tests at once: `Examples.EUser` is the book
+of relations, and every performance claim is an assertion in `Examples.EBench`,
+re-derived on the machine that runs it. Every refusal is a typed value,
+`{reason, detail}`, indexed in `Zkfol.Refusal`.
 
-The recurrence pass (`Zkfol.Facts`, `Zkfol.Doubling`) rewrites certified
-order-2 recurrences to log-n bit-walk traces.
-
-The Rust prover is `native/zkfol_zinc_plus`, a Rustler NIF binding zinc-plus
-(pinned at 7cf72c4e) and interpreting the UAIR over three cell widths -- i64,
-768-bit, and 7040-bit. Proving runs on a dedicated thread and answers to an id.
-Its field is a fixed secp256k1 projecting prime, so proofs on this lineage are
-honest-prover-only. `analysis/` holds the frozen measurement record; the retired
-Python proof of concept is on branch `attic/python`.
-
-```sh
-mix test          # every example, including live proofs through the NIF
-mix dialyzer      # type checking
-mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'   # the benchmark
-```
+The Rust prover is `native/zkfol_zinc_plus`, a Rustler NIF binding a pinned
+zinc-plus fork and interpreting the UAIR over three cell widths -- i64, 768-bit,
+and 7040-bit. Proving runs on a dedicated thread and answers to an id. Its field
+is a fixed secp256k1 projecting prime, so proofs on this lineage are
+honest-prover-only. The current pin and its trace limits live in
+`native/zkfol_zinc_plus/src/config.rs`. `analysis/` holds the frozen measurement
+record; the retired Python proof of concept is on branch `attic/python`.
 
 ## Environment
 
 The toolchain is managed with asdf. `.tool-versions` pins Erlang and Elixir, so
 `asdf install` provisions them; `mix deps.get` then builds the app and its Rust NIF.
 
+```sh
+mix test          # every example on its own store (.mnesiastore-test/), safe beside a live node
+mix dialyzer      # type checking
+mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'   # the benchmark
+```
+
 ## In iex
 
-`iex -S mix` opens a session with everything loaded. The benchmark examples double
-as a smoke test, and each returns its measurement:
+`iex --sname fol -S mix` opens the live node; its log lives in `.mnesiastore/`.
+The front door is one call, and the benchmark examples double as a smoke test:
 
 ```elixir
+Examples.EUser.compiled()          # one act: relations to a proof, the receipt on the log
 Examples.EBench.measured_fibonacci()
 Examples.EBench.report()
 ```
 
 ## Installation in GT
 
-The inspector side lives under `src/` as Tonel packages, `BaselineOfZkfol`
-and `Zkfol`. It ships one view, the Uair pointer grid: the emitted
-statement's committed columns as rows, colored by derived kind (pointer
-bits, dereference results, looked-up pointers), with claimed rows outlined.
-Cells and row labels are clickable and spawn the named cell or row in the
-next pane. The live GT examples compose on the Elixir examples, so the
-backing node must run the lookup/uair-struct stack; the node-free examples
-run against a proxy-shaped fixture. A fresh `load` also rides AL's GToolkit
+The inspector side lives under `src/` as Tonel packages, `BaselineOfZkfol` and
+`Zkfol`, reading the running node over gt_bridge. Inspecting a receipt dresses
+it in the act's pipeline and trail; an emitted statement wears the Uair pointer
+grid with its deref chains, hover, and failures views; a route wears its passes;
+a pass module its record and examples. The live GT examples compose on the
+Elixir examples, so the backing node must run this tree; the node-free examples
+run against recorded feed fixtures. A fresh `load` also rides AL's GToolkit
 tooling in, so the AL GUI displays alongside the grid.
 
 ```st
-"fresh / CI: pins gt_bridge v0.18.1, rides AL's GUI in, loads Zkfol"
+"fresh / CI: pins the gt_bridge mix.exs asks for, rides AL's GUI in, loads Zkfol"
 Metacello new
 	repository: 'github://bellissimogiorno/20260627-zkfol-zinc-playground:main/src';
 	baseline: #Zkfol;
 	load
 ```
 
-The `default` group pins gt_bridge v0.18.1 (the version `mix.exs` asks for) and
-brings AL in through its own dev group, so the one bridge is the single pin.
 When you are hacking a work-in-progress bridge or AL, `load: #dev` loads only
 `Zkfol` against what is already in the image and touches no pin. Until this
 package lands on `main`, load it from your checkout instead:
