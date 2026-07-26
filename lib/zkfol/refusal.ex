@@ -9,8 +9,8 @@ defmodule Zkfol.Refusal do
   at the place it is made, so the wording lives here once, the reason is
   what callers match on, and no one greps for a substring.
 
-  `kind/1` says what the caller should do, and is a property of the
-  reason rather than a thing each site repeats:
+  A refusal's kind says what the caller should do, and is a property
+  of the reason rather than a thing each site repeats:
 
   - `:restructure` — the statement's shape is not one I compile. Rewrite it.
   - `:out_of_range` — a bound was exceeded. Shrink it, or raise the bound.
@@ -69,19 +69,6 @@ defmodule Zkfol.Refusal do
     @typedoc "The refusals that ask the caller to #{kind}."
     @type unquote({kind, [], nil}) :: unquote(@union.(reasons))
   end
-
-  @doc "I say what the caller should do about `refusal`."
-  @spec kind(t() | reason()) :: kind()
-  def kind({reason, _detail}), do: kind(reason)
-  def kind(reason) when is_atom(reason), do: Map.fetch!(@index, reason)
-
-  @doc "I am every refusal of `kind`, which is what makes the taxonomy countable."
-  @spec of_kind(kind()) :: [reason()]
-  def of_kind(kind), do: Map.fetch!(@by_kind, kind)
-
-  @doc "I am the index itself: every reason and the response it asks for."
-  @spec index() :: %{reason() => kind()}
-  def index, do: @index
 
   @doc "I name the pass that refused, keeping the reason and its detail intact."
   @spec by(t(), module()) :: t()

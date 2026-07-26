@@ -3,17 +3,14 @@ defmodule Examples.EPipeline do
   I am the pipeline's evidence: generation fills the witness slot, the
   doubled route walks through the front door and leaves its receipt,
   the emit act leaves a receipt with no proof, the trail replays the
-  act off the log, the plan reads the route ahead of the run, and a
-  refusal names its pass.
+  act off the log, and a refusal names its pass.
   """
 
   use ExExample
 
   import ExUnit.Assertions
 
-  alias Examples.EAccumulator
   alias Examples.EUser
-  alias Zkfol.Accumulator
   alias Zkfol.Doubling
   alias Zkfol.Log
   alias Zkfol.Pipeline
@@ -106,30 +103,6 @@ defmodule Examples.EPipeline do
     assert Log.report(Log.snapshot(), ran) == nil
 
     ran
-  end
-
-  @spec the_plan_reads_the_route_ahead() :: [{module(), Pipeline.verdict()}]
-  example the_plan_reads_the_route_ahead do
-    statement = EAccumulator.hop_at_the_door()
-    plan = Pipeline.plan(Pipeline.default(), statement)
-
-    # Pure queries, no act: the facts decline the doubling, the solved
-    # witness stills the generator, the layout foretells the rows.
-    assert [
-             {Zkfol.Lang, :lowers},
-             {Doubling, :declines},
-             {Witness, :declines},
-             {Accumulator, {:expands, layout}}
-           ] = plan
-
-    assert %{pairs: [{1, 3}, {2, 3}], len: 5, arity: 3} = layout
-
-    # One vocabulary for the predicted and the observed: on a statement
-    # already at the door, the act's verdicts are the plan.
-    {:ok, _expanded, trace} = Pipeline.run(Pipeline.default(), statement)
-    assert Pipeline.verdicts(Pipeline.default(), statement, trace) == plan
-
-    plan
   end
 
   @spec a_refusal_names_its_pass() :: Refusal.t()

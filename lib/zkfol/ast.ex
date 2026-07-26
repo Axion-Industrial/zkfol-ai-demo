@@ -128,26 +128,26 @@ defmodule Zkfol.Ast do
   def conjuncts({:conj, preds}), do: Enum.flat_map(preds, &conjuncts/1)
   def conjuncts(pred), do: [pred]
 
-  @doc "I rebuild a node with `fun` applied to each immediate child."
+  # Rebuild a node with `fun` applied to each immediate child.
   @spec map_children(node, (node -> node)) :: node when node: var
-  def map_children({:add, t, u}, fun), do: {:add, fun.(t), fun.(u)}
-  def map_children({:mul, t, u}, fun), do: {:mul, fun.(t), fun.(u)}
-  def map_children({:reify, phi}, fun), do: {:reify, fun.(phi)}
-  def map_children({:eq, t, u}, fun), do: {:eq, fun.(t), fun.(u)}
-  def map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
-  def map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
-  def map_children(leaf, _fun), do: leaf
+  defp map_children({:add, t, u}, fun), do: {:add, fun.(t), fun.(u)}
+  defp map_children({:mul, t, u}, fun), do: {:mul, fun.(t), fun.(u)}
+  defp map_children({:reify, phi}, fun), do: {:reify, fun.(phi)}
+  defp map_children({:eq, t, u}, fun), do: {:eq, fun.(t), fun.(u)}
+  defp map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
+  defp map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
+  defp map_children(leaf, _fun), do: leaf
 
   @doc "I rewrite bottom-up: children first, then `fun` on the rebuilt node."
   @spec postwalk(node, (node -> node)) :: node when node: var
   def postwalk(node, fun), do: fun.(map_children(node, &postwalk(&1, fun)))
 
-  @doc "I am the immediate children of `node`: its subterms and subpredicates, none for a leaf."
+  # The immediate children of `node`: its subterms and subpredicates, none for a leaf.
   @spec children(node) :: [node] when node: var
-  def children({tag, t, u}) when tag in [:add, :mul, :eq], do: [t, u]
-  def children({:reify, phi}), do: [phi]
-  def children({tag, preds}) when tag in [:conj, :disj], do: preds
-  def children(_leaf), do: []
+  defp children({tag, t, u}) when tag in [:add, :mul, :eq], do: [t, u]
+  defp children({:reify, phi}), do: [phi]
+  defp children({tag, preds}) when tag in [:conj, :disj], do: preds
+  defp children(_leaf), do: []
 
   @doc "I fold `fun` over every node, each parent before its children (pre-order)."
   @spec reduce(node, acc, (node, acc -> acc)) :: acc when node: var, acc: var

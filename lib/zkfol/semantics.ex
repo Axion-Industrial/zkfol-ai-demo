@@ -11,8 +11,8 @@ defmodule Zkfol.Semantics do
   """
 
   alias Zkfol.Ast
-  alias Zkfol.Interpretation
   alias Zkfol.Range
+  alias Zkfol.Interpretation
 
   @doc "I evaluate a term or predicate at column `x` under `itp`; for a predicate 0 means true."
   @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer()

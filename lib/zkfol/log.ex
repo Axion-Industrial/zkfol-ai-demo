@@ -9,9 +9,7 @@ defmodule Zkfol.Log do
   value; every read is a pure function of one. The table is created
   once at boot (`Zkfol.Application`), so no write carries its own setup.
 
-  A name is defined by a `{:define, name, value}` event, and equally by
-  a proof observed under a named intent: the image is what is known,
-  stated or proven. A journaled pipeline act leaves a `Ran`: a receipt
+  A journaled pipeline act leaves a `Ran`: a receipt
   of ids whose trail is a query and whose stages are pure re-runs.
   """
 
@@ -108,28 +106,6 @@ defmodule Zkfol.Log do
   @spec events() :: [Event.t()]
   def events, do: snapshot().events |> Enum.reverse()
 
-  @doc "I am the current surface: each name mapped to its latest definition."
-  @spec image(t()) :: %{term() => term()}
-  def image(%__MODULE__{events: events}), do: surface(events)
-
-  @doc "I am the surface as it stood just after event `id`: the time axis, navigable."
-  @spec image_down(t(), pos_integer()) :: %{term() => term()}
-  def image_down(%__MODULE__{events: events}, id) do
-    events |> Enum.drop_while(&(&1.id > id)) |> surface()
-  end
-
-  @doc "I am the id of the event whose definition of `name` is the surface's, or nil."
-  @spec definer(t(), term()) :: pos_integer() | nil
-  def definer(%__MODULE__{events: events}, name) do
-    events
-    |> definitions()
-    |> Enum.reverse()
-    |> Enum.find_value(fn
-      {^name, _value, id} -> id
-      _definition -> nil
-    end)
-  end
-
   @doc "I am event `id` and everything transitively based on it, oldest first."
   @spec thread(t(), pos_integer()) :: [Event.t()]
   def thread(log, id), do: descend(log, MapSet.new([id]))
@@ -164,18 +140,6 @@ defmodule Zkfol.Log do
     end
   end
 
-  @doc "I am `name`'s lifeline: its definitions and everything based on them, oldest first."
-  @spec lifeline(t(), term()) :: [Event.t()]
-  def lifeline(%__MODULE__{events: events} = log, name) do
-    roots =
-      for %Event{id: id, body: body} <- events,
-          match?({:define, ^name, _}, body) or match?({:prove_requested, ^name}, body),
-          into: MapSet.new(),
-          do: id
-
-    descend(log, roots)
-  end
-
   # Oldest to newest, an event joins the thread when it is a root or is
   # based on one already in it; its own id then becomes a root too.
   @spec descend(t(), MapSet.t()) :: [Event.t()]
@@ -189,35 +153,5 @@ defmodule Zkfol.Log do
     end)
     |> elem(1)
     |> Enum.reverse()
-  end
-
-  @spec surface([Event.t()]) :: %{term() => term()}
-  defp surface(events) do
-    for {name, value, _id} <- definitions(events), into: %{}, do: {name, value}
-  end
-
-  # Oldest first: a define event is a definition, and so is a proved
-  # observation, through the name its intent asked for. A proof defines
-  # what it proves; a failure defines nothing.
-  @spec definitions([Event.t()]) :: [{term(), term(), pos_integer()}]
-  defp definitions(events) do
-    chrono = Enum.reverse(events)
-
-    named =
-      for %Event{id: id, body: {:prove_requested, name}} <- chrono,
-          name != nil,
-          into: %{},
-          do: {id, name}
-
-    Enum.flat_map(chrono, fn
-      %Event{id: id, body: {:define, name, value}} ->
-        [{name, value, id}]
-
-      %Event{id: id, basedon: from, body: {:proved, report}} when is_map_key(named, from) ->
-        [{named[from], report, id}]
-
-      _event ->
-        []
-    end)
   end
 end

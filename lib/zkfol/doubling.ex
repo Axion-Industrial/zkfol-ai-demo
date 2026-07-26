@@ -36,8 +36,6 @@ defmodule Zkfol.Doubling do
 
   @claim "claim_recurrence_n_exact"
   @position "claim_recurrence_position"
-  # e sits fourth in kernel(x, u, w, e, r).
-  @walked_row 4
 
   @doc """
   I am the rewrite as a pass, and always a try: statements the facts
@@ -86,16 +84,6 @@ defmodule Zkfol.Doubling do
          ranges: Range.pointer(List.last(rows) + 1),
          stage: %Statement.Lowered{pred: pred}
        }}
-    end
-  end
-
-  @doc "I am the goal as a binding: the trace length and the walked position for `n`."
-  @spec goal(Zkfol.Lang.Rel.t(), integer()) ::
-          {:ok, pos_integer(), %{pos_integer() => integer()}} | {:error, Refusal.t()}
-  def goal(rel, n) do
-    with {:ok, %Facts{initial: [{start, _value} | _rest]}} <- Facts.recurrence(rel) do
-      m = n - start + 1
-      {:ok, count(m), %{@walked_row => m - 2}}
     end
   end
 

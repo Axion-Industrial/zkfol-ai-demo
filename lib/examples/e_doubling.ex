@@ -22,16 +22,17 @@ defmodule Examples.EDoubling do
   alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
-  alias Zkfol.Witness
 
   @spec rewritten_fibonacci(pos_integer()) :: Statement.t()
   example rewritten_fibonacci(n \\ 8) do
     {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
+    witness = Statement.witness(statement)
 
-    assert Semantics.valid?(
-             Statement.pred(statement),
-             statement.ranges,
-             Statement.witness(statement)
+    assert Enum.all?(statement.ranges, &Zkfol.Range.holds?(&1, witness))
+
+    assert Enum.all?(
+             1..Interpretation.len(witness),
+             &Semantics.holds?(Statement.pred(statement), witness, &1)
            )
 
     statement
@@ -83,23 +84,6 @@ defmodule Examples.EDoubling do
     report
   end
 
-  @spec the_witness_arrives_later() :: Statement.t()
-  example the_witness_arrives_later do
-    fused = rewritten_fibonacci(100)
-
-    # The bits seed the slot; the walk derives.
-    {:ok, count, bind} = Doubling.goal(EUser.fib(), 100)
-    pipeline = %Pipeline{passes: [{Doubling, []}, {Witness, args: [count], bind: bind}]}
-
-    source = %Statement{rels: [EUser.fib()]}
-    {:ok, statement, trace} = Pipeline.run(pipeline, source)
-
-    assert [{Doubling, bare}, {Witness, ^statement}] = trace
-    assert Statement.pred(bare) == Statement.pred(fused)
-    assert %Statement{stage: %Statement.Lowered{}} = bare
-    assert Statement.witness(statement) == Statement.witness(fused)
-    %{statement | claims: fused.claims}
-  end
 
   @spec the_try_leaves_other_statements_alone() :: Statement.t()
   example the_try_leaves_other_statements_alone do

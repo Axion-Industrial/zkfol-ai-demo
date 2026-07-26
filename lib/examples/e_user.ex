@@ -86,7 +86,8 @@ defmodule Examples.EUser do
 
     witness = Statement.witness(statement)
     assert witness |> Interpretation.rows() |> Enum.at(1) == Enum.map(1..n, &fib/1)
-    assert Semantics.valid?(Statement.pred(statement), statement.ranges, witness)
+    assert Enum.all?(statement.ranges, &Zkfol.Range.holds?(&1, witness))
+    assert Enum.all?(1..n, &Semantics.holds?(Statement.pred(statement), witness, &1))
     statement
   end
 

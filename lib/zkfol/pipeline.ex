@@ -3,10 +3,9 @@ defmodule Zkfol.Pipeline do
   I am a pipeline as a value: my passes are data, the trace is a value.
   A pass is `{module, opts}`, the module taking a statement and its
   opts to the next statement or refusing with the reason. On a refusal
-  I name the pass and keep the trace up to it. `plan/2` asks every
-  pass, purely and ahead of any act, what it would do; `verdicts/3`
-  asks the same questions along a finished trace, one vocabulary for
-  the predicted and the observed.
+  I name the pass and keep the trace up to it. A pass's `plan/2` is
+  its pure verdict on a statement, ahead of any act; `verdicts/3` asks
+  those questions along a finished trace.
   """
 
   use TypedStruct
@@ -71,16 +70,6 @@ defmodule Zkfol.Pipeline do
       {final, trace} -> {:ok, final, Enum.reverse(trace)}
     end
   end
-
-  @doc """
-  I am the route asked ahead of the run: every pass's verdict on
-  `statement` as it stands, the potential trace as data.
-
-      Pipeline.plan(Pipeline.default(), statement)
-  """
-  @spec plan(t(), Statement.t()) :: [{module(), verdict()}]
-  def plan(%__MODULE__{passes: passes}, statement),
-    do: for({pass, opts} <- passes, do: {pass, pass.plan(statement, opts)})
 
   @doc """
   I am the act's verdicts: the questions of `plan/2`, each put to the

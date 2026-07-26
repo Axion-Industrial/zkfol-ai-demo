@@ -15,7 +15,6 @@ defmodule Examples.EAccumulator do
   alias Examples.EAl
   alias Zkfol.Accumulator
   alias Zkfol.Refusal
-  alias Zkfol.Interpretation
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Statement
@@ -58,23 +57,6 @@ defmodule Examples.EAccumulator do
   # The expanded shape, counted by row kind: mu index bits and prev
   # shared, mu bits per pointer, a result per read, then per column
   # mu broadcasts per pointer and two sum rows per read.
-  @spec expanded_hop_shape() :: Accumulator.layout()
-  example expanded_hop_shape do
-    {:ok, plan} = Accumulator.layout(hop_at_the_door())
-
-    assert %{pairs: [{1, 3}, {2, 3}], len: 5, arity: 3} = plan
-    assert Accumulator.mu(plan) == 3 and Accumulator.pointers(plan) == [3]
-    assert Accumulator.index_bits(plan) == [4, 5, 6] and Accumulator.prev(plan) == 7
-    assert Accumulator.pointer_bits(plan, 3) == [8, 9, 10]
-    assert Accumulator.result(plan, {1, 3}) == 11 and Accumulator.result(plan, {2, 3}) == 12
-    assert Accumulator.broadcast(plan, 3, 1) == [13, 14, 15]
-
-    # 3 witness rows + 3 + 1 + 3 + 2 + 5 * (3 + 2 * 2) = 47 rows.
-    assert Accumulator.sum(plan, 2, 3, 5) == {46, 47}
-    assert Interpretation.arity(Statement.witness(expanded_hop())) == 47
-    plan
-  end
-
   # Every witness row is referenced, none public: row r is column r - 1.
   # X rides next, then the ones column the index pin adds to hold X to
   # the true column number.

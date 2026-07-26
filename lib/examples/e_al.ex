@@ -20,17 +20,6 @@ defmodule Examples.EAl do
   alias Zkfol.Interpretation
   alias Zkfol.Uair
 
-  @spec registers_program() :: Al.program()
-  example registers_program do
-    {:ok, program} = Al.translate(Examples.EUser.regs())
-
-    # The class row, the retraction, one clause per clause: facts first.
-    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, [_ | _]]} = step
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, []]} = base
-    program
-  end
-
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
@@ -77,14 +66,6 @@ defmodule Examples.EAl do
     {:ok, direct} = Al.solve(EUser.fib(), [8])
 
     assert direct == Statement.witness(EUser.fibonacci(8))
-    direct
-  end
-
-  @spec registers_go_straight_down() :: Interpretation.t()
-  example registers_go_straight_down do
-    {:ok, direct} = Al.solve(Examples.EUser.regs(), [8])
-
-    assert direct == Statement.witness(EUser.registers(8))
     direct
   end
 

@@ -57,15 +57,13 @@ defmodule Zkfol.Accumulator do
     end
   end
 
-  @doc """
-  I expand every pointer read into the accumulator encoding. I am a
-  try: a statement whose pointers all carry schedules, or one still
-  missing its predicate or witness, passes through untouched. The
-  expanded statement emits through `Zkfol.Uair` with
-  `composed_reads: []`, so the prover boundary has nothing to refuse.
-  """
+  # I expand every pointer read into the accumulator encoding. I am a
+  # try: a statement whose pointers all carry schedules, or one still
+  # missing its predicate or witness, passes through untouched. The
+  # expanded statement emits through `Zkfol.Uair` with
+  # `composed_reads: []`, so the prover boundary has nothing to refuse.
   @spec expand(Statement.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def expand(%Statement{stage: %Statement.Solved{pred: pred, witness: witness}} = statement) do
+  defp expand(%Statement{stage: %Statement.Solved{pred: pred, witness: witness}} = statement) do
     with {:ok, plan} <- planned(pred, witness) do
       case plan do
         :no_dynamic_reads ->
@@ -86,9 +84,9 @@ defmodule Zkfol.Accumulator do
 
   # Only a solved statement has both a predicate to expand and a witness to
   # extend; anything earlier passes through untouched.
-  def expand(%Statement{stage: stage} = statement)
-      when stage == :raw or is_struct(stage, Statement.Lowered),
-      do: {:ok, statement}
+  defp expand(%Statement{stage: stage} = statement)
+       when stage == :raw or is_struct(stage, Statement.Lowered),
+       do: {:ok, statement}
 
   @doc """
   I am the row plan the expansion follows, on the statement as it
@@ -109,33 +107,33 @@ defmodule Zkfol.Accumulator do
   # Allocation order: index bits, prev, pointer bits, results, then per
   # column the broadcasts and the sum pairs. The queries spell it out.
 
-  @doc "I am the bit width shared by the index and every pointer."
+  # The bit width shared by the index and every pointer.
   @spec mu(layout()) :: pos_integer()
-  def mu(plan), do: Uair.num_vars(plan.len)
+  defp mu(plan), do: Uair.num_vars(plan.len)
 
-  @doc "I am the distinct pointer rows, in allocation order."
+  # The distinct pointer rows, in allocation order.
   @spec pointers(layout()) :: [pos_integer()]
-  def pointers(plan), do: plan.pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+  defp pointers(plan), do: plan.pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
 
   @doc "I am the committed index bit rows, low bit first."
   @spec index_bits(layout()) :: [pos_integer()]
   def index_bits(plan), do: span(plan.arity, mu(plan))
 
-  @doc "I am the row carrying each column's predecessor."
+  # The row carrying each column's predecessor.
   @spec prev(layout()) :: pos_integer()
-  def prev(plan), do: plan.arity + mu(plan) + 1
+  defp prev(plan), do: plan.arity + mu(plan) + 1
 
-  @doc "I am pointer `a`'s committed bit rows."
+  # Pointer `a`'s committed bit rows.
   @spec pointer_bits(layout(), pos_integer()) :: [pos_integer()]
-  def pointer_bits(plan, a), do: span(prev(plan) + place(pointers(plan), a) * mu(plan), mu(plan))
+  defp pointer_bits(plan, a), do: span(prev(plan) + place(pointers(plan), a) * mu(plan), mu(plan))
 
   @doc "I am the derived result row of the read `{i, a}`."
   @spec result(layout(), {pos_integer(), pos_integer()}) :: pos_integer()
   def result(plan, pair), do: prev(plan) + width(plan) + place(plan.pairs, pair) + 1
 
-  @doc "I am the rows broadcasting pointer `a`'s bits for column `x0`."
+  # The rows broadcasting pointer `a`'s bits for column `x0`.
   @spec broadcast(layout(), pos_integer(), pos_integer()) :: [pos_integer()]
-  def broadcast(plan, a, x0) do
+  defp broadcast(plan, a, x0) do
     at = tail(plan) + (x0 - 1) * width(plan) + place(pointers(plan), a) * mu(plan)
     span(at, mu(plan))
   end

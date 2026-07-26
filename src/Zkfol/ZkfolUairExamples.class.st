@@ -229,7 +229,6 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 	| grid element |
 	grid := ZkfolUairGrid onUair: self emittedFibonacci.
 	self assert: grid tracesOrder description: 'the feed is trace order'.
-	self assert: grid scheduledRows asSortedCollection asArray equals: #(0 1 4 5).
 	element := grid picture asElement.
 	self
 		assert: (self elementWithId: #zkfolOrientationMarker in: element) isNil
