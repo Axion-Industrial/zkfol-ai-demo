@@ -84,7 +84,6 @@ defmodule Examples.EDoubling do
     report
   end
 
-
   @spec the_try_leaves_other_statements_alone() :: Statement.t()
   example the_try_leaves_other_statements_alone do
     source = %Statement{stage: %Statement.Lowered{pred: Statement.pred(EUser.power())}}

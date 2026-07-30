@@ -97,9 +97,6 @@ defmodule Zkfol.Accumulator do
       when stage == :raw or is_struct(stage, Statement.Lowered),
       do: {:ok, :not_solved}
 
-  # Allocation order: index bits, prev, pointer bits, results, then per
-  # column the broadcasts and the sum pairs. The queries spell it out.
-
   # The bit width shared by the index and every pointer.
   @spec mu(layout()) :: pos_integer()
   defp mu(plan), do: Uair.num_vars(plan.len)
@@ -108,55 +105,58 @@ defmodule Zkfol.Accumulator do
   @spec pointers(layout()) :: [pos_integer()]
   defp pointers(plan), do: plan.pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
 
+  @typep descriptor ::
+           {:index_bit, pos_integer()}
+           | :prev
+           | {:pointer_bit, pos_integer(), pos_integer()}
+           | {:result, {pos_integer(), pos_integer()}}
+           | {:broadcast, pos_integer(), pos_integer(), pos_integer()}
+           | {:acc | :readout, pos_integer(), pos_integer(), pos_integer()}
+
+  # The one allocation order: every derived row named once, in place.
+  # Row numbers and witness values are both read off this list, so the
+  # constraints and the extension cannot drift apart.
+  @spec derived(layout()) :: [descriptor()]
+  defp derived(plan) do
+    mu = mu(plan)
+
+    for(nu <- 1..mu, do: {:index_bit, nu}) ++
+      [:prev] ++
+      for(a <- pointers(plan), nu <- 1..mu, do: {:pointer_bit, a, nu}) ++
+      for(pair <- plan.pairs, do: {:result, pair}) ++
+      for(x0 <- 1..plan.len, a <- pointers(plan), nu <- 1..mu, do: {:broadcast, a, x0, nu}) ++
+      for(x0 <- 1..plan.len, {i, a} <- plan.pairs, kind <- [:acc, :readout], do: {kind, i, a, x0})
+  end
+
+  # A derived row's number: its place in the order, past the witness.
+  @spec row(layout(), descriptor()) :: pos_integer()
+  defp row(plan, descriptor),
+    do: plan.arity + 1 + Enum.find_index(derived(plan), &(&1 == descriptor))
+
   @doc "I am the committed index bit rows, low bit first."
   @spec index_bits(layout()) :: [pos_integer()]
-  def index_bits(plan), do: span(plan.arity, mu(plan))
+  def index_bits(plan), do: for(nu <- 1..mu(plan), do: row(plan, {:index_bit, nu}))
 
   # The row carrying each column's predecessor.
   @spec prev(layout()) :: pos_integer()
-  defp prev(plan), do: plan.arity + mu(plan) + 1
+  defp prev(plan), do: row(plan, :prev)
 
   # Pointer `a`'s committed bit rows.
   @spec pointer_bits(layout(), pos_integer()) :: [pos_integer()]
-  defp pointer_bits(plan, a), do: span(prev(plan) + place(pointers(plan), a) * mu(plan), mu(plan))
+  defp pointer_bits(plan, a), do: for(nu <- 1..mu(plan), do: row(plan, {:pointer_bit, a, nu}))
 
   @doc "I am the derived result row of the read `{i, a}`."
   @spec result(layout(), {pos_integer(), pos_integer()}) :: pos_integer()
-  def result(plan, pair), do: prev(plan) + width(plan) + place(plan.pairs, pair) + 1
+  def result(plan, pair), do: row(plan, {:result, pair})
 
   # The rows broadcasting pointer `a`'s bits for column `x0`.
   @spec broadcast(layout(), pos_integer(), pos_integer()) :: [pos_integer()]
-  defp broadcast(plan, a, x0) do
-    at = tail(plan) + (x0 - 1) * width(plan) + place(pointers(plan), a) * mu(plan)
-    span(at, mu(plan))
-  end
+  defp broadcast(plan, a, x0), do: for(nu <- 1..mu(plan), do: row(plan, {:broadcast, a, x0, nu}))
 
   @doc "I am the accumulator and readout rows of the read `{i, a}` at column `x0`."
   @spec sum(layout(), pos_integer(), pos_integer(), pos_integer()) ::
           {pos_integer(), pos_integer()}
-  def sum(plan, i, a, x0) do
-    at =
-      tail(plan) + plan.len * width(plan) +
-        (x0 - 1) * 2 * length(plan.pairs) + place(plan.pairs, {i, a}) * 2
-
-    {at + 1, at + 2}
-  end
-
-  # A pointer block: mu bit rows per pointer, the per-column broadcast width too.
-  @spec width(layout()) :: pos_integer()
-  defp width(plan), do: length(pointers(plan)) * mu(plan)
-
-  # Rows ahead of the per-column tail: index bits, prev, pointer bits, results.
-  @spec tail(layout()) :: pos_integer()
-  defp tail(plan), do: prev(plan) + width(plan) + length(plan.pairs)
-
-  # The count rows just past at.
-  @spec span(non_neg_integer(), pos_integer()) :: [pos_integer()]
-  defp span(at, count), do: Enum.to_list((at + 1)..(at + count))
-
-  # x's zero-based place in the allocation-ordered list.
-  @spec place([elem], elem) :: non_neg_integer() when elem: term()
-  defp place(list, x), do: length(Enum.take_while(list, &(&1 != x)))
+  def sum(plan, i, a, x0), do: {row(plan, {:acc, i, a, x0}), row(plan, {:readout, i, a, x0})}
 
   # The plan behind expand and layout.
   @spec planned(Ast.pred(), Interpretation.t()) ::
@@ -317,46 +317,26 @@ defmodule Zkfol.Accumulator do
   @spec off(Ast.term_t()) :: Ast.term_t()
   defp off(t), do: Ast.add(1, Ast.mul(t, -1))
 
-  # The honest values of every derived row, in layout order.
+  # The honest values of every derived row, read off the one order.
   @spec extend(Interpretation.t(), layout()) :: Interpretation.t()
   defp extend(witness, plan) do
-    len = plan.len
-    mu = mu(plan)
     at = &Interpretation.at(witness, &1, &2)
+    rows = for d <- derived(plan), do: for(y <- 1..plan.len, do: value(d, y, at))
+    Interpretation.new(Interpretation.rows(witness) ++ rows)
+  end
 
-    index_bits =
-      for nu <- 1..mu, do: for(y <- 1..len, do: y >>> (nu - 1) &&& 1)
+  # A derived row's honest value at column y.
+  @spec value(descriptor(), pos_integer(), (pos_integer(), pos_integer() -> integer())) ::
+          integer()
+  defp value({:index_bit, nu}, y, _at), do: y >>> (nu - 1) &&& 1
+  defp value(:prev, y, _at), do: max(y - 1, 1)
+  defp value({:pointer_bit, a, nu}, y, at), do: at.(a, y) >>> (nu - 1) &&& 1
+  defp value({:result, {i, a}}, y, at), do: at.(i, at.(a, y))
+  defp value({:broadcast, a, x0, nu}, _y, at), do: at.(a, x0) >>> (nu - 1) &&& 1
+  defp value({:readout, i, a, x0}, _y, at), do: at.(i, at.(a, x0))
 
-    prev = for y <- 1..len, do: max(y - 1, 1)
-
-    pointer_bits =
-      for a <- pointers(plan),
-          nu <- 1..mu,
-          do: for(y <- 1..len, do: at.(a, y) >>> (nu - 1) &&& 1)
-
-    results = for {i, a} <- plan.pairs, do: for(y <- 1..len, do: at.(i, at.(a, y)))
-
-    sites =
-      for x0 <- 1..len, a <- pointers(plan) do
-        target = at.(a, x0)
-        for nu <- 1..mu, do: List.duplicate(target >>> (nu - 1) &&& 1, len)
-      end
-
-    sums =
-      for x0 <- 1..len, {i, a} <- plan.pairs do
-        target = at.(a, x0)
-        value = at.(i, target)
-        acc = for y <- 1..len, do: if(y >= target, do: value, else: 0)
-        [acc, List.duplicate(value, len)]
-      end
-
-    Interpretation.new(
-      Interpretation.rows(witness) ++
-        index_bits ++
-        [prev] ++
-        pointer_bits ++
-        results ++
-        Enum.concat(sites) ++ Enum.concat(sums)
-    )
+  defp value({:acc, i, a, x0}, y, at) do
+    target = at.(a, x0)
+    if y >= target, do: at.(i, target), else: 0
   end
 end
