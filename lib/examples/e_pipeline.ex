@@ -126,8 +126,8 @@ defmodule Examples.EPipeline do
 
     # One vocabulary for the predicted and the observed: on a statement
     # already at the door, the act's verdicts are the plan.
-    {:ok, _expanded, trace} = Pipeline.run(Pipeline.default(), statement)
-    assert Pipeline.verdicts(Pipeline.default(), statement, trace) == plan
+    outcome = {:ok, _expanded, _trace} = Pipeline.run(Pipeline.default(), statement)
+    assert Pipeline.verdicts(Pipeline.default(), statement, outcome) == plan
 
     plan
   end

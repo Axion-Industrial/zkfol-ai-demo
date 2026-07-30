@@ -29,6 +29,10 @@ defmodule Zkfol.Pipeline do
   @typedoc "Each pass and the statement it produced, in order."
   @type trace :: [{module(), Statement.t()}]
 
+  @typedoc "What a run came to: the final statement or the erring pass, the trace either way."
+  @type outcome ::
+          {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
+
   @typedoc """
   A pass's word on a statement: what it would do, with the delta where
   one earns it. Every pass declines a statement it is not for.
@@ -40,6 +44,7 @@ defmodule Zkfol.Pipeline do
           | :solves
           | {:expands, Accumulator.layout()}
           | {:refuses, Refusal.t()}
+          | {:errors, Refusal.t()}
 
   typedstruct enforce: true do
     field(:passes, [pass()])
@@ -57,8 +62,7 @@ defmodule Zkfol.Pipeline do
     }
 
   @doc "I run `statement` through my passes, keeping every intermediate; `opts` ride under each pass's own."
-  @spec run(t(), Statement.t(), keyword()) ::
-          {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
+  @spec run(t(), Statement.t(), keyword()) :: outcome()
   def run(%__MODULE__{passes: passes}, statement, opts \\ []) do
     Enum.reduce_while(passes, {statement, []}, fn {pass, own}, {current, trace} ->
       case pass.run(current, Keyword.merge(opts, own)) do
@@ -84,13 +88,25 @@ defmodule Zkfol.Pipeline do
 
   @doc """
   I am the act's verdicts: the questions of `plan/2`, each put to the
-  statement its pass actually received. Passes are pure, so asking
-  again is observing. The caller journals me as `{:piped, verdicts}`,
-  based on the event defining the route.
+  statement its pass actually received, and for a pass that erred, the
+  run's own refusal as `{:errors, refusal}` in place of a prediction.
+  Passes are pure, so asking again is observing. The caller journals
+  me as `{:piped, verdicts}`, based on the event defining the route.
   """
-  @spec verdicts(t(), Statement.t(), trace()) :: [{module(), verdict()}]
-  def verdicts(%__MODULE__{passes: passes}, statement, trace) do
+  @spec verdicts(t(), Statement.t(), outcome()) :: [{module(), verdict()}]
+  def verdicts(%__MODULE__{passes: passes}, statement, {:ok, _final, trace}),
+    do: planned(passes, statement, trace)
+
+  def verdicts(%__MODULE__{passes: passes}, statement, {:error, pass, reason, trace}),
+    do: planned(passes, statement, trace) ++ [{pass, {:errors, reason}}]
+
+  # The passes the trace shows ran, each asked on the statement it
+  # received; on a finished run that is every pass.
+  @spec planned([pass()], Statement.t(), trace()) :: [{module(), verdict()}]
+  defp planned(passes, statement, trace) do
     stages = [statement | Enum.map(trace, &elem(&1, 1))]
-    for {{pass, opts}, stage} <- Enum.zip(passes, stages), do: {pass, pass.plan(stage, opts)}
+
+    for {{pass, opts}, stage} <- Enum.zip(Enum.take(passes, length(trace)), stages),
+        do: {pass, pass.plan(stage, opts)}
   end
 end

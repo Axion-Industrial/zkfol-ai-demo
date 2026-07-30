@@ -83,10 +83,6 @@ defmodule Zkfol.Refusal do
   @spec index() :: %{reason() => kind()}
   def index, do: @index
 
-  @doc "I name the pass that refused, keeping the reason and its detail intact."
-  @spec by(t(), module()) :: t()
-  def by({reason, detail}, pass), do: {reason, Map.put(detail, :pass, pass)}
-
   @doc """
   I hold that no element of `enum` satisfies `bad?`. The first that does is
   the offender, and `refusal` names it.
