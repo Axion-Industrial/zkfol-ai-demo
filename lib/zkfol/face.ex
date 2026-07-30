@@ -196,18 +196,7 @@ defmodule Zkfol.Face do
   defp read_event({:piped, verdicts}, feed) do
     passes =
       for {{pass, verdict}, index} <- Enum.with_index(verdicts, 1) do
-        {verdict, extra} =
-          case verdict do
-            {verdict, extra} -> {verdict, inspect(extra)}
-            verdict -> {verdict, nil}
-          end
-
-        %{
-          index: index,
-          name: pass |> Module.split() |> List.last(),
-          verdict: verdict,
-          extra: extra
-        }
+        %{index: index, name: pass |> Module.split() |> List.last(), verdict: verdict}
       end
 
     %{feed | passes: passes}

@@ -53,7 +53,7 @@ defmodule Examples.ELog do
     report
   end
 
-  @spec a_dead_prover_settles_its_debts() :: String.t()
+  @spec a_dead_prover_settles_its_debts() :: Zkfol.Refusal.t()
   example a_dead_prover_settles_its_debts do
     intent = Log.push({:prove_requested, :doomed})
     filter = [%Prover.Settled{intent: intent}]

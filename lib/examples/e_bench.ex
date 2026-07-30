@@ -19,7 +19,7 @@ defmodule Examples.EBench do
     measurement("power 2^#{exponent}", Statement.pred(EUser.power(exponent)), witness)
   end
 
-  # The pinned code caps traces at 2048 columns; the suite default stays small.
+  # The pin walls padded traces at 8192 rows; the suite default stays small.
   @spec measured_fibonacci(pos_integer()) :: map()
   example measured_fibonacci(n \\ 32) do
     witness = Statement.witness(EUser.fibonacci(n))

@@ -32,14 +32,13 @@ The Rust prover is `native/zkfol_zinc_plus`, a Rustler NIF binding a pinned
 zinc-plus fork and interpreting the UAIR over three cell widths -- i64, 768-bit,
 and 7040-bit. Proving runs on a dedicated thread and answers to an id. Its field
 is a fixed secp256k1 projecting prime, so proofs on this lineage are
-honest-prover-only. The current pin and its trace limits live in
-`native/zkfol_zinc_plus/src/config.rs`. `analysis/` holds the frozen measurement
-record; the retired Python proof of concept is on branch `attic/python`.
+honest-prover-only. The cell widths and trace limits live in
+`native/zkfol_zinc_plus/src/config.rs`; the fork rev is pinned in its
+`Cargo.toml`. `analysis/` holds the frozen measurement record.
 
 ## Environment
 
-The toolchain is managed with asdf. `.tool-versions` pins Erlang and Elixir, so
-`asdf install` provisions them; `mix deps.get` then builds the app and its Rust NIF.
+`mix deps.get` builds the app and its Rust NIF.
 
 ```sh
 mix test          # every example on its own store (.mnesiastore-test/), safe beside a live node

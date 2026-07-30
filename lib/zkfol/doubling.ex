@@ -16,9 +16,11 @@ defmodule Zkfol.Doubling do
   length, and the claims change. The witness is derived: the walked
   position, bound to the goal, descends and the bits fall out.
 
-  Rows: 1 and 2 the kernel pair, 3 the pointer, 4 the result, 5 the
-  bit, 6 the position walked so far, ending at m - 2, which is what
-  the position claim carries. Leaving the position unclaimed
+  Rows of kernel(x, u, w, e, r): 1 the index, 2 and 3 the kernel
+  pair, 4 the position walked so far, ending at m - 2, which is what
+  the position claim carries, 5 the result, 6 the pointer; the walked
+  bit rides the walk inline, no row of its own. Leaving the position
+  unclaimed
   (`private: true`) keeps n secret up to its bit length: the trace
   length stays public. Positions at the base cases become a single
   pinned column.

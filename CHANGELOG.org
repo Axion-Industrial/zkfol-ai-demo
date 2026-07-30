@@ -1,3 +1,26 @@
+* Unreleased
+** Changes
+- The audits: every module, function and example presumed dead, then
+  presumed misshapen, then every claim presumed unbacked; what
+  survives carries its evidence
+- The pass behaviour is run/2 and verb/0: verdicts read off the
+  finished trace, a pass states its verb once, nothing runs twice
+- A Ran is source, route and anchor; the report and the trail are
+  queries off its define
+- The emission gate runs on every mix test: Examples.EUair.frozen_shapes
+  holds the doubled kernel at 339 opcodes and 8 columns, the generic
+  at 171 and 6, owning the X-forge index pins
+** Corrections to earlier entries
+- The Zinc+ pin is the mariari/zinc-plus fork at 7cf72c4; V0.1.0
+  named F7340033
+- Padded traces wall at 8192 rows under the pinned PnttConfig, not
+  2^15 columns
+- V0.1.0's "271 rows for the doubled kernel" was a typo for the 279
+  its own gate froze; the numbers now live in frozen_shapes, not
+  EBench, which only measures
+- No example bounds "proves in tens of milliseconds"; EBench records
+  the milliseconds and asserts nothing about them
+
 * V0.2.0
 ** Features
 - The relational surface: defrel writes a relation as clauses over

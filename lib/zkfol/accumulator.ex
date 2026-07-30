@@ -12,7 +12,7 @@ defmodule Zkfol.Accumulator do
   statement emits with no composed reads left. Statements whose
   pointers all carry schedules pass through untouched. I am throwaway
   by design: when zinc+ lands the pointer query, delete me, my
-  examples, my note section, and my slot in the default pipeline.
+  examples, and my slot in the default pipeline.
 
       Zkfol.Pipeline.run(
         Zkfol.Pipeline.default(),

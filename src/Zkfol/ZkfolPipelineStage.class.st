@@ -4,8 +4,7 @@ Class {
 	#instVars : [
 		'index',
 		'name',
-		'verdict',
-		'extra'
+		'verdict'
 	],
 	#category : 'Zkfol-Values',
 	#package : 'Zkfol',
@@ -13,8 +12,8 @@ Class {
 }
 
 { #category : 'instance creation' }
-ZkfolPipelineStage class >> index: aNumber name: aString verdict: aSymbol extra: anObject [
-	^ self new setIndex: aNumber name: aString verdict: aSymbol extra: anObject
+ZkfolPipelineStage class >> index: aNumber name: aString verdict: aSymbol [
+	^ self new setIndex: aNumber name: aString verdict: aSymbol
 ]
 
 { #category : 'accessing' }
@@ -24,9 +23,8 @@ ZkfolPipelineStage >> index [
 
 { #category : 'accessing' }
 ZkfolPipelineStage >> label [
-	"My name for the pipeline node, with the small delta a compound
-	 verdict carries appended, already rendered by the face."
-	^ extra ifNil: [ name ] ifNotNil: [ name , ' · ' , extra asString ]
+	"My name for the pipeline node."
+	^ name
 ]
 
 { #category : 'accessing' }
@@ -46,11 +44,10 @@ ZkfolPipelineStage >> printOn: aStream [
 ]
 
 { #category : 'accessing' }
-ZkfolPipelineStage >> setIndex: aNumber name: aString verdict: aSymbol extra: anObject [
+ZkfolPipelineStage >> setIndex: aNumber name: aString verdict: aSymbol [
 	index := aNumber.
 	name := aString.
-	verdict := aSymbol.
-	extra := anObject
+	verdict := aSymbol
 ]
 
 { #category : 'accessing' }
@@ -61,12 +58,11 @@ ZkfolPipelineStage >> verdict [
 { #category : 'accessing' }
 ZkfolPipelineStage >> verdictColor [
 	"My verdict's color from the one shared palette family: acted kinds
-	 wear their kind's color, declines stay quiet, refusals warn."
+	 wear their kind's color, declines stay quiet."
 	verdict = #lowers ifTrue: [ ^ ZkfolPalette kindColor: #bit ].
 	(verdict = #rewrites or: [ verdict = #solves ])
 		ifTrue: [ ^ ZkfolPalette kindColor: #result ].
 	verdict = #expands ifTrue: [ ^ ZkfolPalette kindColor: #pointer ].
-	verdict = #refuses ifTrue: [ ^ ZkfolPalette highlightColor ].
 	^ ZkfolPalette kindColor: #plain
 ]
 

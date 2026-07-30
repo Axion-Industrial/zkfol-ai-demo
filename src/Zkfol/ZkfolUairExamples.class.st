@@ -230,7 +230,7 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 	element := grid picture asElement.
 	self
 		assert: (self elementWithId: #zkfolOrientationMarker in: element) isNil
-		description: 'a len-bearing uair needs no marker'.
+		description: 'a trace-order uair needs no marker'.
 	^ grid
 ]
 
@@ -272,7 +272,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 { #category : 'examples' }
 ZkfolUairExamples >> gridElement [
 	"I render the fixture grid: the honesty marker, since this fixture
-	 carries neither len nor an index column, the position ruler, then
+	 is committed order and carries no index column, the position ruler, then
 	 one row element per committed column, the claimed row outlined, and
 	 last the connector layer the hover connectors are drawn into, always
 	 present and empty at rest."
@@ -310,8 +310,8 @@ ZkfolUairExamples >> gridFromFixture [
 
 { #category : 'examples' }
 ZkfolUairExamples >> gridFromLenFixture [
-	"I read the len-bearing fixture and assert the orientation rule:
-	 with len present the grid displays trace order, un-reversing the
+	"I read the trace-order fixture and assert the orientation rule:
+	 marked traces_order, the grid displays trace order, un-reversing the
 	 committed columns and truncating the padding, so the address a
 	 pointer cell holds indexes the displayed grid directly and the
 	 deref chain agrees with itself. The raw committed columns stay as
@@ -380,7 +380,7 @@ ZkfolUairExamples >> hopReversed [
 
 { #category : 'fixtures' }
 ZkfolUairExamples >> hopWithLen [
-	"The composed hop as the face settles it: len 3, trace order, the
+	"The composed hop as the face settles it: length 3, trace order, the
 	 padding cut, every value asymmetric so a missed orientation cannot
 	 pass, and the deref chain self-consistent."
 	<gtExample>
@@ -934,7 +934,7 @@ ZkfolUairExamples >> wideGridRendersInMondrian [
 	grid := self syntheticGridOfLength: 40 vars: 6 rows: 3 extra: {
 		#num_public -> 1.
 		#shifts -> { #(1 1). #(1 2) } } asDictionary.
-	self assert: grid tracesOrder description: 'the len makes it trace order'.
+	self assert: grid tracesOrder description: 'traces_order makes it trace order'.
 	self assert: grid displayColumns first size equals: 40.
 	firstLabel := grid labelTextFor: (grid kindOfRow: 0) at: 0.
 	view := grid gtPointerGridFor: GtPhlowView empty.
