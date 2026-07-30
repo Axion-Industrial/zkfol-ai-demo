@@ -15,7 +15,6 @@ defmodule Examples.ELog do
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Statement
-  alias Zkfol.Uair
 
   @spec journaled_proving() :: Log.Ran.t()
   example journaled_proving do
@@ -46,7 +45,7 @@ defmodule Examples.ELog do
     send(self(), stale)
 
     {:ok, report, _id} =
-      Uair.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
+      Prover.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
 
     # The stale body is a bare map; a verdict actually heard is a Report.
     assert %Prover.Report{} = report

@@ -77,7 +77,7 @@ defmodule Examples.EAccumulator do
   @spec hop_proves_end_to_end() :: Prover.Report.t()
   example hop_proves_end_to_end do
     {:ok, report, _id} =
-      Uair.prove_uair(expanded_hop_emits(), name: "hop, accumulator fallback")
+      Prover.prove_uair(expanded_hop_emits(), name: "hop, accumulator fallback")
 
     assert %Prover.Report{} = report
     report
@@ -94,7 +94,7 @@ defmodule Examples.EAccumulator do
     tampered =
       %{uair | columns: List.update_at(uair.columns, column, &List.replace_at(&1, 2, 99))}
 
-    {:error, reason} = Uair.prove_uair(tampered)
+    {:error, reason} = Prover.prove_uair(tampered)
     assert {:verifier_rejected, _} = reason
     reason
   end
@@ -143,7 +143,7 @@ defmodule Examples.EAccumulator do
           List.replace_at(cols, at.(acc), cell.(i))
       end
 
-    {:error, reason} = Uair.prove_uair(%{uair | columns: forged})
+    {:error, reason} = Prover.prove_uair(%{uair | columns: forged})
     assert {:verifier_rejected, _} = reason
     reason
   end

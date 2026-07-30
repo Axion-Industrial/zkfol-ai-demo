@@ -18,6 +18,7 @@ defmodule Examples.EDoubling do
   alias Zkfol.Facts
   alias Zkfol.Interpretation
   alias Zkfol.Pipeline
+  alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -72,7 +73,7 @@ defmodule Examples.EDoubling do
     statement = rewritten_fibonacci(100)
 
     {:ok, report, _id} =
-      Uair.prove(Statement.pred(statement), Statement.witness(statement),
+      Prover.prove(Statement.pred(statement), Statement.witness(statement),
         claims: statement.claims,
         name: :doubled_fibonacci
       )
@@ -105,7 +106,7 @@ defmodule Examples.EDoubling do
       Uair.emit(Statement.pred(statement), Statement.witness(statement), statement.claims)
 
     assert uair.num_public == 1
-    {:ok, report, _id} = Uair.prove_uair(uair, name: :private_n)
+    {:ok, report, _id} = Prover.prove_uair(uair, name: :private_n)
     assert [{_claim, value}] = report.claims
     assert value == EUser.fib(100)
     report

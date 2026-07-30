@@ -10,6 +10,7 @@ defmodule Examples.EBench do
   alias Examples.EDoubling
   alias Examples.EUser
   alias Zkfol.Interpretation
+  alias Zkfol.Prover
   alias Zkfol.Statement
   alias Zkfol.Uair
 
@@ -75,7 +76,7 @@ defmodule Examples.EBench do
           map()
   def measurement(statement, phi, witness, claims \\ []) do
     {:ok, uair} = Uair.emit(phi, witness, claims)
-    {:ok, report, _id} = Uair.prove_uair(uair, name: statement, timeout: :infinity)
+    {:ok, report, _id} = Prover.prove_uair(uair, name: statement, timeout: :infinity)
 
     %{
       statement: statement,

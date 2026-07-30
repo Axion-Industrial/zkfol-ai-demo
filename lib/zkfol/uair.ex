@@ -1,9 +1,9 @@
 defmodule Zkfol.Uair do
   @moduledoc """
-  I translate a statement to a UAIR and prove it on zinc+: Figure 2 over
-  committed columns. `emit/3` is the artifact, a `t/0`; `prove/3` journals
-  an intent, hands the UAIR to `Zkfol.Prover`, and waits on the log for
-  the verdict.
+  I am the UAIR of a statement: Figure 2 over committed columns.
+  `emit/3` is the artifact, a `t/0`, a value; proving it is
+  `Zkfol.Prover`'s conversation, and carrying it to the NIF is
+  `Zkfol.ZincPlus`'s wire.
 
   The trace runs in reverse, so a pointer's schedule becomes a forward
   shift. A pointer with no schedule has no shift to become, and lowers
@@ -16,8 +16,6 @@ defmodule Zkfol.Uair do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Log
-  alias Zkfol.Prover
   alias Zkfol.Refusal
   alias Zkfol.Semantics
   alias Zkfol.Uair.Composed
@@ -59,67 +57,6 @@ defmodule Zkfol.Uair do
   @spec num_vars(t() | pos_integer()) :: pos_integer()
   def num_vars(%__MODULE__{len: len}), do: num_vars(len)
   def num_vars(len) when is_integer(len), do: max(ceil_log2(len), 3)
-
-  @doc """
-  I prove `pred` against `witness` and journal it: an intent, then the
-  report observed, a `Zkfol.Prover.Report`. `opts` takes `:name`,
-  `:basedon`, `:claims`. I return `{:ok, report, id}`.
-  """
-  @spec prove(Ast.pred(), Interpretation.t(), keyword()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  def prove(pred, witness, opts \\ []) do
-    with {:ok, uair} <- emit(pred, witness, Keyword.get(opts, :claims, [])) do
-      prove_uair(uair, opts)
-    end
-  end
-
-  @doc """
-  I prove an already-emitted `uair`, journaling it and awaiting it
-  through the log. `opts` takes `:name`, `:basedon`, and `:timeout`
-  (milliseconds or `:infinity`, one minute by default).
-  """
-  @spec prove_uair(t(), keyword()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  def prove_uair(uair, opts \\ []) do
-    id = Log.push({:prove_requested, Keyword.get(opts, :name)}, Keyword.get(opts, :basedon))
-    filter = [%Prover.Settled{intent: id}]
-    EventBroker.subscribe_me(filter)
-
-    try do
-      with :ok <- Prover.run(uair, id, opts),
-           do: settled(id, Keyword.get(opts, :timeout, 60_000))
-    after
-      EventBroker.unsubscribe_me(filter)
-      drained(id)
-    end
-  end
-
-  # I wait on the log for the observation that settles intent `id`;
-  # only that intent, so a verdict lingering from an abandoned wait
-  # can never be heard as this one.
-  @spec settled(pos_integer(), timeout()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  defp settled(id, timeout) do
-    receive do
-      %EventBroker.Event{body: %Log.Event{basedon: ^id, body: {:proved, report}}} ->
-        {:ok, report, id}
-
-      %EventBroker.Event{body: %Log.Event{basedon: ^id, body: {:prove_failed, reason}}} ->
-        {:error, reason}
-    after
-      timeout -> {:error, {:prover_timeout, %{intent: id}}}
-    end
-  end
-
-  # Whatever the subscription delivered and nobody consumed, drop.
-  @spec drained(pos_integer()) :: :ok
-  defp drained(id) do
-    receive do
-      %EventBroker.Event{body: %Log.Event{basedon: ^id}} -> drained(id)
-    after
-      0 -> :ok
-    end
-  end
 
   @doc "I am the UAIR of the statement: columns, claimed rows first, shifts, program."
   @spec emit(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::

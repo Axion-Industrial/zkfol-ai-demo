@@ -21,6 +21,7 @@ defmodule Zkfol do
 
   alias Zkfol.Log
   alias Zkfol.Pipeline
+  alias Zkfol.Prover
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -51,7 +52,7 @@ defmodule Zkfol do
       %Log.Ran{pipeline: pipeline, source: statement, defined: define}
     else
       {:error, pass, reason, _trace} -> {:error, Refusal.by(reason, pass)}
-      {:error, reason} -> {:error, Refusal.by(reason, Uair)}
+      {:error, reason} -> {:error, Refusal.by(reason, Prover)}
     end
   end
 
@@ -60,7 +61,7 @@ defmodule Zkfol do
     prove = Keyword.put(opts, :claims, final.claims)
 
     with {:ok, _report, intent} <-
-           Uair.prove(Statement.pred(final), Statement.witness(final), prove),
+           Prover.prove(Statement.pred(final), Statement.witness(final), prove),
          do: {:ok, intent}
   end
 

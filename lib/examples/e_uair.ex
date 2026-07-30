@@ -42,7 +42,7 @@ defmodule Examples.EUair do
 
     tampered = %{uair | columns: List.update_at(uair.columns, 1, &List.replace_at(&1, 4, 999))}
 
-    {:error, reason} = Uair.prove_uair(tampered)
+    {:error, reason} = Prover.prove_uair(tampered)
     assert {:verifier_rejected, _} = reason
     reason
   end
@@ -50,7 +50,7 @@ defmodule Examples.EUair do
   @spec out_of_range_claim_is_refused() :: Refusal.t()
   example out_of_range_claim_is_refused do
     {:error, reason} =
-      Uair.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()),
+      Prover.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()),
         claims: [{"n", 9, 1}]
       )
 
@@ -73,7 +73,7 @@ defmodule Examples.EUair do
   @spec out_of_schedule_pointer_is_refused() :: Refusal.t()
   example out_of_schedule_pointer_is_refused do
     {:error, reason} =
-      Uair.prove(Statement.pred(EUser.power()), EAst.out_of_range_pointer_is_rejected())
+      Prover.prove(Statement.pred(EUser.power()), EAst.out_of_range_pointer_is_rejected())
 
     assert {:witness_unsatisfies_schedule, %{column: 4}} = reason
     reason
@@ -88,9 +88,9 @@ defmodule Examples.EUair do
     reports =
       [
         fn ->
-          Uair.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
+          Prover.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
         end,
-        fn -> Uair.prove(factorial_pred, factorial_witness) end
+        fn -> Prover.prove(factorial_pred, factorial_witness) end
       ]
       |> Enum.map(&Task.async/1)
       |> Task.await_many(:infinity)
