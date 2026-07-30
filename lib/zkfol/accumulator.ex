@@ -168,7 +168,7 @@ defmodule Zkfol.Accumulator do
     plan = %{pairs: Ast.pointer_derefs(pred), len: len, arity: Interpretation.arity(witness)}
     mu = mu(plan)
 
-    with {:ok, schedules} <- Uair.schedules(pred) do
+    with {:ok, schedules} <- Ast.schedules(pred) do
       cond do
         Enum.all?(pointers(plan), &is_map_key(schedules, &1)) ->
           {:ok, :no_dynamic_reads}

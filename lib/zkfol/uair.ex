@@ -197,8 +197,8 @@ defmodule Zkfol.Uair do
     len = Interpretation.len(witness)
     num_vars = num_vars(len)
     # schedule calculates cells having a fixed relation backwords to a set previous column
-    with {:ok, schedules} <- schedules(pred),
-         pred = bind_pointers(pred, schedules),
+    with {:ok, schedules} <- Ast.schedules(pred),
+         pred = Ast.bind_pointers(pred, schedules),
          {:ok, pred, witness, lowering} <- Composed.lower(pred, schedules, witness, num_vars),
          poly = Ast.arithmetize(pred),
          refs = refs(poly, schedules) ++ Enum.map(Composed.value_rows(lowering), &{&1, nil}),
@@ -242,101 +242,6 @@ defmodule Zkfol.Uair do
     shifts = Enum.sort(shifts)
     down = shifts |> Enum.with_index() |> Map.new()
     %{rows: rows, cols: cols, shifts: shifts, down: down}
-  end
-
-  @doc """
-  I am the affine pointer schedules for the rows the predicate reads
-  through: an index row constrained to a pointed index row plus a
-  constant names the offset, a pointer bound to X declares its own,
-  and a branch guarded eq(X, k) that pins a read row corroborates it.
-  A composed read pinned to a term names a computed target, so its
-  pointer takes no schedule. Ambiguity refuses: conflicting offsets
-  and offsets that do not look back have no shift.
-  """
-  @spec schedules(Ast.pred()) ::
-          {:ok, %{pos_integer() => pos_integer()}} | {:error, Refusal.t()}
-  def schedules(pred) do
-    read = Ast.pointer_reads(pred)
-
-    # Relate cell i to itself in a different column/recursion
-    syntax =
-      pred
-      |> Ast.branches()
-      |> Enum.flat_map(&Ast.conjuncts/1)
-      |> Enum.flat_map(fn
-        # Constants ride right in canonical terms, so one shape suffices.
-        {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
-        # A pointer bound to X by a constant declares its own schedule.
-        {:eq, {:cell, j}, {:add, :x, k}} when is_integer(k) -> [{j, -k}]
-        _part -> []
-      end)
-
-    # If we fix a computation at a column, we know more info about what m must be.
-    # We note this as j may be a pointer
-    pins =
-      for branch <- Ast.branches(pred),
-          parts = Ast.conjuncts(branch),
-          {:eq, :x, k} when is_integer(k) <- parts,
-          {:eq, {:cell, j}, m} when is_integer(m) <- parts,
-          # We simply note how many rows we must look
-          do: {j, k - m}
-
-    # A composed read pinned to a term marks its pointer as computed:
-    # the value equation shape must not hand it a schedule.
-    computed =
-      for branch <- Ast.branches(pred),
-          {:eq, {:cell, _i, j}, _t} <- Ast.conjuncts(branch),
-          uniq: true,
-          do: j
-
-    by_row =
-      (syntax ++ pins)
-      # Filter for pointer chases
-      |> Enum.filter(fn {j, _} -> j in read and j not in computed end)
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {j, offsets} -> {j, Enum.uniq(offsets)} end)
-
-    # A row with more than one offset demonstrates a conflict.
-    case Enum.find(by_row, fn {_j, offsets} -> not match?([_], offsets) end) do
-      nil ->
-        {:ok,
-         by_row
-         |> Enum.filter(fn {_j, [offset]} -> offset > 0 end)
-         |> Map.new(fn {j, [offset]} -> {j, offset} end)}
-
-      {j, offsets} ->
-        {:error, {:conflicting_schedule_offsets, %{row: j, offsets: offsets}}}
-    end
-  end
-
-  # We pin the cells inside the conjunctions with the schedules we've found.
-  # Meaning we add these constraints, if we confirm they are indeed there and
-  # not already bound.
-  @spec bind_pointers(Ast.pred(), %{pos_integer() => pos_integer()}) :: Ast.pred()
-  defp bind_pointers(pred, schedules) do
-    pred
-    |> Ast.branches()
-    |> Enum.map(fn branch ->
-      parts = Ast.conjuncts(branch)
-      # Only a pin to a constant or an explicit X-binding already fixes
-      # the row to its schedule; an equality to another cell does not,
-      # and must not skip the binding.
-      pinned =
-        Enum.flat_map(parts, fn
-          {:eq, {:cell, j}, m} when is_integer(m) -> [j]
-          {:eq, {:cell, j}, {:add, :x, m}} when is_integer(m) -> [j]
-          _part -> []
-        end)
-
-      bindings =
-        for j <- Ast.pointer_reads(branch),
-            j not in pinned,
-            is_map_key(schedules, j),
-            do: Ast.eq(Ast.cell(j), Ast.add(Ast.x(), -Map.get(schedules, j)))
-
-      Ast.conj(parts ++ bindings)
-    end)
-    |> Ast.disj()
   end
 
   # Validate each claim by resolving its value; out of range refuses.
