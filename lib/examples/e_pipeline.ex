@@ -54,18 +54,12 @@ defmodule Examples.EPipeline do
     ran = doubled_through_the_pipeline()
     trail = Log.trail(Log.snapshot(), ran)
 
-    # The whole act off the log, threaded by basedon: the route, the
-    # derivation under it, the verdicts, the intent, the report settling it.
-    assert [
-             %Log.Event{id: defined, body: {:define, :doubled_fibonacci, pipeline}},
-             %Log.Event{basedon: defined, body: {:al_solved, %{name: :fib_kernel}}},
-             %Log.Event{id: piped, basedon: defined, body: {:piped, verdicts}},
-             %Log.Event{id: intent, basedon: piped, body: {:prove_requested, :doubled_fibonacci}},
-             %Log.Event{basedon: intent, body: {:proved, %Prover.Report{}}}
-           ] = trail
-
-    assert pipeline == ran.pipeline
-    assert verdicts == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
+    # The trail's event shapes are ELog's claim; here the act replays:
+    # the verdicts off the trail, the stages re-run from the source.
+    assert Enum.find_value(trail, fn
+             %Log.Event{body: {:piped, verdicts}} -> verdicts
+             _event -> nil
+           end) == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
 
     # A stage is a re-run, never a record: 0 the source, 1 lowered, 2 doubled.
     assert Log.stage(ran, 0) == {:ok, ran.source}
