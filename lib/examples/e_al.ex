@@ -183,26 +183,41 @@ defmodule Examples.EAl do
     [b1, b2, b3] = for b <- bits, do: Enum.at(uair.columns, b)
     assert Enum.all?(b1 ++ b2 ++ b3, &(&1 in [0, 1]))
     weighted = Enum.zip_with([b1, b2, b3], fn [u, v, w] -> u + 2 * v + 4 * w end)
-    assert weighted == Enum.at(uair.columns, pointer)
 
-    # Each result row reads its value row at the pointer, r(x) = R(addr(x)).
-    # Columns store a row reversed, so position p lands at index len - p.
+    # The bits spell the cube index of the address, len - a(x), so the
+    # reversed committed layout reads directly.
+    assert weighted == Enum.map(Enum.at(uair.columns, pointer), &(len - &1))
+
+    # Each result row reads its value row at the spelled position.
     for %{value_row: v, result_row: r} <- uair.mode.reads do
       value = Enum.at(uair.columns, v)
-      assert Enum.at(uair.columns, r) == Enum.map(weighted, &Enum.at(value, len - &1))
+      assert Enum.at(uair.columns, r) == Enum.map(weighted, &Enum.at(value, &1))
     end
 
     assert uair.shifts == []
     uair
   end
 
-  # The lowering is total; the missing zinc+ capability refuses at the
-  # prover boundary, not in the middle of the compiler.
-  @spec composed_read_awaits_zinc() :: Refusal.t()
-  example composed_read_awaits_zinc do
-    {:error, reason} = Uair.request(composed_hop_emits())
+  # Section 4 all the way down: the emitted composed reads prove on
+  # zinc+'s pointer query, no emulation in between.
+  @spec composed_hop_proves() :: Zkfol.Prover.Report.t()
+  example composed_hop_proves do
+    {:ok, report, _id} = Uair.prove_uair(composed_hop_emits(), name: :composed_hop)
 
-    assert {:composed_read_awaits_backend, _} = reason
+    assert %Zkfol.Prover.Report{} = report
+    report
+  end
+
+  # A claim makes its row public, and the pointer query binds witness
+  # columns only: the overlap refuses by name at the prover's door.
+  @spec claimed_read_row_is_refused() :: Refusal.t()
+  example claimed_read_row_is_refused do
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(hop_rel(), [hop_rel()])
+    witness = value_targets_go_straight_down()
+    {:ok, uair} = Uair.emit(pred, witness, [{"out", 2, 5}])
+
+    {:error, reason} = Uair.request(uair)
+    assert {:read_row_claimed, _} = reason
     reason
   end
 

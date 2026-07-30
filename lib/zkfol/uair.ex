@@ -7,7 +7,8 @@ defmodule Zkfol.Uair do
 
   The trace runs in reverse, so a pointer's schedule becomes a forward
   shift. A pointer with no schedule has no shift to become, and lowers
-  through `Zkfol.Uair.Composed` instead, which emits but cannot yet prove.
+  through `Zkfol.Uair.Composed` instead, whose reads zinc+'s pointer
+  query proves.
   """
 
   use TypedStruct
@@ -133,7 +134,8 @@ defmodule Zkfol.Uair do
   def request(%__MODULE__{} = uair, opts \\ []) do
     values = List.flatten(uair.columns)
 
-    with {:ok, bins, lookups} <- mode_payload(uair.mode),
+    with {:ok, bins, lookups, reads} <- mode_payload(uair.mode),
+         :ok <- unclaimed(reads, uair.num_public),
          :ok <- non_negative(values) do
       queued =
         ZincPlus.prove_fol(%ZincPlus.Payload{
@@ -144,6 +146,7 @@ defmodule Zkfol.Uair do
           cells: cells(uair, values),
           bins: bins,
           lookups: lookups,
+          reads: reads,
           num_vars: num_vars(uair),
           tamper: Keyword.get(opts, :tamper, false)
         })
@@ -155,15 +158,36 @@ defmodule Zkfol.Uair do
     end
   end
 
-  # The shadow columns and lookup tuples the mode owes the NIF, or the
-  # refusal that keeps it away.
+  # The shadow columns, lookup tuples, and composed reads the mode owes
+  # the NIF. A composed mode's Word range obligation is not yet carried
+  # (the pointer query's region read); the emit-time oracle still
+  # judges every pointer.
   @spec mode_payload(mode()) ::
-          {:ok, [[non_neg_integer()]], [ZincPlus.lookup()]} | {:error, Refusal.t()}
-  defp mode_payload(%Plain{}), do: {:ok, [], []}
-  defp mode_payload(%Composed{}), do: Composed.refusal()
+          {:ok, [[non_neg_integer()]], [ZincPlus.lookup()],
+           [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}]}
+          | {:error, Refusal.t()}
+  defp mode_payload(%Plain{}), do: {:ok, [], [], []}
+
+  defp mode_payload(%Composed{reads: reads}) do
+    {:ok, [], [], for(r <- reads, do: {r.value_row, r.bit_rows, r.result_row})}
+  end
 
   defp mode_payload(%Lookup{bin_columns: bins} = lookup),
-    do: with({:ok, tuples} <- Lookup.tuples(lookup), do: {:ok, bins, tuples})
+    do: with({:ok, tuples} <- Lookup.tuples(lookup), do: {:ok, bins, tuples, []})
+
+  # A claimed row is public, and the pointer query binds witness columns
+  # only; refuse by name before the NIF refuses by panic.
+  @spec unclaimed(
+          [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}],
+          non_neg_integer()
+        ) :: :ok | {:error, Refusal.t()}
+  defp unclaimed(reads, num_public) do
+    Refusal.refute(
+      Enum.flat_map(reads, fn {value, bits, result} -> [value, result | bits] end),
+      &(&1 < num_public),
+      &{:read_row_claimed, %{row: &1}}
+    )
+  end
 
   # The widest value decides the transport; the limbing stays on this side
   # of the NIF, so Rust only unpacks what it is handed.
@@ -423,8 +447,8 @@ defmodule Zkfol.Uair do
   @typep pin :: Ast.poly({:up, non_neg_integer()} | {:down, non_neg_integer()})
 
   # X is a free committed column: nothing ties it to the reversed column
-  # number, so a forge that slides X reads the accumulator out at the wrong
-  # row. When X is present I add it and pin it. A forced ones column (one on
+  # number, so a forge that slides X satisfies X-bearing constraints at
+  # the wrong rows. When X is present I add it and pin it. A forced ones column (one on
   # every constrained row, and over the last row through its head shift by
   # rows - len + 1) is a region indicator: one over columns len..2, zero at
   # column one and the padding. The pins then hold X to a strict decrement

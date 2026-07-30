@@ -55,8 +55,8 @@ defmodule Examples.EFace do
     feed = Face.act(Zkfol.Log.snapshot(), ran)
 
     assert feed.route == :fib
-    assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness", "Accumulator"]
-    assert Enum.map(feed.passes, & &1.verdict) == [:lowers, :rewrites, :declines, :declines]
+    assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness"]
+    assert Enum.map(feed.passes, & &1.verdict) == [:lowers, :rewrites, :declines]
     assert %{backend: backend} = feed.report
     assert is_binary(backend)
     assert length(feed.trail) >= 4
@@ -74,7 +74,7 @@ defmodule Examples.EFace do
   example the_route_as_a_structure do
     feed = Face.route(Zkfol.Pipeline.default())
 
-    assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness", "Accumulator"]
+    assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness"]
     assert Enum.all?(feed.passes, &(&1.implements == ["run/2", "plan/2"]))
     assert Enum.all?(feed.passes, &String.starts_with?(&1.says, "I "))
     feed

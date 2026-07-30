@@ -57,16 +57,14 @@ defmodule Examples.EBench do
     )
   end
 
-  # The composed-read fallback proves end to end; dies with Zkfol.Accumulator.
-  @spec measured_accumulator_hop() :: map()
-  example measured_accumulator_hop do
-    # An 8-step trace asks nothing of the machine; a starved one fails loudly here.
-    assert available_memory_mb() > 512
-
-    statement = Examples.EAccumulator.expanded_hop()
+  # Value-addressed reads through zinc+'s pointer query, end to end.
+  @spec measured_hop(pos_integer()) :: map()
+  example measured_hop(n \\ 64) do
+    {:ok, statement, _trace} =
+      Pipeline.run(Pipeline.default(), %Statement{rels: [Examples.EAl.hop_rel()], args: [n]})
 
     measurement(
-      "hop n=5, accumulator fallback",
+      "hop n=#{n}, pointer query",
       Statement.pred(statement),
       Statement.witness(statement)
     )
@@ -101,7 +99,7 @@ defmodule Examples.EBench do
       measured_registers_fibonacci(),
       measured_doubled_fibonacci(),
       measured_default_fibonacci(),
-      measured_accumulator_hop()
+      measured_hop()
     ]
   end
 

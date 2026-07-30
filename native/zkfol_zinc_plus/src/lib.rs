@@ -109,6 +109,7 @@ fn submit(
     payload: Payload,
     bins: Vec<Vec<u32>>,
     lookups: Vec<(usize, usize, usize)>,
+    reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
     tamper: bool,
 ) -> Result<u64, String> {
@@ -125,6 +126,7 @@ fn submit(
             shifts,
             program,
             lookups,
+            reads,
         },
         payload,
         bins,
@@ -301,6 +303,7 @@ struct Request {
     cells: Payload,
     bins: Vec<Vec<u32>>,
     lookups: Vec<(usize, usize, usize)>,
+    reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
     tamper: bool,
 }
@@ -316,6 +319,7 @@ fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
         request.cells,
         request.bins,
         request.lookups,
+        request.reads,
         request.num_vars,
         request.tamper,
     )
