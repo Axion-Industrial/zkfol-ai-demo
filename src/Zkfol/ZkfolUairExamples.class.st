@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns len traces_order kinds num_vars num_public shifts reads lookups)
+	^ #(columns traces_order kinds num_vars num_public shifts reads lookups)
 ]
 
 { #category : 'examples' }
@@ -79,7 +79,6 @@ ZkfolUairExamples >> classicAffine [
 	<return: #Dictionary>
 	^ {
 		#num_public -> 1.
-		#len -> 8.
 		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#plain #scheduled #index).
@@ -203,7 +202,6 @@ ZkfolUairExamples >> emittedFibonacci [
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#len -> 8.
 		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#scheduled #scheduled #plain #plain #scheduled #scheduled).
@@ -389,7 +387,6 @@ ZkfolUairExamples >> hopWithLen [
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#len -> 3.
 		#traces_order -> true.
 		#num_vars -> 2.
 		#kinds -> #(#plain #pointer #bit #bit #result).
@@ -415,7 +412,6 @@ ZkfolUairExamples >> hopWithTwoReads [
 	<return: #Dictionary>
 	^ {
 			#num_public -> 0.
-			#len -> 3.
 			#traces_order -> true.
 			#num_vars -> 2.
 			#kinds -> #(#plain #plain #pointer #bit #bit #result #result).
@@ -906,7 +902,6 @@ ZkfolUairExamples >> syntheticGridOfLength: aLength vars: aNumVars rows: aRowCou
 	 setter afterwards."
 	| payload |
 	payload := Dictionary new.
-	payload at: #len put: aLength.
 	payload at: #traces_order put: true.
 	payload at: #num_vars put: aNumVars.
 	payload at: #columns put: ((1 to: aRowCount) collect: [ :row |

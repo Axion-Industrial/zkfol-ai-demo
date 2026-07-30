@@ -218,11 +218,6 @@ ZkfolUairGrid >> labelTextFor: aKind at: aZeroBasedIndex [
 ]
 
 { #category : 'accessing' }
-ZkfolUairGrid >> len [
-	^ payload at: #len ifAbsent: [ nil ]
-]
-
-{ #category : 'accessing' }
 ZkfolUairGrid >> lookups [
 	^ payload at: #lookups ifAbsent: [ #() ]
 ]

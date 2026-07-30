@@ -113,10 +113,10 @@ defmodule Examples.EDoubling do
     report
   end
 
-  @doc "I read the claimed result out of a rewritten statement's witness."
+  @doc "I read the claimed result out of a rewritten statement's witness: the head claim."
   @spec claimed(Statement.t()) :: integer()
-  def claimed(%Statement{stage: %Statement.Solved{witness: witness}, claims: claims}) do
-    {_name, row, column} = List.keyfind(claims, "claim_recurrence_n_exact", 0)
+  def claimed(%Statement{stage: %Statement.Solved{witness: witness}, claims: [claim | _rest]}) do
+    {_name, row, column} = claim
     Interpretation.at(witness, row, column)
   end
 

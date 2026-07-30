@@ -105,6 +105,13 @@ defmodule Zkfol.Refusal do
     end
   end
 
+  @doc "I am `map/2` with the results concatenated, for steps that yield lists."
+  @spec flat_map(Enumerable.t(), (term() -> {:ok, [term()]} | {:error, t()})) ::
+          {:ok, [term()]} | {:error, t()}
+  def flat_map(enum, fun) do
+    with {:ok, chunks} <- map(enum, fun), do: {:ok, Enum.concat(chunks)}
+  end
+
   @doc """
   I am `map/2` threading a state through the walk, as `Enum.map_reduce/3`
   would were a step able to refuse.

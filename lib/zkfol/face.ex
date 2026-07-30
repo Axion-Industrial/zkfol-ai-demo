@@ -59,7 +59,6 @@ defmodule Zkfol.Face do
 
     %{
       columns: columns,
-      len: uair.len,
       traces_order: true,
       num_vars: uair.columns |> hd() |> length() |> then(&round(:math.log2(&1))),
       num_public: uair.num_public,
@@ -186,26 +185,6 @@ defmodule Zkfol.Face do
     |> ColumnedList.column("Implements", &Enum.join(&1.implements, ", "))
     |> ColumnedList.column("Says", &(&1.says || ""))
     |> ColumnedList.send(& &1.module)
-  end
-
-  # The pass view, declared where the data lives: it rides the
-  # bridge's own module surface, so every viewer of a module sees it
-  # and no image-side extension is needed.
-  defview pass_view(%GtBridge.Documentation{query: {:module, module}}, builder) do
-    feed = pass(Log.snapshot(), module)
-
-    if feed.implements do
-      builder.columned_list()
-      |> ColumnedList.title("Pass")
-      |> ColumnedList.priority(12)
-      |> ColumnedList.items(feed.acts)
-      |> ColumnedList.column("Id", &to_string(&1.defined))
-      |> ColumnedList.column("Route", &to_string(&1.route))
-      |> ColumnedList.column("Settled", &"#{&1.verdict} · #{&1.settled}")
-      |> ColumnedList.send(fn act -> act_at(Log.snapshot(), act.defined) end)
-    else
-      builder.empty()
-    end
   end
 
   @spec read_event(term(), map()) :: map()

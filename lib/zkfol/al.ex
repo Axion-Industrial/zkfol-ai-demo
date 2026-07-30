@@ -225,14 +225,12 @@ defmodule Zkfol.Al do
           {:call, _n, [at | _couts]} <- body,
           do: {ix, at}
 
-    ks = for {ix, {:add, {:var, ix}, k}} <- targets, is_integer(k) and k < 0, do: k
+    ks = for {ix, at} <- targets, k = offset(at, ix), do: k
     offsets = ks |> Enum.uniq() |> Enum.with_index(a + 1) |> Map.new()
 
     computed =
       targets
-      |> Enum.reject(fn {ix, at} ->
-        match?({:add, {:var, ^ix}, k} when is_integer(k) and k < 0, at)
-      end)
+      |> Enum.reject(fn {ix, at} -> offset(at, ix) end)
       |> Enum.map(&elem(&1, 1))
       |> Enum.uniq()
       |> Enum.with_index(a + map_size(offsets) + 1)
@@ -249,6 +247,12 @@ defmodule Zkfol.Al do
 
     {:ok, plan, computed}
   end
+
+  # The recurrence offset itself: a call whose target reads the clause's
+  # own index k back, k negative. Anything else is a computed target.
+  @spec offset(term(), atom()) :: neg_integer() | nil
+  defp offset({:add, {:var, ix}, k}, ix) when is_integer(k) and k < 0, do: k
+  defp offset(_at, _ix), do: nil
 
   @spec mentions_len?(term()) :: boolean()
   defp mentions_len?(:len), do: true
@@ -302,9 +306,7 @@ defmodule Zkfol.Al do
     {windowed, pointed} =
       body
       |> Enum.filter(&match?({:call, _n, _args}, &1))
-      |> Enum.split_with(fn {:call, _n, [at | _couts]} ->
-        match?({:add, {:var, ^index}, k} when is_integer(k) and k < 0, at)
-      end)
+      |> Enum.split_with(fn {:call, _n, [at | _couts]} -> offset(at, index) end)
 
     env =
       [{index, :x} | Enum.with_index(outs, 2)]
@@ -347,7 +349,7 @@ defmodule Zkfol.Al do
   defp rel_derefs(pointed, computed, env, plan) do
     pointed
     |> Enum.with_index()
-    |> Refusal.map(fn {{:call, _n, [at | couts]}, j} ->
+    |> Refusal.flat_map(fn {{:call, _n, [at | couts]}, j} ->
       ptr = computed[at]
 
       with {:ok, target} <- rel_prefix(at, env) do
@@ -370,10 +372,6 @@ defmodule Zkfol.Al do
         {:ok, pin ++ List.flatten(reads)}
       end
     end)
-    |> case do
-      {:ok, chunks} -> {:ok, Enum.concat(chunks)}
-      refusal -> refusal
-    end
   end
 
   @spec rel_equations([term()], non_neg_integer(), map()) ::
@@ -382,15 +380,11 @@ defmodule Zkfol.Al do
     body
     |> Enum.filter(&match?({:eq, _t, _u}, &1))
     |> Enum.with_index()
-    |> Refusal.map(fn {{:eq, t, u}, j} ->
+    |> Refusal.flat_map(fn {{:eq, t, u}, j} ->
       with {:ok, pt} <- rel_prefix(t, env),
            {:ok, pu} <- rel_prefix(u, env),
            do: {:ok, AL.Equations.equation(pt, pu, "q#{i}e#{j}", free: [:x, :len])}
     end)
-    |> case do
-      {:ok, equations} -> {:ok, Enum.concat(equations)}
-      refusal -> refusal
-    end
   end
 
   # Terms over the clause's variables, as the equation compiler reads them.

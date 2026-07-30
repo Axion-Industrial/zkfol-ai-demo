@@ -41,7 +41,6 @@ defmodule Examples.EFace do
     # Oriented at the source: trace order with the padding cut, so the
     # n row counts 1..len, and every row's kind named off the shifts.
     assert feed.traces_order
-    assert feed.len == 8
     assert hd(feed.columns) == Enum.to_list(1..8)
     assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :scheduled, :scheduled]
     assert Enum.all?(feed.columns, &(length(&1) == 8))
