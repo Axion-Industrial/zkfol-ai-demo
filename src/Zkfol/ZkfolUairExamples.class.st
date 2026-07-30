@@ -243,7 +243,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| broken |
-	#(miniatureHop hopWithLen hopWithTwoReads) do: [ :fx |
+	#(miniatureHop orientedHop hopWithTwoReads) do: [ :fx |
 		| grid |
 		grid := ZkfolUairGrid onUair: (self perform: fx).
 		self assert: grid failingChains isEmpty.
@@ -309,7 +309,7 @@ ZkfolUairExamples >> gridFromFixture [
 ]
 
 { #category : 'examples' }
-ZkfolUairExamples >> gridFromLenFixture [
+ZkfolUairExamples >> gridFromOrientedHop [
 	"I read the trace-order fixture and assert the orientation rule:
 	 marked traces_order, the grid displays trace order, un-reversing the
 	 committed columns and truncating the padding, so the address a
@@ -319,7 +319,7 @@ ZkfolUairExamples >> gridFromLenFixture [
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid picture |
-	grid := ZkfolUairGrid onUair: self hopWithLen.
+	grid := ZkfolUairGrid onUair: self orientedHop.
 	picture := grid picture.
 	self assert: grid displayColumns first equals: #(7 8 9).
 	self assert: (grid displayColumns collect: [ :each | each size ]) asArray
@@ -379,7 +379,7 @@ ZkfolUairExamples >> hopReversed [
 
 
 { #category : 'fixtures' }
-ZkfolUairExamples >> hopWithLen [
+ZkfolUairExamples >> orientedHop [
 	"The composed hop as the face settles it: length 3, trace order, the
 	 padding cut, every value asymmetric so a missed orientation cannot
 	 pass, and the deref chain self-consistent."

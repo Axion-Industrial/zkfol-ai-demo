@@ -23,8 +23,8 @@ ZkfolPipelineStage >> index [
 
 { #category : 'accessing' }
 ZkfolPipelineStage >> label [
-	"My name for the pipeline node."
-	^ name
+	"My name and verdict for the pipeline node."
+	^ name , ' · ' , self verdictLabel
 ]
 
 { #category : 'accessing' }
@@ -68,7 +68,6 @@ ZkfolPipelineStage >> verdictColor [
 
 { #category : 'accessing' }
 ZkfolPipelineStage >> verdictLabel [
-	"My verdict as text, a placeholder when a malformed piped entry
-	 left it nil, so the chip and the prints never break on it."
-	^ verdict ifNil: [ '?' ] ifNotNil: [ :v | v asString ]
+	"My verdict as text."
+	^ verdict asString
 ]
