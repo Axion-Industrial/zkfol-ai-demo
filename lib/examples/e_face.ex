@@ -75,7 +75,7 @@ defmodule Examples.EFace do
     feed = Face.route(Zkfol.Pipeline.default())
 
     assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness", "Accumulator"]
-    assert Enum.all?(feed.passes, &(&1.implements == ["run/2", "plan/2"]))
+    assert Enum.all?(feed.passes, &(&1.implements == ["verb/0", "run/2"]))
     assert Enum.all?(feed.passes, &String.starts_with?(&1.says, "I "))
     feed
   end

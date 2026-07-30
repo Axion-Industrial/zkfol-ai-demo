@@ -39,79 +39,53 @@ defmodule Zkfol.Doubling do
 
   @doc """
   I am the rewrite as a pass, and always a try: statements the facts
-  do not certify pass through unchanged. Past certification a refusal
-  is loud: with an argument I am the full statement, without one the
-  bare kernel.
+  do not certify, or carrying no argument to claim, pass through
+  unchanged. Past certification a refusal is loud.
   """
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{rels: [root | _rest], args: args} = statement, opts) do
+  def run(%Statement{rels: [root | _rest], args: [n | _args]} = statement, opts) do
     case Facts.recurrence(root) do
-      {:error, _outside} ->
-        {:ok, statement}
-
-      {:ok, _descriptor} ->
-        case args do
-          [n | _rest] -> rewrite(root, n, named(statement, opts))
-          [] -> rewrite(root)
-        end
+      {:error, _outside} -> {:ok, statement}
+      {:ok, descriptor} -> rewritten(descriptor, n, named(statement, opts))
     end
   end
 
   def run(statement, _opts), do: {:ok, statement}
 
-  @doc "I am my verdict: `:rewrites` under the facts' certificate, `:declines` outside it."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(%Statement{rels: [root | _rest]}, _opts) do
-    case Facts.recurrence(root) do
-      {:ok, _descriptor} -> :rewrites
-      {:error, _outside} -> :declines
-    end
-  end
-
-  def plan(_statement, _opts), do: :declines
-
-  @doc "I am the kernel alone: no n, the witness slot empty, the claims to come."
-  @spec rewrite(Zkfol.Lang.Rel.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def rewrite(rel) do
-    with {:ok, descriptor} <- Facts.recurrence(rel),
-         krel = kernel(descriptor),
-         {:ok, %{pred: pred, rows: %{kernel: rows}}} <- Zkfol.Lang.compile(krel, [krel]) do
-      {:ok,
-       %Statement{
-         rels: [krel],
-         ranges: Range.pointer(List.last(rows) + 1),
-         stage: %Statement.Lowered{pred: pred}
-       }}
-    end
-  end
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :rewrites
 
   @doc "I rewrite `rel`'s claim about position `n`, or refuse with the facts' reason."
   @spec rewrite(Zkfol.Lang.Rel.t(), integer(), keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
   def rewrite(rel, n, opts \\ []) do
-    with {:ok, descriptor} <- Facts.recurrence(rel) do
-      [{start, x1}, {_, x2}] = descriptor.initial
+    with {:ok, descriptor} <- Facts.recurrence(rel), do: rewritten(descriptor, n, opts)
+  end
 
-      case n - start + 1 do
-        m when m < 1 ->
-          {:error, {:precedes_base_case, %{n: n, base: start}}}
+  @spec rewritten(Facts.t(), integer(), keyword()) ::
+          {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp rewritten(descriptor, n, opts) do
+    [{start, x1}, {_, x2}] = descriptor.initial
 
-        1 ->
-          trivial(x1, opts)
+    case n - start + 1 do
+      m when m < 1 ->
+        {:error, {:precedes_base_case, %{n: n, base: start}}}
 
-        2 ->
-          trivial(x2, opts)
+      1 ->
+        trivial(x1, opts)
 
-        m ->
-          build(
-            descriptor,
-            m,
-            Keyword.get(opts, :private, false),
-            Keyword.take(opts, [:branch, :heap, :name, :basedon])
-          )
-      end
+      2 ->
+        trivial(x2, opts)
+
+      m ->
+        build(
+          descriptor,
+          m,
+          Keyword.get(opts, :private, false),
+          Keyword.take(opts, [:branch, :heap, :name, :basedon])
+        )
     end
   end
 

@@ -34,11 +34,9 @@ defmodule Zkfol.Witness do
 
   def run(statement, _opts), do: {:ok, statement}
 
-  @doc "I am my verdict: `:solves` for a lowered statement, `:declines` for any other stage."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(%Statement{stage: %Statement.Lowered{}}, _opts), do: :solves
-  def plan(_statement, _opts), do: :declines
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :solves
 
   defp named(%Statement{rels: [root | _rest]}, opts),
     do: Keyword.put_new(opts, :name, root.name)

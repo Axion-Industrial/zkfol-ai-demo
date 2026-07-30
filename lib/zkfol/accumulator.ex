@@ -46,16 +46,9 @@ defmodule Zkfol.Accumulator do
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
   def run(statement, _opts), do: expand(statement)
 
-  @doc "I am my verdict: the row plan I would expand by, `:declines` when nothing is dynamic."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(statement, _opts) do
-    case layout(statement) do
-      {:ok, plan} when is_map(plan) -> {:expands, plan}
-      {:ok, _idle} -> :declines
-      {:error, reason} -> {:refuses, reason}
-    end
-  end
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :expands
 
   # I expand every pointer read into the accumulator encoding. I am a
   # try: a statement whose pointers all carry schedules, or one still
