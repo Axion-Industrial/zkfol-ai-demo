@@ -41,13 +41,8 @@ ZkfolRan >> gtTrailFor: aView [
 { #category : 'accessing' }
 ZkfolRan >> provedReport [
 	"The report that settled my intent, fetched as the real struct so
-	 exclass can dress it. My #resolve expression is spliced into the
-	 trail lookup at the call site, no marker."
-	^ self evaluateOrNil: 'Zkfol.Log.trail(Zkfol.Log.snapshot(), ' , self resolve , ')
-		|> Enum.find_value(fn
-			%{body: {:proved, report}} -> report
-			_ -> nil
-		end)'
+	 exclass can dress it. The log owns the trail walk."
+	^ self evaluateOrNil: 'Zkfol.Log.report(Zkfol.Log.snapshot(), ' , self resolve , ')'
 ]
 
 { #category : 'accessing' }

@@ -64,7 +64,7 @@ defmodule Examples.EPipeline do
              %Log.Event{basedon: intent, body: {:proved, %Prover.Report{}}}
            ] = trail
 
-    assert pipeline == ran.pipeline and intent == ran.intended
+    assert pipeline == ran.pipeline
     assert verdicts == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
 
     # A stage is a re-run, never a record: 0 the source, 1 lowered, 2 doubled.
@@ -85,7 +85,7 @@ defmodule Examples.EPipeline do
     # derivation on its trail, the verdicts piped, and no proof on top.
     ran = Zkfol.emit(source, pipeline: pipeline, name: :emitted_fibonacci)
 
-    assert %Log.Ran{pipeline: ^pipeline, source: ^source, intended: nil} = ran
+    assert %Log.Ran{pipeline: ^pipeline, source: ^source} = ran
 
     trail = Log.trail(Log.snapshot(), ran)
 

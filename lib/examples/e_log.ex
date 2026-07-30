@@ -23,12 +23,6 @@ defmodule Examples.ELog do
     snap = Log.snapshot()
     assert %Prover.Report{} = report = Log.report(snap, ran)
 
-    # The intent rides ahead of the boundary, the report follows it.
-    assert [
-             %Log.Event{body: {:prove_requested, :fibonacci}},
-             %Log.Event{body: {:proved, ^report}}
-           ] = Log.thread(snap, ran.intended)
-
     # The trail runs from route through derivation and intent to observation.
     assert [
              %Log.Event{body: {:define, :fibonacci, %Pipeline{}}},

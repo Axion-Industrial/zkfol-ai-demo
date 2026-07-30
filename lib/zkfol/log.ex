@@ -30,16 +30,14 @@ defmodule Zkfol.Log do
   typedstruct module: Ran, enforce: true do
     @moduledoc """
     I am the receipt of one journaled act: the route and source it
-    ran, and the ids it left, the route defined, the verdicts piped,
-    the proof intended. I remember no history: my trail is a query
-    over the log, and every stage of me is re-run from the source.
+    ran, and the id of the event defining the route. I remember no
+    history: my trail is a query over the log, and every stage of me
+    is re-run from the source.
     """
 
     field(:pipeline, Zkfol.Pipeline.t())
     field(:source, Zkfol.Statement.t())
     field(:defined, pos_integer())
-    field(:piped, pos_integer())
-    field(:intended, pos_integer() | nil, default: nil)
   end
 
   typedstruct do
@@ -114,13 +112,13 @@ defmodule Zkfol.Log do
   @spec trail(t(), Ran.t()) :: [Event.t()]
   def trail(log, %Ran{defined: defined}), do: thread(log, defined)
 
-  @doc "I am the report settling `ran`'s intent, off the log, or nil while none has landed."
+  @doc "I am the report settling `ran`'s intent, off its trail, or nil while none has landed."
   @spec report(t(), Ran.t()) :: Zkfol.Prover.Report.t() | nil
-  def report(%__MODULE__{}, %Ran{intended: nil}), do: nil
-
-  def report(%__MODULE__{events: events}, %Ran{intended: intended}) do
-    Enum.find_value(events, fn
-      %Event{basedon: ^intended, body: {:proved, report}} -> report
+  def report(log, %Ran{defined: defined}) do
+    log
+    |> thread(defined)
+    |> Enum.find_value(fn
+      %Event{body: {:proved, report}} -> report
       _event -> nil
     end)
   end

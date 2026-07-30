@@ -13,7 +13,7 @@ defmodule Zkfol do
       Zkfol.Log.report(Zkfol.Log.snapshot(), ran).prove_ms
 
   I stop one step short in `emit/2`: the same act to the emitted UAIR,
-  no proof, a receipt with `intended` nil that still walks its trail.
+  no proof, a receipt whose trail just ends at the verdicts.
 
       ran = Zkfol.emit(%Zkfol.Statement{rels: [fib], args: [100]})
       Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
@@ -33,8 +33,8 @@ defmodule Zkfol do
   @spec emit(Statement.t(), keyword()) :: Log.Ran.t() | {:error, Refusal.t()}
   def emit(%Statement{} = statement, opts \\ []), do: acted(statement, opts, &emitted/2)
 
-  # The act itself, up to whatever settles it: the two entry points differ
-  # only in that last step and in whether the receipt names an intent.
+  # The act itself, up to whatever settles it: the two entry points
+  # differ only in that last step.
   @spec acted(
           Statement.t(),
           keyword(),
@@ -47,14 +47,8 @@ defmodule Zkfol do
 
     with {:ok, final, trace} <- Pipeline.run(pipeline, statement, basedon: define),
          piped = Log.push({:piped, Pipeline.verdicts(pipeline, statement, trace)}, define),
-         {:ok, intended} <- settle.(final, Keyword.merge(opts, name: name, basedon: piped)) do
-      %Log.Ran{
-        pipeline: pipeline,
-        source: statement,
-        defined: define,
-        piped: piped,
-        intended: intended
-      }
+         {:ok, _settled} <- settle.(final, Keyword.merge(opts, name: name, basedon: piped)) do
+      %Log.Ran{pipeline: pipeline, source: statement, defined: define}
     else
       {:error, pass, reason, _trace} -> {:error, Refusal.by(reason, pass)}
       {:error, reason} -> {:error, Refusal.by(reason, Uair)}
