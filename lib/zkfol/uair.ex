@@ -51,13 +51,6 @@ defmodule Zkfol.Uair do
     field(:mode, mode(), default: %Plain{})
   end
 
-  # One addition of headroom under each cell width: narrow cells are i64,
-  # wide cells 768 or 7040 bits, and values must be non-negative past i64, since
-  # limbs carry no sign.
-  @i64_bound Integer.pow(2, 62)
-  @big_bound Integer.pow(2, 766)
-  @huge_bound Integer.pow(2, 7038)
-
   @doc "I am the committed column count: the columns themselves say it."
   @spec num_cols(t()) :: non_neg_integer()
   def num_cols(%__MODULE__{columns: columns}), do: length(columns)
@@ -128,68 +121,6 @@ defmodule Zkfol.Uair do
     end
   end
 
-  @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
-  @spec request(t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
-  def request(%__MODULE__{} = uair, opts \\ []) do
-    values = List.flatten(uair.columns)
-
-    with {:ok, bins, lookups} <- mode_payload(uair.mode),
-         :ok <- non_negative(values) do
-      queued =
-        ZincPlus.prove_fol(%ZincPlus.Payload{
-          num_cols: num_cols(uair),
-          num_public: uair.num_public,
-          shifts: uair.shifts,
-          program: uair.program,
-          cells: cells(uair, values),
-          bins: bins,
-          lookups: lookups,
-          num_vars: num_vars(uair),
-          tamper: Keyword.get(opts, :tamper, false)
-        })
-
-      # The backend answers in prose either way; it is read into a
-      # refusal here so no caller has to tell a rejected proof from a
-      # malformed lookup by matching on text.
-      with {:error, said} <- queued, do: {:error, Refusal.from_backend(said)}
-    end
-  end
-
-  # The shadow columns and lookup tuples the mode owes the NIF, or the
-  # refusal that keeps it away.
-  @spec mode_payload(mode()) ::
-          {:ok, [[non_neg_integer()]], [ZincPlus.lookup()]} | {:error, Refusal.t()}
-  defp mode_payload(%Plain{}), do: {:ok, [], []}
-  defp mode_payload(%Composed{}), do: Composed.refusal()
-
-  defp mode_payload(%Lookup{bin_columns: bins} = lookup),
-    do: with({:ok, tuples} <- Lookup.tuples(lookup), do: {:ok, bins, tuples})
-
-  # The widest value decides the transport; the limbing stays on this side
-  # of the NIF, so Rust only unpacks what it is handed.
-  @spec cells(t(), [integer()]) :: ZincPlus.cells()
-  defp cells(uair, values) do
-    cond do
-      Enum.any?(values, &(&1 >= @big_bound)) -> {:huge, limbed(uair)}
-      Enum.any?(values, &(&1 >= @i64_bound)) -> {:big, limbed(uair)}
-      true -> {:i64, uair.columns}
-    end
-  end
-
-  # Unsigned limbs have no negative; refuse before the NIF decode crashes.
-  @spec non_negative([integer()]) :: :ok | {:error, Refusal.t()}
-  defp non_negative(values),
-    do: Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}})
-
-  # Values as little-endian base-2^64 digits, the wide cells' transport.
-  @spec limbed(t()) :: [[[non_neg_integer()]]]
-  defp limbed(uair),
-    do:
-      for(
-        col <- uair.columns,
-        do: for(v <- col, do: v |> Integer.digits(1 <<< 64) |> Enum.reverse())
-      )
-
   @doc "I am the UAIR of the statement: columns, claimed rows first, shifts, program."
   @spec emit(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           {:ok, t()} | {:error, Refusal.t()}
@@ -212,8 +143,8 @@ defmodule Zkfol.Uair do
       {shifts, program, columns} =
         index_pin(x_col, len, num_vars, shifts, program, columns(witness, rows, len, num_vars))
 
-      with :ok <- fits(columns),
-           :ok <- constants_fit(program) do
+      with :ok <- ZincPlus.fits(columns),
+           :ok <- ZincPlus.constants_fit(program) do
         {:ok,
          %__MODULE__{
            num_public: length(public),
@@ -396,24 +327,6 @@ defmodule Zkfol.Uair do
   @spec padded([integer()], integer(), pos_integer()) :: [integer()]
   defp padded(values, base, num_vars),
     do: values ++ List.duplicate(base, (1 <<< num_vars) - length(values))
-
-  @spec fits([[integer()]]) :: :ok | {:error, Refusal.t()}
-  defp fits(columns) do
-    Refusal.refute(
-      List.flatten(columns),
-      &(&1 >= @huge_bound or &1 < 0),
-      &{:value_exceeds_cell, %{value: &1}}
-    )
-  end
-
-  @spec constants_fit([{atom(), integer()}]) :: :ok | {:error, Refusal.t()}
-  defp constants_fit(program) do
-    Refusal.refute(
-      program,
-      &match?({:const, k} when abs(k) >= @i64_bound, &1),
-      fn {:const, k} -> {:constant_exceeds_cell, %{constant: k}} end
-    )
-  end
 
   # The exact bit width: the smallest k with 2^k >= n, no float rounding.
   @spec ceil_log2(pos_integer()) :: non_neg_integer()

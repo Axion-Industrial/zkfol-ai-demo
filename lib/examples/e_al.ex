@@ -19,6 +19,7 @@ defmodule Examples.EAl do
   alias Zkfol.Refusal
   alias Zkfol.Interpretation
   alias Zkfol.Uair
+  alias Zkfol.ZincPlus
 
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
@@ -181,7 +182,7 @@ defmodule Examples.EAl do
   # prover boundary, not in the middle of the compiler.
   @spec composed_read_awaits_zinc() :: Refusal.t()
   example composed_read_awaits_zinc do
-    {:error, reason} = Uair.request(composed_hop_emits())
+    {:error, reason} = ZincPlus.request(composed_hop_emits())
 
     assert {:composed_read_awaits_backend, _} = reason
     reason

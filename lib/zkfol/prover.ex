@@ -12,6 +12,7 @@ defmodule Zkfol.Prover do
   alias Zkfol.Log
   alias Zkfol.Refusal
   alias Zkfol.Uair
+  alias Zkfol.ZincPlus
 
   # I match the log event that settles `intent`: its observation.
   deffilter Settled, intent: pos_integer() do
@@ -53,7 +54,7 @@ defmodule Zkfol.Prover do
 
   @impl true
   def handle_call({:run, uair, intent, opts}, _from, inflight) do
-    case Uair.request(uair, opts) do
+    case ZincPlus.request(uair, opts) do
       {:ok, req} -> {:reply, :ok, Map.put(inflight, req, {intent, uair.claims})}
       {:error, _reason} = error -> {:reply, error, inflight}
     end

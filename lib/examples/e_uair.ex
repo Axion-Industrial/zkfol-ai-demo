@@ -22,6 +22,7 @@ defmodule Examples.EUair do
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
+  alias Zkfol.ZincPlus
 
   @spec big_values_prove(pos_integer()) :: Log.Ran.t()
   example big_values_prove(n \\ 99) do
@@ -64,7 +65,7 @@ defmodule Examples.EUair do
 
     negated = %{uair | columns: List.update_at(uair.columns, 0, &List.replace_at(&1, 0, -1))}
 
-    {:error, reason} = Uair.request(negated)
+    {:error, reason} = ZincPlus.request(negated)
     assert {:witness_value_negative, %{value: -1}} = reason
     reason
   end
