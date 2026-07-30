@@ -69,7 +69,20 @@ defmodule Zkfol.Al do
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def solve(target, arguments, opts \\ [])
 
-  def solve(%Statement{rels: [root | _rest] = rels, claims: claims}, arguments, opts) do
+  def solve(%Statement{rels: [root | _rest] = rels, claims: []} = statement, [n | _args], opts)
+      when is_integer(n) and n > 0 do
+    opts = Keyword.put_new(opts, :name, root.name)
+
+    with {:ok, pred} <- statement_pred(statement),
+         {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
+         do: run_installed(program, pred, plan, [n], Keyword.get(opts, :bind, %{}), opts)
+  end
+
+  def solve(
+        %Statement{rels: [root | _rest] = rels, claims: [_ | _] = claims} = statement,
+        arguments,
+        opts
+      ) do
     bind =
       claims
       |> Enum.zip(arguments)
@@ -82,12 +95,15 @@ defmodule Zkfol.Al do
       Keyword.merge(opts, name: root.name, bind: Map.merge(bind, Keyword.get(opts, :bind, %{})))
 
     with {:ok, program, plan} <- clauses_program(rels, root.name),
-         {:ok, %{pred: pred}} <- Lang.compile(root, rels),
+         {:ok, pred} <- statement_pred(statement),
          do: run_installed(program, pred, plan, counts, Keyword.fetch!(opts, :bind), opts)
   end
 
-  def solve(%Statement{}, _arguments, _opts),
+  def solve(%Statement{rels: []}, _arguments, _opts),
     do: {:error, {:no_relations, %{}}}
+
+  def solve(%Statement{}, args, _opts),
+    do: {:error, {:one_bound_input_only, %{args: args}}}
 
   def solve(%Rel{} = root, arguments, opts), do: solve([root], arguments, opts)
 
@@ -107,6 +123,14 @@ defmodule Zkfol.Al do
 
   def solve(_pred, args, _opts),
     do: {:error, {:one_bound_input_only, %{args: args}}}
+
+  # The pred the stage already carries; compiled only when none does.
+  @spec statement_pred(Statement.t()) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
+  defp statement_pred(%Statement{stage: :raw, rels: [root | _rest] = rels}) do
+    with {:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred}
+  end
+
+  defp statement_pred(statement), do: {:ok, Statement.pred(statement)}
 
   # A free pointer left unbound by everything else enumerates the
   # columns below.
