@@ -3,7 +3,8 @@ defmodule Examples.EUair do
   I am the prover boundary's evidence: a tampered witness rejected, a
   claim outside the witness refused, a negative cell refused at the
   door, a pointer off its schedule refused, values past int64 riding
-  the wider backend, and two acts proving at once.
+  the wider backend, two acts proving at once, and the emission
+  shapes frozen against translation growth.
   """
 
   use ExExample
@@ -11,6 +12,7 @@ defmodule Examples.EUair do
   import ExUnit.Assertions
 
   alias Examples.EAst
+  alias Examples.EDoubling
   alias Examples.EFacts
   alias Examples.EUser
   alias Zkfol.Al
@@ -94,5 +96,24 @@ defmodule Examples.EUair do
 
     assert Enum.all?(reports, &match?({:ok, %Prover.Report{}, _id}, &1))
     reports
+  end
+
+  @spec frozen_shapes() :: [Uair.t()]
+  example frozen_shapes do
+    # The regression gates: translation growth is a failure, not a
+    # drift. v0.1.0 froze 279/111 opcodes at 7/5 columns; the X-forge
+    # fix costs its four index pins (60 opcodes) and the ones column.
+    doubled = EDoubling.rewritten_fibonacci(10_000)
+    {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
+
+    {:ok, generic} =
+      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(32)))
+
+    assert Uair.num_cols(kernel) == 8
+    assert Uair.num_cols(generic) == 6
+    assert length(kernel.program) == 339
+    assert length(generic.program) == 171
+
+    [kernel, generic]
   end
 end

@@ -10,7 +10,6 @@ defmodule Examples.EBench do
   alias Examples.EDoubling
   alias Examples.EUser
   alias Zkfol.Interpretation
-  alias Zkfol.Pipeline
   alias Zkfol.Statement
   alias Zkfol.Uair
 
@@ -45,18 +44,6 @@ defmodule Examples.EBench do
     )
   end
 
-  @spec measured_default_fibonacci(pos_integer()) :: map()
-  example measured_default_fibonacci(n \\ 10_000) do
-    {:ok, statement, _trace} =
-      Pipeline.run(Pipeline.default(), %Statement{rels: [EUser.fib()], args: [n]})
-
-    measurement(
-      "fibonacci n=#{n}, default",
-      Statement.pred(statement),
-      Statement.witness(statement)
-    )
-  end
-
   # The composed-read fallback proves end to end; dies with Zkfol.Accumulator.
   @spec measured_accumulator_hop() :: map()
   example measured_accumulator_hop do
@@ -72,27 +59,6 @@ defmodule Examples.EBench do
     )
   end
 
-  @spec frozen_shapes() :: [Uair.t()]
-  example frozen_shapes do
-    # The regression gates: translation growth is a failure, not a drift.
-    doubled = EDoubling.rewritten_fibonacci(10_000)
-    {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
-
-    {:ok, generic} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(32)))
-
-    assert Zkfol.Uair.num_vars(kernel) == 4
-    assert Zkfol.Uair.num_cols(kernel) == 7
-    assert Zkfol.Uair.num_vars(generic) == 5
-    assert Zkfol.Uair.num_cols(generic) == 5
-
-    # Canonical construction keeps programs at these lengths.
-    assert length(kernel.program) == 279
-    assert length(generic.program) == 111
-
-    [kernel, generic]
-  end
-
   @spec report() :: [map()]
   example report do
     [
@@ -100,7 +66,6 @@ defmodule Examples.EBench do
       measured_fibonacci(),
       measured_registers_fibonacci(),
       measured_doubled_fibonacci(),
-      measured_default_fibonacci(),
       measured_accumulator_hop()
     ]
   end

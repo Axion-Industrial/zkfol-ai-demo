@@ -2,9 +2,8 @@ defmodule Examples.EDoubling do
   @moduledoc """
   I am the doubling rewrite's evidence: one predicate for every n, the
   oracle validating it, claims agreeing with the generic route, the
-  witness arriving late from its goal, the try leaving other statements
-  alone, the position claim's absence keeping n private, and refusal
-  of the walk that leaves N.
+  try leaving other statements alone, the position claim's absence
+  keeping n private, and refusal of the walk that leaves N.
   """
 
   use ExExample

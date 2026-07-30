@@ -18,8 +18,9 @@ defmodule Examples.EAstTest do
   use ExExample.ExUnit, for: Examples.EAst
 end
 
-# Benchmarks assert our published numbers; BENCH=1 mix test runs them.
-if System.get_env("BENCH") do
+# The proving benchmarks; BENCH=1 mix test runs them. The frozen
+# emission shapes gate every run, from Examples.EUair.
+if System.get_env("BENCH") == "1" do
   defmodule Examples.EBenchTest do
     use ExExample.ExUnit, for: Examples.EBench
   end
