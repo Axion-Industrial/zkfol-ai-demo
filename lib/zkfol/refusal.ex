@@ -201,7 +201,7 @@ defmodule Zkfol.Refusal do
     do: "a raw predicate has no clauses to run; write it as relations"
 
   def message({:one_bound_input_only, %{args: args}}),
-    do: "one bound input argument for now, got #{inspect(args)}"
+    do: "no usable arguments to solve from, got #{inspect(args)}"
 
   def message({:calls_between_relations, _detail}),
     do: "not yet: calls between relations derive through the core path"
