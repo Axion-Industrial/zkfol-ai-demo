@@ -18,17 +18,10 @@ defmodule Zkfol.Witness do
 
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{stage: %Statement.Lowered{} = lowered, claims: claims} = statement, opts) do
-    target =
-      case {statement.rels, claims} do
-        {[_ | _] = rels, []} -> rels
-        {_rels, []} -> lowered.pred
-        _claimed -> statement
-      end
-
+  def run(%Statement{stage: %Statement.Lowered{} = lowered} = statement, opts) do
     args = Keyword.get(opts, :args, statement.args)
 
-    with {:ok, witness} <- Al.solve(target, args, named(statement, opts)),
+    with {:ok, witness} <- Al.solve(statement, args, named(statement, opts)),
          do: {:ok, %{statement | stage: Statement.Lowered.solved(lowered, witness)}}
   end
 
