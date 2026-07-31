@@ -20,8 +20,6 @@ defmodule Zkfol do
       Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
   """
 
-  alias Zkfol.Al
-  alias Zkfol.Interpretation
   alias Zkfol.Lang
   alias Zkfol.Log
   alias Zkfol.Pipeline
@@ -48,17 +46,53 @@ defmodule Zkfol do
   answers; a binding nothing derives refuses as the false statement
   it is.
 
-      Zkfol.eval(fib, [8, :_], [])   #=> {:ok, [8, 21]}
-      Zkfol.eval(fib, [:_, 21], [])  #=> {:ok, [8, 21]}
+  The answer comes as the query holding it: the first is already
+  taken, `Zkfol.Query.next/1` steps to the rest, `taken/1` lists what
+  crossed, `close/1` ends it. A binding nothing derives closes itself
+  and refuses.
 
-  `opts` ride through to `Zkfol.Al.solve/3`; `:heap` bounds the
+      {:ok, query} = Zkfol.eval(fib, [8, :_], [])
+      Zkfol.Query.taken(query)  #=> [[8, 21]]
+
+  `opts` ride through to `Zkfol.Query.open/3`; `:heap` bounds the
   derivation.
   """
   @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
-          {:ok, [integer()]} | {:error, Refusal.t()}
-  def eval(rels, arguments, opts \\ []) do
-    with {:ok, witness} <- Al.solve(rels, arguments, opts),
-         do: {:ok, answer(witness, arguments)}
+          {:ok, Query.t()} | {:error, Refusal.t()}
+  def eval(rels, arguments, opts \\ [])
+
+  def eval(%Statement{rels: rels}, arguments, opts), do: eval(rels, arguments, opts)
+
+  def eval(rels, arguments, opts) do
+    with {:ok, query} <- Query.open(rels, arguments, opts) do
+      case Query.next(query) do
+        {:ok, _answer} ->
+          {:ok, query}
+
+        :exhausted ->
+          Query.close(query)
+          {:error, {:no_answer, %{}}}
+
+        {:error, reason} ->
+          Query.close(query)
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  I am `eval/3` for a hand at the keyboard: the query itself, no tuple
+  to unwrap, and a refusal raised with its own message.
+
+      Zkfol.eval!(fib, [8, :_], [])   #=> %Zkfol.Query{}
+  """
+  @spec eval!(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+          Query.t()
+  def eval!(rels, arguments, opts \\ []) do
+    case eval(rels, arguments, opts) do
+      {:ok, query} -> query
+      {:error, reason} -> raise Refusal.message(reason)
+    end
   end
 
   @doc """
@@ -91,17 +125,6 @@ defmodule Zkfol do
         {:error, _reason} -> :ok
       end
     )
-  end
-
-  # Argument i is row i at the derivation's last column; the
-  # derivation already satisfied every bound argument, so only the
-  # holes read.
-  @spec answer(Interpretation.t(), [integer() | :_]) :: [integer()]
-  defp answer(%Interpretation{} = witness, arguments) do
-    col = Interpretation.len(witness)
-
-    for {argument, row} <- Enum.with_index(arguments, 1),
-        do: if(argument == :_, do: Interpretation.at(witness, row, col), else: argument)
   end
 
   # The act itself, up to whatever settles it: the two entry points

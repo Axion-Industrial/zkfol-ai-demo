@@ -84,23 +84,30 @@ defmodule Examples.EUser do
 
   @spec eval_fills_the_holes(pos_integer()) :: [pos_integer()]
   example eval_fills_the_holes(n \\ 8) do
-    assert {:ok, [^n, value]} = Zkfol.eval(fib(), [n, :_], [])
+    {:ok, query} = Zkfol.eval(fib(), [n, :_], [])
+    assert [[^n, value]] = Zkfol.Query.taken(query)
     assert value == fib(n)
-    assert {:ok, [^n, ^value]} = Zkfol.eval(fib(), [n, value], [])
+    Zkfol.Query.close(query)
+
+    again = Zkfol.eval!(fib(), [n, value], [])
+    assert Zkfol.Query.taken(again) == [[n, value]]
+    Zkfol.Query.close(again)
     [n, value]
   end
 
   @spec eval_selects_by_binding(pos_integer()) :: [pos_integer()]
   example eval_selects_by_binding(n \\ 8) do
-    assert {:ok, [index, value]} = Zkfol.eval(fib(), [:_, fib(n)], [])
+    {:ok, query} = Zkfol.eval(fib(), [:_, fib(n)], [])
+    assert [[index, value]] = Zkfol.Query.taken(query)
     assert fib(index) == value
+    Zkfol.Query.close(query)
     [index, value]
   end
 
   @spec eval_refuses_a_false_binding(pos_integer()) :: Refusal.t()
   example eval_refuses_a_false_binding(n \\ 8) do
     {:error, reason} = Zkfol.eval(fib(), [n, fib(n) + 1], [])
-    assert {:no_derivation_at_count, %{count: ^n, relation: :fib}} = reason
+    assert {:no_answer, %{}} = reason
     reason
   end
 
@@ -121,6 +128,15 @@ defmodule Examples.EUser do
     {:ok, statement, _trace} = Pipeline.run(plain(), %Statement{rels: [regs()], args: [n]})
 
     assert Interpretation.at(Statement.witness(statement), 3, n) == fib(n)
+    statement
+  end
+
+  @spec registers_mod(pos_integer()) :: Statement.t()
+  example registers_mod(n \\ 1000) do
+    source = %Statement{rels: [regsm()], args: [n, :_, :_, :_]}
+    {:ok, statement, _trace} = Pipeline.run(plain(), source)
+
+    assert Interpretation.at(Statement.witness(statement), 2, n) == rem(fib(n + 1), 7919)
     statement
   end
 
@@ -149,7 +165,7 @@ defmodule Examples.EUser do
       end
 
     {:error, reason} = Al.solve(unseeded, [4])
-    assert elem(reason, 0) in [:no_derivation, :no_derivation_at_count, :witness_value_negative]
+    assert elem(reason, 0) == :no_answer
     reason
   end
 
@@ -175,15 +191,16 @@ defmodule Examples.EUser do
     scaled
   end
 
-  # Two recursive clauses put the answer behind an infinite DFS
-  # subtree, and unification cannot invert ee + ee; we fail as AL
-  # fails. CLP reads the same equation as 2*ee = e and inverts it.
-  @spec squaring_backward_awaits_clp() :: Zkfol.Refusal.t()
-  example squaring_backward_awaits_clp do
-    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 200_000)
+  # Two recursive clauses put the answer behind an infinite DFS subtree
+  # for unification, which cannot invert ee + ee. CLP reads the same
+  # equation as 2*ee = e and runs the exponent backward.
+  @spec squaring_runs_backward() :: Interpretation.t()
+  example squaring_runs_backward do
+    {:ok, witness} = Al.solve(epower(), [:_, 10])
 
-    assert kind in [:heap_exhausted, :unresolved_within_budget]
-    reason
+    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
+    assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
+    witness
   end
 
   @spec squaring_solves_at_the_base() :: Interpretation.t()
@@ -208,16 +225,16 @@ defmodule Examples.EUser do
     [root | _scope] = program = program(:fib)
 
     assert root.name == :fib
-    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs]
+    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs, :regsm]
 
     # The closure walk takes what it calls and ignores the rest.
-    {:ok, %{rows: rows}} = Lang.compile(root, program)
-    assert Map.keys(rows) == [:fib]
+    {:ok, shape} = Lang.compile(root, program)
+    assert shape.members == [:fib]
     program
   end
 
   @spec plain() :: Pipeline.t()
-  def plain(), do: %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, []}]}
+  def plain(), do: %Pipeline{passes: [{Witness, []}, {Zkfol.Lang, []}]}
 
   @spec fib(pos_integer()) :: pos_integer()
   def fib(n) do

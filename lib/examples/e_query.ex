@@ -105,13 +105,22 @@ defmodule Examples.EQuery do
 
   @doc "The cap is the query's own: the derivation that outgrows it kills the query, not its caller."
   @spec a_capped_query_refuses(pos_integer()) :: Refusal.t()
-  example a_capped_query_refuses(heap \\ 100_000) do
-    {:ok, query} = Query.open(EUser.epower(), [:_, 10, :_], heap: heap)
-    {:error, reason} = Query.next(query)
+  example a_capped_query_refuses(heap \\ 20_000) do
+    before = AL.Branch.list()
+
+    reason =
+      case Query.open(EUser.epower(), [:_, 10, :_], heap: heap) do
+        {:ok, query} ->
+          {:error, said} = Query.next(query)
+          refute Process.alive?(query.pid)
+          said
+
+        {:error, said} ->
+          said
+      end
 
     assert {:heap_exhausted, _said} = reason
-    refute Process.alive?(query.pid)
-    refute Enum.any?(AL.Branch.list(), &(&1.id == query.branch.id))
+    assert AL.Branch.list() == before
     reason
   end
 

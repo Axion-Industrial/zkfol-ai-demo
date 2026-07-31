@@ -11,16 +11,16 @@ defmodule Zkfol.Al.Ask do
   use TypedStruct
 
   @typedoc """
-  What one step of me yields: an answer, the end of the search, or a
-  refusal to make one.
-  """
-  @typedoc """
   One answer: the argument list ground. The interpretation is over N,
   so a cell is an integer; this name is where that widens when layouts
   and lists arrive.
   """
   @type answer :: [integer()]
 
+  @typedoc """
+  What one step of me yields: an answer, the end of the search, or a
+  refusal to make one.
+  """
   @type outcome :: {:ok, answer()} | :exhausted | {:error, Zkfol.Refusal.t()}
 
   typedstruct enforce: true do
