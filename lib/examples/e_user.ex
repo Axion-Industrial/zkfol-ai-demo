@@ -82,6 +82,28 @@ defmodule Examples.EUser do
     ran
   end
 
+  @spec eval_fills_the_holes(pos_integer()) :: [pos_integer()]
+  example eval_fills_the_holes(n \\ 8) do
+    assert {:ok, [^n, value]} = Zkfol.eval(fib(), [n, :_], [])
+    assert value == fib(n)
+    assert {:ok, [^n, ^value]} = Zkfol.eval(fib(), [n, value], [])
+    [n, value]
+  end
+
+  @spec eval_selects_by_binding(pos_integer()) :: [pos_integer()]
+  example eval_selects_by_binding(n \\ 8) do
+    assert {:ok, [index, value]} = Zkfol.eval(fib(), [:_, fib(n)], [])
+    assert fib(index) == value
+    [index, value]
+  end
+
+  @spec eval_refuses_a_false_binding(pos_integer()) :: Refusal.t()
+  example eval_refuses_a_false_binding(n \\ 8) do
+    {:error, reason} = Zkfol.eval(fib(), [n, fib(n) + 1], [])
+    assert {:no_derivation_at_count, %{count: ^n, relation: :fib}} = reason
+    reason
+  end
+
   # The plain route carries a source to the solved statement: the
   # predicate and the witness, derived off the relation alone.
   @spec fibonacci(pos_integer()) :: Statement.t()

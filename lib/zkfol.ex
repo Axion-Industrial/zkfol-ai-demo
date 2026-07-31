@@ -20,6 +20,9 @@ defmodule Zkfol do
       Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
   """
 
+  alias Zkfol.Al
+  alias Zkfol.Interpretation
+  alias Zkfol.Lang
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
@@ -34,6 +37,39 @@ defmodule Zkfol do
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
   @spec emit(Statement.t(), keyword()) :: Log.Ran.t()
   def emit(%Statement{} = statement, opts \\ []), do: acted(statement, opts, &emitted/2)
+
+  @doc """
+  I am the query door: no route, no proof, the relation run as AL
+  runs it. Arguments bind in order, `:_` free: bound arguments enter
+  the derivation's goal and select it, holes fill from the
+  derivation, and the answer is the argument list unified. A free
+  index searches upward, so the least index satisfying the bindings
+  answers; a binding nothing derives refuses as the false statement
+  it is.
+
+      Zkfol.eval(fib, [8, :_], [])   #=> {:ok, [8, 21]}
+      Zkfol.eval(fib, [:_, 21], [])  #=> {:ok, [8, 21]}
+
+  `opts` ride through to `Zkfol.Al.solve/3`; `:heap` bounds the
+  derivation.
+  """
+  @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+          {:ok, [integer()]} | {:error, Refusal.t()}
+  def eval(rels, arguments, opts \\ []) do
+    with {:ok, witness} <- Al.solve(rels, arguments, opts),
+         do: {:ok, answer(witness, arguments)}
+  end
+
+  # Argument i is row i at the derivation's last column; the
+  # derivation already satisfied every bound argument, so only the
+  # holes read.
+  @spec answer(Interpretation.t(), [integer() | :_]) :: [integer()]
+  defp answer(%Interpretation{} = witness, arguments) do
+    col = Interpretation.len(witness)
+
+    for {argument, row} <- Enum.with_index(arguments, 1),
+        do: if(argument == :_, do: Interpretation.at(witness, row, col), else: argument)
+  end
 
   # The act itself, up to whatever settles it: the two entry points
   # differ only in that last step.
