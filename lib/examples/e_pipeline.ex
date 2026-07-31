@@ -35,6 +35,17 @@ defmodule Examples.EPipeline do
     statement
   end
 
+  @spec claimless_no_relations_refuses_uniformly() :: Refusal.t()
+  example claimless_no_relations_refuses_uniformly do
+    pred = Zkfol.Ast.eq(Zkfol.Ast.cell(1), Zkfol.Ast.cell(1))
+    statement = %Statement{rels: [], stage: %Statement.Lowered{pred: pred}}
+
+    {:error, reason} = Witness.run(statement, [])
+
+    assert {:no_relations, _} = reason
+    reason
+  end
+
   @spec doubled_through_the_pipeline() :: Log.Ran.t()
   example doubled_through_the_pipeline do
     pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}

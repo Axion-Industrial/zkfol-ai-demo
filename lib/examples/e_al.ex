@@ -59,6 +59,25 @@ defmodule Examples.EAl do
     witness
   end
 
+  @spec al_binds_a_bound_claim_too() :: Interpretation.t()
+  example al_binds_a_bound_claim_too do
+    statement = EDoubling.rewritten_fibonacci(10)
+    {:ok, witness} = Al.solve(statement, [55, 8], heap: 2_000_000)
+
+    last = Interpretation.len(witness)
+    assert last == 4
+    assert Interpretation.at(witness, 5, last) == 55
+    witness
+  end
+
+  @spec al_refuses_empty_arguments() :: Refusal.t()
+  example al_refuses_empty_arguments do
+    {:error, reason} = Al.solve(EUser.fib(), [])
+
+    assert {:one_bound_input_only, %{args: []}} = reason
+    reason
+  end
+
   # Forty columns of unguided doubling squares its cells past any
   # machine; the bound turns the blowup into a named refusal.
   @spec runaway_growth_is_refused() :: Refusal.t()
