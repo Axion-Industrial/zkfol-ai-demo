@@ -82,10 +82,10 @@ defmodule Examples.EAl do
     n = 50_000
     statement = EDoubling.rewritten_fibonacci()
 
-    # The claims are the arguments: the value claim stays free and the
-    # position claim carries e, at n - 2 since the kernel claims
-    # F(e + 2). Bits and depth arrive by descent, not from the caller.
-    {:ok, witness} = Al.solve(statement, [:_, n - 2])
+    # kernel(x, u, w, e, r): e is row four, at n - 2 since the kernel
+    # claims F(e + 2). Bits and depth arrive by descent, not from the
+    # caller, and the result row stays free.
+    {:ok, witness} = Al.solve(statement, [:_, :_, :_, n - 2])
 
     # kernel(x, u, w, e, r): e walks in row 4, the result rides row 5.
     last = Interpretation.len(witness)
@@ -97,7 +97,7 @@ defmodule Examples.EAl do
   @spec al_binds_a_bound_claim_too() :: Interpretation.t()
   example al_binds_a_bound_claim_too do
     statement = EDoubling.rewritten_fibonacci(10)
-    {:ok, witness} = Al.solve(statement, [55, 8], heap: 2_000_000)
+    {:ok, witness} = Al.solve(statement, [:_, :_, :_, 8, 55], heap: 2_000_000)
 
     last = Interpretation.len(witness)
     assert last == 4

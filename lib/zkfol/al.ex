@@ -58,9 +58,9 @@ defmodule Zkfol.Al do
       solve(kernel_statement, [:_, n - 2])
       solve(Examples.EFacts.factorial(), [6], branch: :head)
 
-  `arguments` address claimed rows in claim order when the target
-  carries claims, or the relation's own rows otherwise; `:_` leaves a
-  row free. The recursion count is always row one: bound, it runs
+  `arguments` address the relation's own rows in order, whatever claims
+  a pass may have hung on the statement; `:_` leaves a row free, and
+  `:bind` names a row directly when counting to it is unpleasant. The recursion count is always row one: bound, it runs
   once at that count; free, depth deepens until a count satisfies
   every other bound row. `:bind` fixes rows directly, merged over
   whatever `arguments` bound. `:branch` keeps the install, `:depth`
@@ -71,13 +71,12 @@ defmodule Zkfol.Al do
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def solve(target, arguments, opts \\ [])
 
-  def solve(%Statement{rels: [_ | _] = rels, claims: claims}, args, opts),
-    do: solve_rels(rels, claims, args, opts)
+  def solve(%Statement{rels: [_ | _] = rels}, args, opts), do: solve_rels(rels, args, opts)
 
   def solve(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
 
-  def solve(%Rel{} = root, args, opts), do: solve_rels([root], [], args, opts)
-  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, [], args, opts)
+  def solve(%Rel{} = root, args, opts), do: solve_rels([root], args, opts)
+  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, args, opts)
   def solve([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   def solve({tag, _parts}, _arguments, _opts) when tag in [:conj, :disj],
@@ -89,15 +88,15 @@ defmodule Zkfol.Al do
   # Row 1 is always the recursion driver (rel_plan/1 puts it first, and
   # every clause head reads it as the count), so a bound row 1 is a
   # bound trace length; anything else has to deepen for it.
-  @spec solve_rels([Rel.t()], [Interpretation.claim()], [integer() | :_], keyword()) ::
+  @spec solve_rels([Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp solve_rels(rels, claims, args, opts) do
+  defp solve_rels(rels, args, opts) do
     opts = Keyword.put_new(opts, :name, hd(rels).name)
 
     with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
          {:ok, %{pred: pred}} <- Lang.compile(hd(rels), rels) do
-      bind = bind(rows(claims, plan), args, opts)
-      run_installed(program, pred, plan, counts(bind, opts), bind, opts)
+      with {:ok, bind} <- bind(plan.rows, args, opts),
+           do: run_installed(program, pred, plan, counts(bind, opts), bind, opts)
     end
   end
 
@@ -105,19 +104,21 @@ defmodule Zkfol.Al do
   defp counts(%{1 => n}, _opts), do: [n]
   defp counts(_bind, opts), do: 1..Keyword.get(opts, :depth, 4096)
 
-  # Claimed rows in claim order, else the relation's own row order.
-  @spec rows([Interpretation.claim()], plan()) :: [pos_integer()]
-  defp rows([], plan), do: plan.rows
-  defp rows(claims, _plan), do: Enum.map(claims, &elem(&1, 1))
-
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
-  @spec bind([pos_integer()], [integer() | :_], keyword()) :: bind()
+  # An argument past the last row addresses nothing, and zipping it away
+  # would answer a question no one asked.
+  @spec bind([pos_integer()], [integer() | :_], keyword()) ::
+          {:ok, bind()} | {:error, Refusal.t()}
+  defp bind(rows, args, _opts) when length(args) > length(rows),
+    do: {:error, {:arguments_exceed_rows, %{args: length(args), rows: length(rows)}}}
+
   defp bind(rows, args, opts) do
-    rows
-    |> Enum.zip(args)
-    |> Enum.reject(&match?({_row, :_}, &1))
-    |> Map.new()
-    |> Map.merge(Keyword.get(opts, :bind, %{}))
+    {:ok,
+     rows
+     |> Enum.zip(args)
+     |> Enum.reject(&match?({_row, :_}, &1))
+     |> Map.new()
+     |> Map.merge(Keyword.get(opts, :bind, %{}))}
   end
 
   # A free pointer left unbound by everything else enumerates the
