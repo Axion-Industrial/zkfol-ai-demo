@@ -71,12 +71,13 @@ defmodule Zkfol.Al do
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def solve(target, arguments, opts \\ [])
 
-  def solve(%Statement{rels: [_ | _] = rels}, args, opts), do: solve_rels(rels, args, opts)
+  def solve(%Statement{rels: [_ | _] = rels} = statement, args, opts),
+    do: solve_rels(rels, statement, args, opts)
 
   def solve(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
 
-  def solve(%Rel{} = root, args, opts), do: solve_rels([root], args, opts)
-  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, args, opts)
+  def solve(%Rel{} = root, args, opts), do: solve_rels([root], [root], args, opts)
+  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, rels, args, opts)
   def solve([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   def solve({tag, _parts}, _arguments, _opts) when tag in [:conj, :disj],
@@ -88,13 +89,13 @@ defmodule Zkfol.Al do
   # Row 1 is always the recursion driver (rel_plan/1 puts it first, and
   # every clause head reads it as the count), so a bound row 1 is a
   # bound trace length; anything else has to deepen for it.
-  @spec solve_rels([Rel.t()], [integer() | :_], keyword()) ::
+  @spec solve_rels([Rel.t()], Statement.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp solve_rels(rels, args, opts) do
+  defp solve_rels(rels, target, args, opts) do
     opts = Keyword.put_new(opts, :name, hd(rels).name)
 
     with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
-         {:ok, %{pred: pred}} <- Lang.compile(hd(rels), rels) do
+         {:ok, pred} <- target_pred(target) do
       with {:ok, bind} <- bind(plan.rows, args, opts),
            do: run_installed(program, pred, plan, counts(bind, opts), bind, opts)
     end
@@ -103,6 +104,18 @@ defmodule Zkfol.Al do
   @spec counts(bind(), keyword()) :: Enumerable.t()
   defp counts(%{1 => n}, _opts), do: [n]
   defp counts(_bind, opts), do: 1..Keyword.get(opts, :depth, 4096)
+
+  # The predicate rides the stage once a statement is lowered, so a
+  # closure walk here would be the second of two. Only a raw target
+  # still has to compile.
+  @spec target_pred(Statement.t() | [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
+  defp target_pred(%Statement{stage: :raw, rels: [root | _rest] = rels}),
+    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
+
+  defp target_pred(%Statement{} = statement), do: {:ok, Statement.pred(statement)}
+
+  defp target_pred([root | _rest] = rels),
+    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
 
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
