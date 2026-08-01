@@ -78,17 +78,13 @@ defmodule Zkfol.Al do
 
   def solve(%Rel{} = root, args, opts), do: solve_rels([root], [], args, opts)
   def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, [], args, opts)
+  def solve([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   def solve({tag, _parts}, _arguments, _opts) when tag in [:conj, :disj],
     do: {:error, {:raw_predicate_has_no_clauses, %{}}}
 
   def solve({:eq, _t, _u}, _arguments, _opts),
     do: {:error, {:raw_predicate_has_no_clauses, %{}}}
-
-  def solve(_pred, args, _opts),
-    do: {:error, {:one_bound_input_only, %{args: args}}}
-
-  defp solve_rels(_rels, _claims, [], _opts), do: {:error, {:one_bound_input_only, %{args: []}}}
 
   # Row 1 is always the recursion driver (rel_plan/1 puts it first, and
   # every clause head reads it as the count), so a bound row 1 is a

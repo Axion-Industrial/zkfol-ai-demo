@@ -70,12 +70,14 @@ defmodule Examples.EAl do
     witness
   end
 
-  @spec al_refuses_empty_arguments() :: Refusal.t()
-  example al_refuses_empty_arguments do
-    {:error, reason} = Al.solve(EUser.fib(), [])
+  @doc "I bind nothing, spelled two ways, so the first count answers."
+  @spec no_arguments_lands_on_the_first_count() :: Interpretation.t()
+  example no_arguments_lands_on_the_first_count do
+    {:ok, witness} = Al.solve(EUser.fib(), [])
 
-    assert {:one_bound_input_only, %{args: []}} = reason
-    reason
+    assert {:ok, ^witness} = Al.solve(EUser.fib(), [:_, :_])
+    assert Interpretation.len(witness) == 1
+    witness
   end
 
   # Forty columns of unguided doubling squares its cells past any
