@@ -50,6 +50,22 @@ defmodule Examples.EAl do
     count
   end
 
+  @doc "I solve one relation both ways, one answer being the other's question."
+  @spec fib_solves_both_ways() :: Interpretation.t()
+  example fib_solves_both_ways do
+    n = 40
+    branch = AL.Branch.fork()
+    {:ok, forward} = Al.solve(EUser.fib(), [n], branch: branch.id)
+    value = Interpretation.at(forward, 2, Interpretation.len(forward))
+
+    {:ok, backward} = Al.solve(EUser.fib(), [:_, value], branch: branch.id)
+    AL.Branch.discard(branch)
+
+    assert Interpretation.len(backward) == n
+    assert backward == forward
+    backward
+  end
+
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
