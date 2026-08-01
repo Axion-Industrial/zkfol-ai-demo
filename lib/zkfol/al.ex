@@ -130,16 +130,13 @@ defmodule Zkfol.Al do
     end
   end
 
-  # A step guards past the window and recurses. The guard and the
-  # descent wait frozen like every other equation rather than demanding
-  # a count up front, so a relation whose equations invert can be asked
-  # for its count instead of told it. Derefs wait on the trace, and a
-  # pointer still free at the end enumerates.
+  # A step descends and recurses; the relation's own guard is what stops
+  # it past the base, its descent and equations wait frozen for whichever
+  # side arrives, derefs wait on the trace, and a free pointer enumerates.
   @spec step(atom(), [Macro.t()], [Macro.t()], [Macro.t()], plan()) :: Macro.t()
   defp step(name, head, current, defining, plan) do
     body =
       quote do
-        freeze(x, [x > unquote(plan.window)])
         unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
         unquote_splicing(defining)
         unquote(recurse(name, plan))
@@ -350,8 +347,10 @@ defmodule Zkfol.Al do
       end)
 
     with {:ok, reads} <- rel_derefs(pointed, computed, env, plan),
+         {:ok, guards} <- rel_guards(body, env),
          {:ok, equations} <- rel_equations(body, i, env) do
-      {:ok, step(name, [v(:self), v(:x) | current] ++ len, current, reads ++ equations, plan)}
+      defining = guards ++ reads ++ equations
+      {:ok, step(name, [v(:self), v(:x) | current] ++ len, current, defining, plan)}
     end
   end
 
@@ -406,6 +405,39 @@ defmodule Zkfol.Al do
       refusal -> refusal
     end
   end
+
+  # A guard only tests, so it freezes on its names and checks when they arrive.
+  @spec rel_guards([term()], map()) :: {:ok, [Macro.t()]} | {:error, Refusal.t()}
+  defp rel_guards(body, env) do
+    body
+    |> Enum.filter(&match?({:cmp, _op, _t, _u}, &1))
+    |> Refusal.map(fn {:cmp, op, t, u} ->
+      with {:ok, pt} <- rel_prefix(t, env),
+           {:ok, pu} <- rel_prefix(u, env) do
+        test = {op, [], [pure(pt), pure(pu)]}
+        {:ok, AL.Equations.frozen(leaves(pt) ++ leaves(pu), [test])}
+      end
+    end)
+    |> case do
+      {:ok, guards} -> {:ok, Enum.concat(guards)}
+      refusal -> refusal
+    end
+  end
+
+  # A prefix term as the DSL writes it, and the names it waits on.
+  @spec pure(term()) :: Macro.t()
+  defp pure(q) when is_integer(q), do: q
+  defp pure(a) when is_atom(a), do: v(a)
+  defp pure([op, t, u]), do: {arith(op), [], [pure(t), pure(u)]}
+
+  @spec arith(atom()) :: atom()
+  defp arith(:add), do: :+
+  defp arith(:mul), do: :*
+
+  @spec leaves(term()) :: [atom()]
+  defp leaves(q) when is_integer(q), do: []
+  defp leaves(a) when is_atom(a), do: [a]
+  defp leaves([_op, t, u]), do: leaves(t) ++ leaves(u)
 
   # Terms over the clause's variables, as the equation compiler reads them.
   @spec rel_prefix(term(), %{atom() => atom()}) :: {:ok, term()} | {:error, Refusal.t()}
