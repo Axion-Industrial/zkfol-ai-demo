@@ -66,6 +66,32 @@ defmodule Examples.EAl do
     backward
   end
 
+  @doc "I name the rows I want back, and every answer carries them."
+  @spec every_answer_is_named() :: [%{atom() => integer()}]
+  example every_answer_is_named do
+    answers = Al.apply(EUser.fib(), [:n, :a], upto: 6)
+
+    assert {:ok, [%{n: 1, a: 1}, %{n: 2, a: 1}, %{n: 3, a: 2} | _rest]} = answers
+    {:ok, all} = answers
+    assert length(all) == 6
+    all
+  end
+
+  @doc "I pick an answer and derive it, since bindings alone do not prove."
+  @spec an_answer_derives_when_chosen() :: Interpretation.t()
+  example an_answer_derives_when_chosen do
+    # findall backtracks, so each answer's trace is gone with it. The
+    # bindings say which derivation to want; solve/3 rebuilds it whole.
+    {:ok, answers} = Al.apply(EUser.fib(), [:n, :a], upto: 6)
+    %{n: n, a: a} = List.last(answers)
+
+    {:ok, witness} = Al.solve(EUser.fib(), [n, a])
+
+    assert Interpretation.len(witness) == n
+    assert Interpretation.at(witness, 2, n) == a
+    witness
+  end
+
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
