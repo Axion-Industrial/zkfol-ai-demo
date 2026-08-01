@@ -31,6 +31,25 @@ defmodule Examples.EAl do
     program
   end
 
+  @doc "I ask the emitted relation for its count rather than telling it."
+  @spec the_program_runs_backward() :: pos_integer()
+  example the_program_runs_backward do
+    {:ok, program} = Al.translate(EUser.fib())
+    branch = AL.Branch.fork()
+    {:atomic, _} = AL.eval(program, nil, branch, heap: 20_000_000)
+
+    # fib(self, x, c1, c2, t): row one is the count, so a free count is
+    # one variable standing in both places, and F(8) pins the value row.
+    x = {:x, [], nil}
+    goal = AL.ast_to_pattern({:fib, [], [:zkfol, x, x, EUser.fib(8), {:t, [], nil}]})
+    {:atomic, {bindings, _}} = AL.eval([goal], nil, branch, heap: 20_000_000)
+    AL.Branch.discard(branch)
+
+    count = bindings |> AL.Var.deref(:"$x") |> AL.Var.subst(bindings)
+    assert count == 8
+    count
+  end
+
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()

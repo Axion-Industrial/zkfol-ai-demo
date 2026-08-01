@@ -130,15 +130,17 @@ defmodule Zkfol.Al do
     end
   end
 
-  # A step guards past the window and recurses; its equations wait
-  # frozen for whichever side arrives, derefs wait on the trace, and a
+  # A step guards past the window and recurses. The guard and the
+  # descent wait frozen like every other equation rather than demanding
+  # a count up front, so a relation whose equations invert can be asked
+  # for its count instead of told it. Derefs wait on the trace, and a
   # pointer still free at the end enumerates.
   @spec step(atom(), [Macro.t()], [Macro.t()], [Macro.t()], plan()) :: Macro.t()
   defp step(name, head, current, defining, plan) do
     body =
       quote do
-        x > unquote(plan.window)
-        vm_is(x1, x - 1)
+        freeze(x, [x > unquote(plan.window)])
+        unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
         unquote_splicing(defining)
         unquote(recurse(name, plan))
         unquote_splicing(unpack(plan) ++ enumerations(plan))
@@ -439,6 +441,14 @@ defmodule Zkfol.Al do
 
     AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
       with {:atomic, _} <- AL.eval(program, nil, branch, heap: heap) do
+        # One eval per candidate, and that is the point. AL caps a single
+        # eval at 200_000 reductions (@max_reductions, a compile-time
+        # constant with no per-call override; `:heap` is the process heap
+        # and bounds something else), and any search long enough to matter
+        # exhausts it. Asking once per count buys the budget back each
+        # time. The same search stated inside AL as one `between` over
+        # the range is correct and reads better, and dies around a
+        # hundred and fifty columns.
         Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
           query = query(name, count, bind, plan)
 
