@@ -25,7 +25,7 @@ defmodule Zkfol.Statement do
 
   typedstruct enforce: true do
     field(:rels, [Zkfol.Lang.Rel.t()], default: [])
-    field(:args, [integer()], default: [])
+    field(:args, [integer() | :_], default: [])
     field(:ranges, [Range.check()], default: [])
     field(:claims, [Interpretation.claim()], default: [])
     field(:stage, stage(), default: :raw)
