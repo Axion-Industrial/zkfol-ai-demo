@@ -333,15 +333,33 @@ defmodule Examples.EAl do
   # the missing capability rather than raising out of a pass.
   @spec a_call_between_relations_awaits() :: Refusal.t()
   example a_call_between_relations_awaits do
-    {:ok, %{rows: rows, pointers: pointers, width: 5}} =
+    {:ok, %{rows: rows, pointers: pointers, tag: 5, width: 6}} =
       Zkfol.Lang.compile(pick(), [pick(), tab()])
 
     assert %{pick: [1, 2], tab: [3, 4]} = rows
-    assert [5] = Map.values(pointers)
+    assert [6] = Map.values(pointers)
 
     {:error, reason} = Al.solve([pick(), tab()], [1])
     assert {:calls_between_relations, _} = reason
     reason
+  end
+
+  # The tag anchors the read. A column is what it wears: wearing tab, a
+  # forged (3, 99) satisfies no tab fact; wearing pick, the self-read
+  # demands the pointed column wear tab. The math objects either way.
+  @spec a_forged_fact_is_rejected() :: Interpretation.t()
+  example a_forged_fact_is_rejected do
+    {:ok, %{pred: pred, ranges: ranges}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+
+    honest = Interpretation.new([[0, 2], [0, 41], [3, 0], [40, 0], [2, 1], [1, 1]])
+    assert Zkfol.Semantics.valid?(pred, ranges, honest)
+
+    for tag <- [1, 2] do
+      forged = Interpretation.new([[0], [100], [3], [99], [tag], [1]])
+      refute Zkfol.Semantics.valid?(pred, ranges, forged)
+    end
+
+    honest
   end
 
   # A row nothing determines is the prover's knowledge, not the witness's:
