@@ -263,11 +263,19 @@ defmodule Zkfol.Al do
   # a body value computes, still await by name.
   @spec closure_program([Rel.t()], atom()) ::
           {:ok, program(), plan()} | {:error, Refusal.t()}
-  defp closure_program([root | _callees] = rels, name) do
-    with :ok <- closed(rels),
-         {:ok, table} <- Lang.compile(root, rels),
-         {:ok, clauses} <- closure_clauses(rels, name, closure_plan(rels, table), table),
-         do: {:ok, installed(name, clauses), closure_plan(rels, table)}
+  defp closure_program([root | _rest] = rels, name) do
+    with {:ok, table} <- Lang.compile(root, rels) do
+      case Enum.filter(rels, &is_map_key(table.rows, &1.name)) do
+        [lone] ->
+          clauses_program([lone], name)
+
+        members ->
+          with :ok <- closed(members),
+               {:ok, clauses} <-
+                 closure_clauses(members, name, closure_plan(members, table), table),
+               do: {:ok, installed(name, clauses), closure_plan(members, table)}
+      end
+    end
   end
 
   @spec closed([Rel.t()]) :: :ok | {:error, Refusal.t()}

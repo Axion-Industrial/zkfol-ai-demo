@@ -404,6 +404,15 @@ defmodule Examples.EAl do
     odd5
   end
 
+  @doc "I ignore scope the closure never calls, so a module rides whole."
+  @spec extra_scope_rides_along() :: Interpretation.t()
+  example extra_scope_rides_along do
+    {:ok, witness} = Al.solve([pick(), tab(), odd(), even()], [:_, 41])
+
+    assert Interpretation.at(witness, 2, 2) == 41
+    witness
+  end
+
   # A row nothing determines is the prover's knowledge, not the witness's:
   # the derivation ends with that cell still an AL variable, and the
   # refusal names the cell rather than calling it a negative number.
