@@ -388,14 +388,20 @@ defmodule Examples.EAl do
     honest
   end
 
-  # Recursion across members still awaits: odd asks even asks odd, and
-  # the refusal names it rather than raising out of the chain.
-  @spec recursion_between_relations_awaits() :: Refusal.t()
-  example recursion_between_relations_awaits do
-    {:error, reason} = Al.solve([odd(), even()], [5, :_])
+  # Recursion across members derives on one chain: odd and even
+  # alternate columns, each read binding the next index down to the
+  # fact that anchors the parity, and the tag row oscillates with it.
+  @spec recursion_between_relations_derives() :: Interpretation.t()
+  example recursion_between_relations_derives do
+    {:ok, odd5} = Al.solve([odd(), even()], [5, :_])
 
-    assert {:calls_between_relations, _} = reason
-    reason
+    assert Interpretation.len(odd5) == 5
+    assert Interpretation.at(odd5, 2, 5) == 1
+    assert for(x <- 1..5, do: Interpretation.at(odd5, 5, x)) == [1, 2, 1, 2, 1]
+
+    {:ok, odd4} = Al.solve([odd(), even()], [4, :_])
+    assert Interpretation.at(odd4, 2, 4) == 0
+    odd5
   end
 
   # A row nothing determines is the prover's knowledge, not the witness's:

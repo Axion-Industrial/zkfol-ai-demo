@@ -258,44 +258,54 @@ defmodule Zkfol.Al do
   # closure's full width, each column filled by whichever member's
   # clause fires: a fact grounds its own slice and pads the rest, the
   # root's rule reads its callees through Lang's pointer rows. This
-  # far: var-headed root rules with ground call targets over ground
-  # facts; every shape beyond still awaits by name.
+  # far: member rules whose call targets the head determines, over one
+  # another and over ground facts; a member calling itself, and targets
+  # a body value computes, still await by name.
   @spec closure_program([Rel.t()], atom()) ::
           {:ok, program(), plan()} | {:error, Refusal.t()}
-  defp closure_program([root | callees] = rels, name) do
-    with :ok <- closed(root, callees),
+  defp closure_program([root | _callees] = rels, name) do
+    with :ok <- closed(rels),
          {:ok, table} <- Lang.compile(root, rels),
          {:ok, clauses} <- closure_clauses(rels, name, closure_plan(rels, table), table),
          do: {:ok, installed(name, clauses), closure_plan(rels, table)}
   end
 
-  @spec closed(Rel.t(), [Rel.t()]) :: :ok | {:error, Refusal.t()}
-  defp closed(root, callees) do
-    rules? =
-      Enum.all?(root.clauses, fn
-        {head, []} ->
-          Enum.all?(head, &is_integer/1)
+  @spec closed([Rel.t()]) :: :ok | {:error, Refusal.t()}
+  defp closed(rels) do
+    names = MapSet.new(rels, & &1.name)
 
-        {head, body} ->
-          Enum.all?(head, &match?({:var, _}, &1)) and
-            Enum.all?(body, fn
-              {:call, n, [at | outs]} ->
-                n != root.name and is_integer(at) and Enum.all?(outs, &match?({:var, _}, &1))
+    ok? =
+      Enum.all?(rels, fn rel ->
+        Enum.all?(rel.clauses, fn
+          {head, []} ->
+            Enum.all?(head, &is_integer/1)
 
-              _goal ->
-                true
-            end)
-      end)
+          {head, body} ->
+            Enum.all?(head, &match?({:var, _}, &1)) and
+              Enum.all?(body, fn
+                {:call, n, [at | outs]} ->
+                  n != rel.name and n in names and headed?(at, head) and
+                    Enum.all?(outs, &match?({:var, _}, &1))
 
-    facts? =
-      Enum.all?(callees, fn callee ->
-        Enum.all?(callee.clauses, fn {head, body} ->
-          body == [] and Enum.all?(head, &is_integer/1)
+                _goal ->
+                  true
+              end)
         end)
       end)
 
-    if rules? and facts?, do: :ok, else: {:error, {:calls_between_relations, %{}}}
+    if ok?, do: :ok, else: {:error, {:calls_between_relations, %{}}}
   end
+
+  # A target the head alone determines is resolvable before the body
+  # runs, so its pointer keys into Lang's table.
+  @spec headed?(term(), [term()]) :: boolean()
+  defp headed?(q, _head) when is_integer(q), do: true
+  defp headed?({:var, _nm} = var, head), do: var in head
+
+  defp headed?({op, t, u}, head) when op in [:add, :mul],
+    do: headed?(t, head) and headed?(u, head)
+
+  defp headed?(_term, _head), do: false
 
   # Lang's allocation, taken whole: the trace is the closure's width,
   # the pointer rows ride in it, and no row is the count.
@@ -321,10 +331,13 @@ defmodule Zkfol.Al do
         fact_clauses(name, rel.name, head, plan, table)
       end
 
-    root.clauses
-    |> Enum.filter(&match?({_head, [_ | _]}, &1))
+    rules = for rel <- rels, {_head, [_ | _]} = clause <- rel.clauses, do: {rel.name, clause}
+
+    rules
     |> Enum.with_index()
-    |> Refusal.map(fn {clause, i} -> root_rule(clause, i, name, plan, table, root.name) end)
+    |> Refusal.map(fn {{rname, clause}, i} ->
+      member_rule(clause, i, name, plan, table, rname, rname == root.name)
+    end)
     |> case do
       {:ok, rules} -> {:ok, List.flatten(facts) ++ rules}
       refusal -> refusal
@@ -363,25 +376,40 @@ defmodule Zkfol.Al do
     ]
   end
 
-  # The root's rule: its own rows as cells, its calls as frozen reads
+  # A member's rule: its own rows as cells, its calls as frozen reads
   # through the pointer rows, its equations and guards as everywhere.
-  @spec root_rule({[term()], [term()]}, non_neg_integer(), atom(), plan(), map(), atom()) ::
+  # The root's index chains to the column; any other member's floats,
+  # bound top-down by whoever reads it.
+  @spec member_rule(
+          {[term()], [term()]},
+          non_neg_integer(),
+          atom(),
+          plan(),
+          map(),
+          atom(),
+          boolean()
+        ) ::
           {:ok, Macro.t()} | {:error, Refusal.t()}
-  defp root_rule({head, body}, i, name, plan, table, rname) do
+  defp member_rule({head, body}, i, name, plan, table, rname, root?) do
     block = Map.fetch!(table.rows, rname)
     [{:var, index} | outs_h] = head
+    carrier = if root?, do: :x, else: row(hd(block), "c")
 
     env =
-      [{index, :x} | for({{:var, nm}, r} <- Enum.zip(outs_h, tl(block)), do: {nm, row(r, "c")})]
+      [
+        {index, carrier}
+        | for({{:var, nm}, r} <- Enum.zip(outs_h, tl(block)), do: {nm, row(r, "c")})
+      ]
       |> Map.new()
 
+    keys = Map.new(Enum.zip(head, block), fn {{:var, nm}, r} -> {nm, Ast.cell(r)} end)
     calls = for {:call, n, [at | outs]} <- body, do: {n, at, outs}
-    {env, derefs, used} = closure_derefs(calls, env, plan, table)
+    {env, derefs, used} = closure_derefs(calls, env, keys, plan, table)
 
     cells =
       Enum.map(plan.rows, fn r ->
         cond do
-          r == hd(block) -> v(:x)
+          r == hd(block) and root? -> v(:x)
           r in block or r in used -> v(row(r, "c"))
           r == table.tag -> Map.fetch!(table.tags, rname)
           r in plan.dynamic -> 1
@@ -407,14 +435,17 @@ defmodule Zkfol.Al do
     end
   end
 
-  # A call reads the pointed column off the trace: the callee's index
-  # cell must be the target, and each output is the callee's row there.
-  @spec closure_derefs(list(), map(), plan(), map()) :: {map(), [Macro.t()], [pos_integer()]}
-  defp closure_derefs(calls, env, plan, table) do
+  # A call reads the pointed column off the trace: the pointed column
+  # must wear the callee's tag, its index cell must be the target --
+  # an equation, so a bound cell can also name the target -- and each
+  # output is the callee's row there.
+  @spec closure_derefs(list(), map(), map(), plan(), map()) ::
+          {map(), [Macro.t()], [pos_integer()]}
+  defp closure_derefs(calls, env, keys, plan, table) do
     calls
     |> Enum.with_index()
     |> Enum.reduce({env, [], []}, fn {{callee, at, outs}, j}, {env, derefs, used} ->
-      ptr = Map.fetch!(table.pointers, at)
+      ptr = Map.fetch!(table.pointers, target_key(at, keys))
       cblock = Map.fetch!(table.rows, callee)
       ipos = Enum.find_index(plan.rows, &(&1 == hd(cblock)))
       {ix, rw, dt} = {v(:"ix#{j}"), v(:"rw#{j}"), v(:"dt#{j}")}
@@ -427,9 +458,11 @@ defmodule Zkfol.Al do
         quote(do: at(t, unquote(ix), unquote(rw))),
         quote(do: at(unquote(rw), unquote(tpos), unquote(tg))),
         quote(do: unify(unquote(tg), unquote(Map.fetch!(table.tags, callee)))),
-        quote(do: at(unquote(rw), unquote(ipos), unquote(dt))),
-        quote(do: unify(unquote(dt), unquote(at)))
+        quote(do: at(unquote(rw), unquote(ipos), unquote(dt)))
       ]
+
+      {:ok, pexpr} = rel_prefix(at, env)
+      pin = pin ++ AL.Equations.equation(:"dt#{j}", pexpr, "pt#{j}", free: [:x, :len])
 
       {env, reads} =
         outs
@@ -446,6 +479,13 @@ defmodule Zkfol.Al do
       {env, derefs ++ AL.Equations.frozen([:t, row(ptr, "c")], pin ++ reads), used ++ [ptr]}
     end)
   end
+
+  # The target as Lang keyed it: cells for the head's own rows.
+  @spec target_key(term(), %{atom() => Ast.term_t()}) :: Ast.term_t()
+  defp target_key(q, _keys) when is_integer(q), do: q
+  defp target_key({:var, nm}, keys), do: Map.fetch!(keys, nm)
+  defp target_key({:add, t, u}, keys), do: Ast.add(target_key(t, keys), target_key(u, keys))
+  defp target_key({:mul, t, u}, keys), do: Ast.mul(target_key(t, keys), target_key(u, keys))
 
   # Rows are the head; affine offsets schedule their pointers, computed
   # targets carry theirs on the trace and enumerate when nothing binds.
