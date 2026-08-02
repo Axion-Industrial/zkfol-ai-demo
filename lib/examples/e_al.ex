@@ -30,6 +30,22 @@ defmodule Examples.EAl do
   defrel tab(3, 40)
   defrel tab(4, 40)
 
+  defrel odd(1, 1)
+
+  defrel odd(x, v) do
+    x > 1
+    even(x - 1, w)
+    v = w
+  end
+
+  defrel even(1, 0)
+
+  defrel even(x, v) do
+    x > 1
+    odd(x - 1, w)
+    v = w
+  end
+
   @spec registers_program() :: Al.program()
   example registers_program do
     {:ok, program} = Al.translate(Examples.EUser.regs())
@@ -370,6 +386,16 @@ defmodule Examples.EAl do
     end
 
     honest
+  end
+
+  # Recursion across members still awaits: odd asks even asks odd, and
+  # the refusal names it rather than raising out of the chain.
+  @spec recursion_between_relations_awaits() :: Refusal.t()
+  example recursion_between_relations_awaits do
+    {:error, reason} = Al.solve([odd(), even()], [5, :_])
+
+    assert {:calls_between_relations, _} = reason
+    reason
   end
 
   # A row nothing determines is the prover's knowledge, not the witness's:
