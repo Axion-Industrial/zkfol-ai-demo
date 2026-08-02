@@ -333,8 +333,11 @@ defmodule Examples.EAl do
   # the missing capability rather than raising out of a pass.
   @spec a_call_between_relations_awaits() :: Refusal.t()
   example a_call_between_relations_awaits do
-    {:ok, %{rows: rows}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, %{rows: rows, pointers: pointers, width: 5}} =
+      Zkfol.Lang.compile(pick(), [pick(), tab()])
+
     assert %{pick: [1, 2], tab: [3, 4]} = rows
+    assert [5] = Map.values(pointers)
 
     {:error, reason} = Al.solve([pick(), tab()], [1])
     assert {:calls_between_relations, _} = reason

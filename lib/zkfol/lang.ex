@@ -182,7 +182,14 @@ defmodule Zkfol.Lang do
       Lang.compile(fib(), [fib(), double()])
   """
   @spec compile(Rel.t(), [Rel.t()]) ::
-          {:ok, %{pred: Ast.pred(), rows: %{atom() => [pos_integer()]}, ranges: [Range.check()]}}
+          {:ok,
+           %{
+             pred: Ast.pred(),
+             rows: %{atom() => [pos_integer()]},
+             ranges: [Range.check()],
+             pointers: %{Ast.term_t() => pos_integer()},
+             width: pos_integer()
+           }}
           | {:error, Refusal.t()}
   def compile(%Rel{} = root, rels) do
     scope = Map.new(rels, &{&1.name, &1})
@@ -194,9 +201,17 @@ defmodule Zkfol.Lang do
           {Map.put(values, name, Enum.to_list(next..(next + width - 1))), next + width}
         end)
 
-      with {:ok, branches, {pointers, _next}} <- branches(order, scope, values, {%{}, next}) do
+      with {:ok, branches, {pointers, next}} <- branches(order, scope, values, {%{}, next}) do
         ranges = pointers |> Map.values() |> Enum.sort() |> Enum.flat_map(&Range.pointer/1)
-        {:ok, %{pred: Ast.disj(branches), rows: values, ranges: ranges}}
+
+        {:ok,
+         %{
+           pred: Ast.disj(branches),
+           rows: values,
+           ranges: ranges,
+           pointers: pointers,
+           width: next - 1
+         }}
       end
     end
   end
