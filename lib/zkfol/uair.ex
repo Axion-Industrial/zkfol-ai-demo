@@ -49,6 +49,7 @@ defmodule Zkfol.Uair do
     field(:program, [{atom(), integer()}])
     field(:columns, [[integer()]])
     field(:mode, mode(), default: %Plain{})
+    field(:rows, [pos_integer() | :x | :ones], default: [])
   end
 
   # One addition of headroom under each cell width: narrow cells are i64,
@@ -206,6 +207,7 @@ defmodule Zkfol.Uair do
          :ok <- models(pred, witness) do
       public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
       %{rows: rows, cols: cols, shifts: shifts, down: down} = slots(refs, public)
+      origins = rows ++ if(uses_x?(poly), do: [:x, :ones], else: [])
       x_col = if uses_x?(poly), do: map_size(cols)
       program = poly |> resolve(len, {cols, x_col}, schedules, down) |> postfix()
 
@@ -222,7 +224,8 @@ defmodule Zkfol.Uair do
            shifts: shifts,
            program: program,
            columns: columns,
-           mode: emitted_mode(lowering, cols, num_vars)
+           mode: emitted_mode(lowering, cols, num_vars),
+           rows: origins
          }}
       end
     end
