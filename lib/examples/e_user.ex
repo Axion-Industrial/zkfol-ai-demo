@@ -26,6 +26,7 @@ defmodule Examples.EUser do
   defrel fib(2, 1)
 
   defrel fib(x, v) do
+    x > 2
     fib(x - 1, v1)
     fib(x - 2, v2)
     v = v1 + v2
@@ -34,6 +35,7 @@ defmodule Examples.EUser do
   defrel regs(1, 1, 1)
 
   defrel regs(x, a, b) do
+    x > 1
     regs(x - 1, a1, b1)
     a = a1 + b1
     b = a1
@@ -46,6 +48,7 @@ defmodule Examples.EUser do
       power(1, ^base, 0, 1)
 
       power(x, b, e, v) do
+        x > 1
         power(x - 1, bb, ee, w)
         b = bb
         e = ee + 1
@@ -57,12 +60,14 @@ defmodule Examples.EUser do
   defrel epower(1, 0, 1)
 
   defrel epower(x, e, v) do
+    x > 1
     epower(x - 1, ee, h)
     e = ee + ee
     v = h * h
   end
 
   defrel epower(x, e, v) do
+    x > 1
     epower(x - 1, ee, h)
     e = ee + ee + 1
     v = 2 * (h * h)
@@ -135,6 +140,7 @@ defmodule Examples.EUser do
         scaled(1, ^k)
 
         scaled(x, v) do
+          x > 1
           scaled(x - 1, prev)
           v = ^k * prev
         end

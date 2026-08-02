@@ -16,6 +16,7 @@ defmodule Examples.EFacts do
   defrel factorial(2, 2)
 
   defrel factorial(x, v) do
+    x > 2
     factorial(x - 1, v1)
     v = x * v1
   end
@@ -24,6 +25,7 @@ defmodule Examples.EFacts do
   defrel sub(2, 2)
 
   defrel sub(x, v) do
+    x > 2
     sub(x - 1, a)
     sub(x - 2, b)
     v = a - b
