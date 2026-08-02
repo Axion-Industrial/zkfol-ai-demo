@@ -328,20 +328,30 @@ defmodule Examples.EAl do
     band
   end
 
-  # The surface lowers the closure whole -- pick reads tab through a
-  # pointer -- and the AL path does not run it yet: the refusal names
-  # the missing capability rather than raising out of a pass.
-  @spec a_call_between_relations_awaits() :: Refusal.t()
-  example a_call_between_relations_awaits do
+  # A call between relations derives on one trace: pick reads tab
+  # through the pointer row, the fact it reaches takes a column of its
+  # own, and the three facts nothing reached never materialize.
+  @spec a_call_between_relations_derives() :: Interpretation.t()
+  example a_call_between_relations_derives do
     {:ok, %{rows: rows, pointers: pointers, tag: 5, width: 6}} =
       Zkfol.Lang.compile(pick(), [pick(), tab()])
 
     assert %{pick: [1, 2], tab: [3, 4]} = rows
     assert [6] = Map.values(pointers)
 
-    {:error, reason} = Al.solve([pick(), tab()], [1])
-    assert {:calls_between_relations, _} = reason
-    reason
+    # The list reads root then scope, and the arguments are pick's own
+    # two: its index free, its value asked for.
+    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41])
+
+    assert Interpretation.len(witness) == 2
+    assert Interpretation.at(witness, 2, 2) == 41
+    assert Interpretation.at(witness, 3, 1) == 3
+    assert Interpretation.at(witness, 4, 1) == 40
+
+    # Each column wears its relation: tab below, pick above.
+    assert Interpretation.at(witness, 5, 1) == 2
+    assert Interpretation.at(witness, 5, 2) == 1
+    witness
   end
 
   # The tag anchors the read. A column is what it wears: wearing tab, a
