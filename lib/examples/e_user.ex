@@ -166,6 +166,20 @@ defmodule Examples.EUser do
     reason
   end
 
+  @doc "I am the module as a program: any defrel roots it, the rest ride as scope."
+  @spec the_module_is_the_program() :: [Lang.Rel.t()]
+  example the_module_is_the_program do
+    [root | _scope] = program = program(:fib)
+
+    assert root.name == :fib
+    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs]
+
+    # The closure walk takes what it calls and ignores the rest.
+    {:ok, %{rows: rows}} = Lang.compile(root, program)
+    assert Map.keys(rows) == [:fib]
+    program
+  end
+
   @spec plain() :: Pipeline.t()
   def plain(), do: %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, []}]}
 

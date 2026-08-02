@@ -103,23 +103,44 @@ defmodule Zkfol.Lang do
   end
 
   defmacro __before_compile__(env) do
-    env.module
-    |> Module.get_attribute(:lang_clauses)
-    |> Enum.reverse()
-    |> Enum.group_by(fn {name, arity, _clause} -> {name, arity} end)
-    |> Enum.map(fn {{name, arity}, entries} ->
-      clauses = for {_name, _arity, clause} <- entries, do: clause
+    grouped =
+      env.module
+      |> Module.get_attribute(:lang_clauses)
+      |> Enum.reverse()
+      |> Enum.group_by(fn {name, arity, _clause} -> {name, arity} end)
 
+    rels =
+      Enum.map(grouped, fn {{name, arity}, entries} ->
+        clauses = for {_name, _arity, clause} <- entries, do: clause
+
+        quote do
+          def unquote(name)() do
+            %Zkfol.Lang.Rel{
+              name: unquote(name),
+              arity: unquote(arity),
+              clauses: unquote(Macro.escape(clauses))
+            }
+          end
+        end
+      end)
+
+    names = grouped |> Map.keys() |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+    program =
       quote do
-        def unquote(name)() do
-          %Zkfol.Lang.Rel{
-            name: unquote(name),
-            arity: unquote(arity),
-            clauses: unquote(Macro.escape(clauses))
-          }
+        @doc "I am the module as a program: `root` first, every other defrel behind it."
+        @spec program(atom()) :: [Zkfol.Lang.Rel.t()]
+        def program(root) do
+          all = for name <- unquote(names), do: apply(__MODULE__, name, [])
+
+          case Enum.split_with(all, &(&1.name == root)) do
+            {[rooted], rest} -> [rooted | rest]
+            {[], _rest} -> raise ArgumentError, "no defrel #{root} in #{inspect(__MODULE__)}"
+          end
         end
       end
-    end)
+
+    rels ++ [program]
   end
 
   @spec lines(Macro.t()) :: [Macro.t()]
