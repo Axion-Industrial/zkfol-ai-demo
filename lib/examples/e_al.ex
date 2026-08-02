@@ -46,6 +46,16 @@ defmodule Examples.EAl do
     v = w
   end
 
+  defrel step(1, 2)
+  defrel step(2, 3)
+  defrel step(3, 1)
+
+  defrel leap(x, v) do
+    step(2, k)
+    step(k, w)
+    v = w
+  end
+
   @spec registers_program() :: Al.program()
   example registers_program do
     {:ok, program} = Al.translate(Examples.EUser.regs())
@@ -421,6 +431,23 @@ defmodule Examples.EAl do
     {:ok, witness} = Al.solve([pick(), tab(), odd(), even()], [:_, 41])
 
     assert Interpretation.at(witness, 2, 2) == 41
+    witness
+  end
+
+  @doc "I aim a later call where an earlier one landed."
+  @spec a_call_targets_an_earlier_answer() :: Interpretation.t()
+  example a_call_targets_an_earlier_answer do
+    {:ok, witness} = Al.solve([leap(), step()], [:_, :_])
+
+    # Two steps from 2: through 3, landing on 1.
+    assert Interpretation.len(witness) == 3
+    assert Interpretation.at(witness, 2, 3) == 1
+
+    k = Interpretation.at(witness, 4, Interpretation.at(witness, 6, 3))
+    assert Interpretation.at(witness, 3, Interpretation.at(witness, 7, 3)) == k
+
+    {:ok, %{pred: pred, ranges: ranges}} = Zkfol.Lang.compile(leap(), [leap(), step()])
+    assert Zkfol.Semantics.valid?(pred, ranges, witness)
     witness
   end
 
