@@ -334,10 +334,12 @@ defmodule Zkfol.Al do
   @spec closure_clauses([Rel.t()], atom(), plan(), map()) ::
           {:ok, [Macro.t()]} | {:error, Refusal.t()}
   defp closure_clauses([root | _rest] = rels, name, plan, table) do
-    facts =
-      for rel <- rels, {head, []} <- rel.clauses do
-        fact_clauses(name, rel.name, head, plan, table)
-      end
+    {terminals, mids} =
+      Enum.unzip(
+        for rel <- rels, {head, []} <- rel.clauses do
+          fact_clauses(name, rel.name, head, plan, table)
+        end
+      )
 
     rules = for rel <- rels, {_head, [_ | _]} = clause <- rel.clauses, do: {rel.name, clause}
 
@@ -347,7 +349,10 @@ defmodule Zkfol.Al do
       member_rule(clause, i, name, plan, table, rname, rname == root.name)
     end)
     |> case do
-      {:ok, rules} -> {:ok, List.flatten(facts) ++ rules}
+      # Every terminal before any mid: a free counter descends
+      # depth-first, and each level must see every bottom before it
+      # deepens, or the first mid-chain swallows the search whole.
+      {:ok, rules} -> {:ok, terminals ++ mids ++ rules}
       refusal -> refusal
     end
   end
@@ -355,7 +360,7 @@ defmodule Zkfol.Al do
   # A fact holds at any column: terminal at one, mid-chain above it.
   # Its own slice is the fact, other slices pad zero, and a pointer
   # cell pads one to stay a column.
-  @spec fact_clauses(atom(), atom(), [term()], plan(), map()) :: [Macro.t()]
+  @spec fact_clauses(atom(), atom(), [term()], plan(), map()) :: {Macro.t(), Macro.t()}
   defp fact_clauses(name, rel_name, head, plan, table) do
     filled = table.rows |> Map.fetch!(rel_name) |> Enum.zip(head) |> Map.new()
 
@@ -373,15 +378,13 @@ defmodule Zkfol.Al do
 
     mid =
       quote do
-        x > 1
-        vm_is(x1, x - 1)
+        freeze(x, [x > 1])
+        unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
         unquote({name, [], [v(:self), v(:x1)] ++ len ++ [v(:t)]})
       end
 
-    [
-      defmethod(name, [v(:self), 1 | len] ++ [[cells]], {:__block__, [], []}),
-      defmethod(name, [v(:self), v(:x) | len] ++ [[{:|, [], [cells, v(:t)]}]], mid)
-    ]
+    {defmethod(name, [v(:self), 1 | len] ++ [[cells]], {:__block__, [], []}),
+     defmethod(name, [v(:self), v(:x) | len] ++ [[{:|, [], [cells, v(:t)]}]], mid)}
   end
 
   # A member's rule: its own rows as cells, its calls as frozen reads
@@ -432,8 +435,8 @@ defmodule Zkfol.Al do
          {:ok, equations} <- rel_equations(body, i, env) do
       goals =
         quote do
-          x > 1
-          vm_is(x1, x - 1)
+          freeze(x, [x > 1])
+          unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
           unquote_splicing(guards ++ equations)
           unquote({name, [], [v(:self), v(:x1)] ++ len ++ [v(:t)]})
           unquote_splicing(enums ++ derefs)
@@ -743,6 +746,25 @@ defmodule Zkfol.Al do
 
     AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
       with {:atomic, _} <- AL.eval(program, nil, branch, heap: heap) do
+        # A closure's chain equations always invert -- the counter is
+        # only ever descended by one -- so a free counter resolves
+        # structurally: the terminal names the bottom and the descent
+        # names every level above it. Ask once that way first; the
+        # deepening below is the fallback for what one budget cannot
+        # reach.
+        resolved =
+          if plan.counter == :argument and match?(%Range{}, counts) do
+            case AL.eval(query(name, v(:zkc), bind, plan), nil, branch,
+                   heap: min(heap, 20_000_000)
+                 ) do
+              {:atomic, _} = derived ->
+                deliver(derived, pred, :derive, plan, branch, name, basedon)
+
+              _unresolved ->
+                nil
+            end
+          end
+
         # One eval per candidate, and that is the point. AL caps a single
         # eval at 200_000 reductions (@max_reductions, a compile-time
         # constant with no per-call override; `:heap` is the process heap
@@ -751,20 +773,21 @@ defmodule Zkfol.Al do
         # time. The same search stated inside AL as one `between` over
         # the range is correct and reads better, and dies around a
         # hundred and fifty columns.
-        Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
-          query = query(name, count, bind, plan)
+        resolved ||
+          Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
+            query = query(name, count, bind, plan)
 
-          case AL.eval(query, nil, branch, heap: heap) do
-            {:atomic, _} = derived ->
-              {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
+            case AL.eval(query, nil, branch, heap: heap) do
+              {:atomic, _} = derived ->
+                {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
 
-            {:aborted, _} = refused ->
-              {:cont, keep_named(refused, deepest, count, name)}
+              {:aborted, _} = refused ->
+                {:cont, keep_named(refused, deepest, count, name)}
 
-            exceeded ->
-              {:halt, Refusal.from_al(exceeded)}
-          end
-        end)
+              exceeded ->
+                {:halt, Refusal.from_al(exceeded)}
+            end
+          end)
       else
         {:aborted, reason} -> {:error, {:send_failed, %{reason: reason}}}
         exceeded -> Refusal.from_al(exceeded)
@@ -781,7 +804,7 @@ defmodule Zkfol.Al do
   # candidate there. A closure's rows are nobody's count, so the counter
   # rides as its own argument, and the goal pins the trace's head while
   # `t` stays whole for deliver to read.
-  @spec query(atom(), integer(), bind(), plan()) :: [struct()]
+  @spec query(atom(), integer() | Macro.t(), bind(), plan()) :: [struct()]
   defp query(name, count, bind, %{counter: :row} = plan) do
     goal =
       Enum.map(plan.rows, fn
@@ -819,14 +842,15 @@ defmodule Zkfol.Al do
   @spec deliver(
           {:atomic, {AL.Var.bindings(), AL.t()}},
           Ast.pred(),
-          pos_integer(),
+          pos_integer() | :derive,
           plan(),
           AL.Branch.t(),
           atom(),
           pos_integer() | nil
         ) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp deliver({:atomic, {bindings, _state}}, pred, count, plan, branch, name, basedon) do
+  defp deliver({:atomic, {bindings, _state}}, pred, asked, plan, branch, name, basedon) do
     trace = bindings |> AL.Var.deref(:"$t") |> AL.Var.subst(bindings) |> Enum.reverse()
+    count = if is_integer(asked), do: asked, else: length(trace)
 
     columns =
       plan.rows

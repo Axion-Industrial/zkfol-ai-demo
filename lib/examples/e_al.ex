@@ -404,6 +404,17 @@ defmodule Examples.EAl do
     odd5
   end
 
+  @doc "I resolve the counter by unification before any deepening."
+  @spec the_counter_resolves_before_deepening() :: Interpretation.t()
+  example the_counter_resolves_before_deepening do
+    # depth: 1 starves the deepening loop outright; the answer needs
+    # two columns, and unification names them without being told.
+    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41], depth: 1)
+
+    assert Interpretation.len(witness) == 2
+    witness
+  end
+
   @doc "I ignore scope the closure never calls, so a module rides whole."
   @spec extra_scope_rides_along() :: Interpretation.t()
   example extra_scope_rides_along do
