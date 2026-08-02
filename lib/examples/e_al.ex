@@ -20,6 +20,16 @@ defmodule Examples.EAl do
   alias Zkfol.Interpretation
   alias Zkfol.Uair
 
+  defrel pick(x, v) do
+    tab(3, w)
+    v = w + 1
+  end
+
+  defrel tab(1, 10)
+  defrel tab(2, 20)
+  defrel tab(3, 40)
+  defrel tab(4, 40)
+
   @spec registers_program() :: Al.program()
   example registers_program do
     {:ok, program} = Al.translate(Examples.EUser.regs())
@@ -316,6 +326,19 @@ defmodule Examples.EAl do
 
     assert {:error, _past_the_top} = Al.solve(band, [9])
     band
+  end
+
+  # The surface lowers the closure whole -- pick reads tab through a
+  # pointer -- and the AL path does not run it yet: the refusal names
+  # the missing capability rather than raising out of a pass.
+  @spec a_call_between_relations_awaits() :: Refusal.t()
+  example a_call_between_relations_awaits do
+    {:ok, %{rows: rows}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    assert %{pick: [1, 2], tab: [3, 4]} = rows
+
+    {:error, reason} = Al.solve([pick(), tab()], [1])
+    assert {:calls_between_relations, _} = reason
+    reason
   end
 
   # A row nothing determines is the prover's knowledge, not the witness's:
