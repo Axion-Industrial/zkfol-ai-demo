@@ -28,6 +28,7 @@ defmodule Zkfol.Lang do
   @typep rows :: %{atom() => [pos_integer()]}
   @typep env :: %{atom() => Ast.term_t()}
   @typep pointers :: {%{Ast.term_t() => pos_integer()}, pos_integer()}
+  @typep tag :: {pos_integer(), %{atom() => pos_integer()}} | nil
 
   defmodule Rel do
     @moduledoc "I am a named relation: clauses of one head shape."
@@ -139,9 +140,12 @@ defmodule Zkfol.Lang do
   defp term({:-, _meta, [a, b]}) when is_integer(b), do: {:add, term(a), -b}
   defp term({:-, _meta, [a, b]}), do: {:add, term(a), {:mul, term(b), -1}}
 
-  # Surface goals: equations and calls.
+  # Surface goals: equations, guards, and calls.
   @spec goal(Macro.t()) :: term()
   defp goal({:=, _meta, [a, b]}), do: {:eq, term(a), term(b)}
+
+  defp goal({op, _meta, [a, b]}) when op in [:<, :>, :<=, :>=],
+    do: {:cmp, op, term(a), term(b)}
 
   defp goal({name, _meta, args}) when is_atom(name) and is_list(args),
     do: {:call, name, Enum.map(args, &term/1)}
@@ -179,7 +183,16 @@ defmodule Zkfol.Lang do
       Lang.compile(fib(), [fib(), double()])
   """
   @spec compile(Rel.t(), [Rel.t()]) ::
-          {:ok, %{pred: Ast.pred(), rows: %{atom() => [pos_integer()]}, ranges: [Range.check()]}}
+          {:ok,
+           %{
+             pred: Ast.pred(),
+             rows: %{atom() => [pos_integer()]},
+             ranges: [Range.check()],
+             pointers: %{Ast.term_t() => pos_integer()},
+             width: pos_integer(),
+             tag: pos_integer() | nil,
+             tags: %{atom() => pos_integer()}
+           }}
           | {:error, Refusal.t()}
   def compile(%Rel{} = root, rels) do
     scope = Map.new(rels, &{&1.name, &1})
@@ -191,12 +204,31 @@ defmodule Zkfol.Lang do
           {Map.put(values, name, Enum.to_list(next..(next + width - 1))), next + width}
         end)
 
-      with {:ok, branches, {pointers, _next}} <- branches(order, scope, values, {%{}, next}) do
+      {tag, next} = tag(order, next)
+
+      with {:ok, branches, {pointers, next}} <- branches(order, scope, values, tag, {%{}, next}) do
         ranges = pointers |> Map.values() |> Enum.sort() |> Enum.flat_map(&Range.pointer/1)
-        {:ok, %{pred: Ast.disj(branches), rows: values, ranges: ranges}}
+
+        {:ok,
+         %{
+           pred: Ast.disj(branches),
+           rows: values,
+           ranges: ranges,
+           pointers: pointers,
+           width: next - 1,
+           tag: with({row, _tags} <- tag, do: row),
+           tags: with({_row, tags} <- tag, do: tags) || %{}
+         }}
       end
     end
   end
+
+  # A lone relation is anchored by its own descent; a closure's columns
+  # wear their relation, so a read can insist on whose column it reads.
+  @spec tag([atom()], pos_integer()) ::
+          {{pos_integer(), %{atom() => pos_integer()}} | nil, pos_integer()}
+  defp tag([_lone], next), do: {nil, next}
+  defp tag(order, next), do: {{next, order |> Enum.with_index(1) |> Map.new()}, next + 1}
 
   # The call graph, each relation once, unknown names refused.
   @spec closure([atom()], %{atom() => Rel.t()}, MapSet.t(), [atom()]) ::
@@ -217,28 +249,39 @@ defmodule Zkfol.Lang do
     end
   end
 
-  @spec branches([atom()], %{atom() => Rel.t()}, rows(), pointers()) ::
+  @spec branches([atom()], %{atom() => Rel.t()}, rows(), tag(), pointers()) ::
           {:ok, [Ast.pred()], pointers()} | {:error, Refusal.t()}
-  defp branches(order, scope, values, pointers) do
+  defp branches(order, scope, values, tag, pointers) do
     with {:ok, branches, pointers} <-
            Refusal.map_reduce(order, pointers, fn name, pointers ->
-             rel_branches(scope[name], values[name], values, pointers)
+             rel_branches(scope[name], values[name], values, tag, pointers)
            end),
          do: {:ok, Enum.concat(branches), pointers}
   end
 
-  @spec rel_branches(Rel.t(), [pos_integer()], rows(), pointers()) ::
+  @spec rel_branches(Rel.t(), [pos_integer()], rows(), tag(), pointers()) ::
           {:ok, [Ast.pred()], pointers()} | {:error, Refusal.t()}
-  defp rel_branches(%Rel{clauses: clauses}, rows, values, pointers) do
-    Refusal.map_reduce(clauses, pointers, &branch(&1, rows, values, &2))
+  defp rel_branches(%Rel{name: name, clauses: clauses}, rows, values, tag, pointers) do
+    with {:ok, branches, pointers} <-
+           Refusal.map_reduce(clauses, pointers, &branch(&1, rows, values, tag, &2)),
+         do: {:ok, Enum.map(branches, &claim(&1, name, tag)), pointers}
   end
+
+  # Every branch of a tagged closure claims its column; drop the claim
+  # and a column may wear one relation's tag while satisfying another's
+  # branch, which is the forgery the tag exists to refuse.
+  @spec claim(Ast.pred(), atom(), tag()) :: Ast.pred()
+  defp claim(branch, _name, nil), do: branch
+
+  defp claim({:conj, goals}, name, {row, tags}),
+    do: Ast.conj(goals ++ [Ast.eq(Ast.cell(row), Map.fetch!(tags, name))])
 
   # One clause: the head binds the index and value rows, each call
   # binds a pointer row and its outputs, then the equations close over
   # the environment.
-  @spec branch({[term()], [term()]}, [pos_integer()], rows(), pointers()) ::
+  @spec branch({[term()], [term()]}, [pos_integer()], rows(), tag(), pointers()) ::
           {:ok, Ast.pred(), pointers()} | {:error, Refusal.t()}
-  defp branch({params, body}, rows, values, pointers) do
+  defp branch({params, body}, rows, values, tag, pointers) do
     bound = Enum.zip(params, Enum.map(rows, &Ast.cell/1))
 
     env =
@@ -256,16 +299,16 @@ defmodule Zkfol.Lang do
         {literal, cell} -> [Ast.eq(cell, literal)]
       end)
 
-    with {:ok, goals, env, pointers} <- calls(body, values, env, pointers),
+    with {:ok, goals, env, pointers} <- calls(body, values, tag, env, pointers),
          {:ok, equations} <- equations(body, env),
          do: {:ok, Ast.conj(heads ++ goals ++ equations), pointers}
   end
 
   # Calls resolving to one target share their pointer row: a pointer
   # is a position, whoever reads through it.
-  @spec calls([term()], rows(), env(), pointers()) ::
+  @spec calls([term()], rows(), tag(), env(), pointers()) ::
           {:ok, [Ast.pred()], env(), pointers()} | {:error, Refusal.t()}
-  defp calls(body, values, env, pointers) do
+  defp calls(body, values, tag, env, pointers) do
     body
     |> Enum.filter(&match?({:call, _n, _a}, &1))
     |> Refusal.map_reduce({env, pointers}, fn {:call, name, [at | outs]}, {env, pointers} ->
@@ -274,13 +317,20 @@ defmodule Zkfol.Lang do
       with {:ok, target} <- resolve(at, env),
            {row, pointers} = point(pointers, target),
            {:ok, env} <- outputs(outs, value_rows, row, env),
-           do: {:ok, schedule(index, row, target), {env, pointers}}
+           do: {:ok, [schedule(index, row, target) | check(tag, name, row)], {env, pointers}}
     end)
     |> case do
-      {:ok, goals, {env, pointers}} -> {:ok, goals, env, pointers}
+      {:ok, goals, {env, pointers}} -> {:ok, Enum.concat(goals), env, pointers}
       refusal -> refusal
     end
   end
+
+  # A tagged read insists the pointed column is the callee's.
+  @spec check(tag(), atom(), pos_integer()) :: [Ast.pred()]
+  defp check(nil, _name, _pointer), do: []
+
+  defp check({row, tags}, name, pointer),
+    do: [Ast.eq(Ast.cell(row, pointer), Map.fetch!(tags, name))]
 
   @spec point(pointers(), Ast.term_t()) :: {pos_integer(), pointers()}
   defp point({rows, next} = pointers, target) do
