@@ -238,7 +238,6 @@ defmodule Zkfol.Face do
 
   @spec mode_feed(Uair.mode()) :: {[map()], [map()]}
   defp mode_feed(%Uair.Composed{reads: reads, lookups: lookups}), do: {reads, lookups}
-  defp mode_feed(%Uair.Lookup{lookups: lookups}), do: {[], lookups}
   defp mode_feed(_plain), do: {[], []}
 
   @spec kinds([[integer()]], [map()], [map()], [tuple()]) :: [atom()]

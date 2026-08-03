@@ -44,7 +44,3 @@ end
 defmodule Examples.EAccumulatorTest do
   use ExExample.ExUnit, for: Examples.EAccumulator
 end
-
-defmodule Examples.ELookupTest do
-  use ExExample.ExUnit, for: Examples.ELookup
-end

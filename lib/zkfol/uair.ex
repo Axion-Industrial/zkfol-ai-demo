@@ -21,12 +21,11 @@ defmodule Zkfol.Uair do
   alias Zkfol.Refusal
   alias Zkfol.Semantics
   alias Zkfol.Uair.Composed
-  alias Zkfol.Uair.Lookup
   alias Zkfol.Uair.Plain
   alias Zkfol.ZincPlus
 
   @typedoc "A UAIR is plain, carries BitPoly lookups, or is a Section 4 lowering."
-  @type mode :: Plain.t() | Lookup.t() | Composed.t()
+  @type mode :: Plain.t() | Composed.t()
 
   @typedoc "One composed read: where the address bits live and where the dereference lands."
   @type read :: %{
@@ -35,10 +34,9 @@ defmodule Zkfol.Uair do
           result_row: non_neg_integer()
         }
 
-  @typedoc "A lookup: a Word table on a pointer row, or a BitPoly table on a shadow column."
+  @typedoc "A lookup: a Word table on a pointer row."
   @type lookup ::
           %{row: non_neg_integer(), table: {:word, pos_integer()}}
-          | %{col: non_neg_integer(), table: {:bit_poly, pos_integer(), pos_integer()}}
 
   typedstruct enforce: true do
     field(:num_public, non_neg_integer())
@@ -161,9 +159,6 @@ defmodule Zkfol.Uair do
           {:ok, [[non_neg_integer()]], [ZincPlus.lookup()]} | {:error, Refusal.t()}
   defp mode_payload(%Plain{}), do: {:ok, [], []}
   defp mode_payload(%Composed{}), do: Composed.refusal()
-
-  defp mode_payload(%Lookup{bin_columns: bins} = lookup),
-    do: with({:ok, tuples} <- Lookup.tuples(lookup), do: {:ok, bins, tuples})
 
   # The widest value decides the transport; the limbing stays on this side
   # of the NIF, so Rust only unpacks what it is handed.
