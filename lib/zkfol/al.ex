@@ -10,6 +10,8 @@ defmodule Zkfol.Al do
   knowledge.
   """
 
+  import Kernel, except: [apply: 3]
+
   alias Zkfol.Lang
   alias Zkfol.Lang.Rel
   alias Zkfol.Ast
@@ -49,6 +51,117 @@ defmodule Zkfol.Al do
   def translate([%Rel{} | _rest] = rels, name) do
     with {:ok, program, _plan} <- clauses_program(rels, name || hd(rels).name),
          do: {:ok, program}
+  end
+
+  @doc """
+  I derive every answer at `arguments`, naming the ones I report.
+
+      apply(Examples.EUser.fib(), [5, :a])
+      apply(Examples.EUser.fib(), [:n, :a], upto: 6)
+
+  An integer pins a row as `solve/3` does. An atom names a row and comes
+  back under that name in every answer; `:_` leaves a row free and
+  unreported. Where `solve/3` stops at the first derivation, I report
+  every one over the indices asked for: a free index has no last answer,
+  so `:upto` says how far to look and is required when index one is not
+  pinned.
+  """
+  @spec apply(Statement.t() | Rel.t() | [Rel.t()], [integer() | atom()], keyword()) ::
+          {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
+  def apply(target, arguments, opts \\ [])
+
+  def apply(%Statement{rels: [_ | _] = rels}, args, opts), do: apply_rels(rels, args, opts)
+  def apply(%Rel{} = root, args, opts), do: apply_rels([root], args, opts)
+  def apply([%Rel{} | _rest] = rels, args, opts), do: apply_rels(rels, args, opts)
+  def apply(_target, _args, _opts), do: {:error, {:no_relations, %{}}}
+
+  @spec apply_rels([Rel.t()], [integer() | atom()], keyword()) ::
+          {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
+  defp apply_rels([_, _ | _] = _rels, _args, _opts),
+    do: {:error, {:calls_between_relations, %{}}}
+
+  defp apply_rels(rels, args, opts) do
+    name = Keyword.get(opts, :name, hd(rels).name)
+
+    with {:ok, program, plan} <- clauses_program(rels, name),
+         {:ok, bind} <- bind(plan.rows, args, opts),
+         :ok <- bounded(hd(args), opts) do
+      names = for a <- args, is_atom(a) and a != :_, do: a
+      answers(program, every(name, bind, names, plan, args, opts), names, opts)
+    end
+  end
+
+  # A free index has no last answer, so the caller says how far to look.
+  # Without one this walks deeper derivations until the heap stops it.
+  @spec bounded(integer() | atom(), keyword()) :: :ok | {:error, Refusal.t()}
+  defp bounded(index, _opts) when is_integer(index), do: :ok
+
+  defp bounded(_index, opts) do
+    if Keyword.has_key?(opts, :upto),
+      do: :ok,
+      else: {:error, {:free_index_needs_a_bound, %{}}}
+  end
+
+  # The query solve/3 would make, under a findall that keeps every answer.
+  @spec every(atom(), bind(), [atom()], plan(), [integer() | atom()], keyword()) :: [struct()]
+  defp every(name, bind, names, plan, args, opts) do
+    slots = Enum.zip(plan.rows, args ++ Stream.cycle([:_]))
+
+    goal =
+      Enum.map(slots, fn
+        {_row, a} when is_atom(a) and a != :_ -> v(a)
+        {row, _} -> Map.get(bind, row, v(row(row, "c")))
+      end)
+
+    [count | _rest] = goal
+
+    call = {name, [], [@class | goal ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]]}
+
+    condition = deepening(count, opts) ++ [call]
+    template = Enum.map(names, &v/1)
+
+    [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote(condition), rs)))]
+  end
+
+  @spec deepening(Macro.t() | integer(), keyword()) :: [Macro.t()]
+  defp deepening(count, _opts) when is_integer(count), do: []
+
+  defp deepening(count, opts),
+    do: [
+      quote(do: between(unquote(@class), 1, unquote(Keyword.fetch!(opts, :upto)), unquote(count)))
+    ]
+
+  @spec answers([struct()], [struct()], [atom()], keyword()) ::
+          {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
+  defp answers(program, query, names, opts) do
+    on_installed(program, opts, fn branch, heap ->
+      case AL.eval(query, nil, branch, heap: heap) do
+        {:atomic, {bindings, _}} ->
+          rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
+          {:ok, for(row <- rows, do: names |> Enum.zip(row) |> Map.new())}
+
+        {:aborted, _reason} ->
+          {:ok, []}
+
+        exceeded ->
+          Refusal.from_al(exceeded)
+      end
+    end)
+  end
+
+  # The shell every ask shares: land the branch, install the program,
+  # then run the caller's question; an install that cannot land refuses.
+  @spec on_installed([struct()], keyword(), (term(), pos_integer() -> term())) :: term()
+  defp on_installed(program, opts, fun) do
+    heap = Keyword.get(opts, :heap, 256_000_000)
+
+    AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
+      case AL.eval(program, nil, branch, heap: heap) do
+        {:atomic, _} -> fun.(branch, heap)
+        {:aborted, reason} -> {:error, {:send_failed, %{reason: reason}}}
+        exceeded -> Refusal.from_al(exceeded)
+      end
+    end)
   end
 
   @doc """
@@ -120,7 +233,7 @@ defmodule Zkfol.Al do
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
   # would answer a question no one asked.
-  @spec bind([pos_integer()], [integer() | :_], keyword()) ::
+  @spec bind([pos_integer()], [integer() | atom()], keyword()) ::
           {:ok, bind()} | {:error, Refusal.t()}
   defp bind(rows, args, _opts) when length(args) > length(rows),
     do: {:error, {:arguments_exceed_rows, %{args: length(args), rows: length(rows)}}}
@@ -129,7 +242,7 @@ defmodule Zkfol.Al do
     {:ok,
      rows
      |> Enum.zip(args)
-     |> Enum.reject(&match?({_row, :_}, &1))
+     |> Enum.reject(fn {_row, a} -> is_atom(a) end)
      |> Map.new()
      |> Map.merge(Keyword.get(opts, :bind, %{}))}
   end
@@ -492,37 +605,31 @@ defmodule Zkfol.Al do
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   defp run_installed(program, pred, plan, counts, bind, opts) do
     name = Keyword.get(opts, :name, :col)
-    heap = Keyword.get(opts, :heap, 256_000_000)
     basedon = Keyword.get(opts, :basedon)
 
-    AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
-      with {:atomic, _} <- AL.eval(program, nil, branch, heap: heap) do
-        # One eval per candidate, and that is the point. AL caps a single
-        # eval at 200_000 reductions (@max_reductions, a compile-time
-        # constant with no per-call override; `:heap` is the process heap
-        # and bounds something else), and any search long enough to matter
-        # exhausts it. Asking once per count buys the budget back each
-        # time. The same search stated inside AL as one `between` over
-        # the range is correct and reads better, and dies around a
-        # hundred and fifty columns.
-        Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
-          query = query(name, count, bind, plan)
+    on_installed(program, opts, fn branch, heap ->
+      # One eval per candidate, and that is the point. AL caps a single
+      # eval at 200_000 reductions (@max_reductions, a compile-time
+      # constant with no per-call override; `:heap` is the process heap
+      # and bounds something else), and any search long enough to matter
+      # exhausts it. Asking once per count buys the budget back each
+      # time. The same search stated inside AL as one `between` over
+      # the range is correct and reads better, and dies around a
+      # hundred and fifty columns.
+      Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
+        query = query(name, count, bind, plan)
 
-          case AL.eval([query], nil, branch, heap: heap) do
-            {:atomic, _} = derived ->
-              {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
+        case AL.eval([query], nil, branch, heap: heap) do
+          {:atomic, _} = derived ->
+            {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
 
-            {:aborted, _} = refused ->
-              {:cont, keep_named(refused, deepest, count, name)}
+          {:aborted, _} = refused ->
+            {:cont, keep_named(refused, deepest, count, name)}
 
-            exceeded ->
-              {:halt, Refusal.from_al(exceeded)}
-          end
-        end)
-      else
-        {:aborted, reason} -> {:error, {:send_failed, %{reason: reason}}}
-        exceeded -> Refusal.from_al(exceeded)
-      end
+          exceeded ->
+            {:halt, Refusal.from_al(exceeded)}
+        end
+      end)
     end)
   end
 

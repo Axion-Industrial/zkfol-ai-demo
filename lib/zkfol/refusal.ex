@@ -48,6 +48,7 @@ defmodule Zkfol.Refusal do
          call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
          row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
+         free_index_needs_a_bound
          lookup_width_mismatch lookup_chunk_indivisible)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
@@ -186,6 +187,9 @@ defmodule Zkfol.Refusal do
 
   def message({:arguments_exceed_rows, %{args: args, rows: rows}}),
     do: "#{args} arguments for a relation of #{rows} rows"
+
+  def message({:free_index_needs_a_bound, _detail}),
+    do: "a free index has no last answer; say :upto how far to look"
 
   def message({:no_relations, _detail}),
     do: "the statement carries no relations; supply its witness instead"
