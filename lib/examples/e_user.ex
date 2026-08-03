@@ -77,6 +77,26 @@ defmodule Examples.EUser do
     ran
   end
 
+  @spec failures_give_structure() :: Log.Ran.t()
+  example failures_give_structure() do
+    fact = Examples.EFacts.factorial()
+    ran = Zkfol.compile(%Statement{rels: [fact], args: [:_, 6]}, pipeline: Pipeline.default())
+
+    assert %Log.Ran{intended: nil} = ran
+
+    assert [%Log.Event{body: {:piped, verdicts}}] =
+             Log.snapshot() |> Log.trail(ran) |> Enum.filter(&(&1.id == ran.piped))
+
+    assert [
+             {Lang, :lowers},
+             {Zkfol.Doubling, :declines},
+             {Witness, {:errors, {:one_bound_input_only, _detail}}}
+           ] = verdicts
+
+    ran
+  end
+
+
   # The plain route carries a source to the solved statement: the
   # predicate, the ranges guarding its pointers, and the witness, all
   # derived off the relation alone.

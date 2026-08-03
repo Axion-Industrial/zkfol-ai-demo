@@ -63,6 +63,7 @@ ZkfolPipelineStage >> verdictColor [
 	(verdict = #rewrites or: [ verdict = #solves ])
 		ifTrue: [ ^ ZkfolPalette kindColor: #result ].
 	verdict = #expands ifTrue: [ ^ ZkfolPalette kindColor: #pointer ].
+	verdict = #errors ifTrue: [ ^ ZkfolPalette failureColor ].
 	^ ZkfolPalette kindColor: #plain
 ]
 

@@ -271,10 +271,18 @@ defmodule Zkfol.Face do
       Enum.any?(thread, &match?(%Log.Event{body: {:proved, _report}}, &1)) -> "proved"
       Enum.any?(thread, &match?(%Log.Event{body: {:prove_failed, _reason}}, &1)) -> "failed"
       Enum.any?(thread, &match?(%Log.Event{body: {:prove_requested, _name}}, &1)) -> "unsettled"
+      Enum.any?(thread, &erred?/1) -> "erred"
       Enum.any?(thread, &match?(%Log.Event{body: {:piped, _verdicts}}, &1)) -> "emitted"
       true -> "halted"
     end
   end
+
+  # A piped event whose verdicts carry a pass's observed error.
+  @spec erred?(Log.Event.t()) :: boolean()
+  defp erred?(%Log.Event{body: {:piped, verdicts}}),
+    do: Enum.any?(verdicts, &match?({_pass, {:errors, _refusal}}, &1))
+
+  defp erred?(_event), do: false
 
   @spec first_sentence(module()) :: String.t() | nil
   defp first_sentence(mod) do

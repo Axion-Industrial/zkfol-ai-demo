@@ -27,11 +27,15 @@ defmodule Zkfol.Pipeline do
   @typedoc "Each pass and the statement it produced, in order."
   @type trace :: [{module(), Statement.t()}]
 
+  @typedoc "What a run came to: the final statement or the erring pass, the trace either way."
+  @type outcome ::
+          {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
+
   @typedoc """
   A pass's word on a statement it ran: every pass declines a
   statement it is not for.
   """
-  @type verdict :: :declines | :lowers | :rewrites | :solves
+  @type verdict :: :declines | :lowers | :rewrites | :solves | {:errors, Refusal.t()}
 
   typedstruct enforce: true do
     field(:passes, [pass()])
@@ -47,8 +51,7 @@ defmodule Zkfol.Pipeline do
     do: %__MODULE__{passes: [{Zkfol.Lang, []}, {Doubling, []}, {Witness, []}]}
 
   @doc "I run `statement` through my passes, keeping every intermediate; `opts` ride under each pass's own."
-  @spec run(t(), Statement.t(), keyword()) ::
-          {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
+  @spec run(t(), Statement.t(), keyword()) :: outcome()
   def run(%__MODULE__{passes: passes}, statement, opts \\ []) do
     Enum.reduce_while(passes, {statement, []}, fn {pass, own}, {current, trace} ->
       case pass.run(current, Keyword.merge(opts, own)) do
@@ -64,12 +67,22 @@ defmodule Zkfol.Pipeline do
 
   @doc """
   I am the act's verdicts, read off its trace: a pass that returned
-  its input declined it, one that changed it did what its verb names.
-  The caller journals me as `{:piped, verdicts}`, based on the event
-  defining the route.
+  its input declined it, one that changed it did what its verb names,
+  and for a pass that erred, the run's own refusal as
+  `{:errors, refusal}`. The caller journals me as `{:piped, verdicts}`,
+  based on the event defining the route.
   """
-  @spec verdicts(t(), Statement.t(), trace()) :: [{module(), verdict()}]
-  def verdicts(%__MODULE__{passes: passes}, statement, trace) do
+  @spec verdicts(t(), Statement.t(), outcome()) :: [{module(), verdict()}]
+  def verdicts(%__MODULE__{passes: passes}, statement, {:ok, _final, trace}),
+    do: observed(passes, statement, trace)
+
+  def verdicts(%__MODULE__{passes: passes}, statement, {:error, pass, reason, trace}),
+    do: observed(passes, statement, trace) ++ [{pass, {:errors, reason}}]
+
+  # The verdicts of the passes the trace shows ran: declined where the
+  # statement rode through unchanged, the verb where it changed.
+  @spec observed([pass()], Statement.t(), trace()) :: [{module(), verdict()}]
+  defp observed(passes, statement, trace) do
     stages = [statement | Enum.map(trace, &elem(&1, 1))]
 
     for {{pass, _opts}, [input, output]} <-
