@@ -15,7 +15,7 @@ defmodule Zkfol.Semantics do
   alias Zkfol.Interpretation
 
   @doc "I evaluate a term or predicate at column `x` under `itp`; for a predicate 0 means true."
-  @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer()
+  @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer() | :error
   def eval(node, itp, x) do
     Ast.postwalk(node, fn
       q when is_integer(q) -> q
@@ -30,6 +30,9 @@ defmodule Zkfol.Semantics do
       {:conj, vs} -> Enum.sum(vs)
       {:disj, vs} -> Enum.product(vs)
     end)
+  rescue
+    # The one cell Definition 2.16 does not define.
+    ArgumentError -> :error
   end
 
   @doc """
@@ -42,15 +45,7 @@ defmodule Zkfol.Semantics do
       Enum.all?(1..Interpretation.len(itp), &holds?(phi, itp, &1))
   end
 
-  @doc """
-  I am true when `phi` holds at column `x` under `itp`. A pointer that
-  leaves the matrix -- Definition 2.16 has no such cell -- makes me
-  false rather than raising, so I am total over any interpretation.
-  """
+  @doc "I am true when `phi` holds at column `x` under `itp`; an undefined cell holds nothing."
   @spec holds?(Ast.pred(), Interpretation.t(), pos_integer()) :: boolean()
-  def holds?(phi, itp, x) do
-    eval(phi, itp, x) == 0
-  rescue
-    ArgumentError -> false
-  end
+  def holds?(phi, itp, x), do: eval(phi, itp, x) == 0
 end
