@@ -9,6 +9,7 @@ defmodule Examples.EFace do
 
   import ExUnit.Assertions
 
+  alias Examples.EAl
   alias Examples.EUser
   alias Zkfol.Face
   alias Zkfol.Statement
@@ -102,5 +103,54 @@ defmodule Examples.EFace do
     assert text =~ "…elided…"
     refute text =~ "Interpretation"
     text
+  end
+
+  @doc "I label every branch off the relations and judge every column."
+  @spec the_judgement_is_derived() :: %{atom() => term()}
+  example the_judgement_is_derived do
+    source = %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]}
+    {:ok, statement, _trace} = Zkfol.Pipeline.run(EUser.plain(), source)
+
+    %{labels: labels, evals: evals} = feed = Face.judgement(statement)
+
+    assert labels == ["pick rule", "tab(1,10)", "tab(2,20)", "tab(3,40)", "tab(4,40)"]
+
+    # Every column of a valid witness is answered by exactly one branch.
+    for x <- 0..1 do
+      assert Enum.count(evals, &(Enum.at(&1, x) == 0)) == 1
+    end
+
+    # The equations ride along as the paper writes them, judged term
+    # by term: pick's read of tab, and the tag claim beside it.
+    assert "C3(C6(X)) = 3" in hd(feed.terms)
+    assert "C5(X) = 1" in hd(feed.terms)
+    assert feed.term_evals |> hd() |> hd() |> Enum.sum() == 1682
+
+    # Each equation carries its computation as a tree, down to the
+    # pointer a composed cell reads through: the read of tab really is
+    # 3 = 3 at the fact's column, through pointer cell C6.
+    read = feed.trees |> hd() |> hd() |> hd()
+    assert %{text: "C3(C6(X)) = 3", value: 0} = read
+
+    assert %{role: "left", text: "C3(C6(X))", value: 3} = hd(read.children)
+
+    assert %{role: "pointer", text: "C6(X)", value: 1, at: 1} =
+             read.children |> hd() |> Map.get(:children) |> hd()
+
+    # A cell knows which column it reads, so a viewer can hop from any
+    # value to the judgement that forced it: the read lands on column 1.
+    assert %{at: 1} = hd(read.children)
+
+    # And each branch remembers the clause it was lowered from.
+    assert hd(feed.sources) == "pick(x, v) do tab(3, w); v = w + 1 end"
+    assert Enum.at(feed.sources, 3) == "tab(3, 40)"
+
+    assert feed.witness |> hd() |> Enum.take(4) == [0, 0, 3, 40]
+
+    # And every witness row wears its meaning: the members' head
+    # variables, the tag, the pointer by its target.
+    assert feed.rows == ["pick x", "pick v", "tab 1", "tab 2", "tag", "ptr 3"]
+
+    feed
   end
 end

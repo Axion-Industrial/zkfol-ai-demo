@@ -16,7 +16,10 @@ defmodule Zkfol.Face do
 
   alias GtBridge.Phlow.ColumnedList
   alias GtBridge.Phlow.Mondrian
+  alias Zkfol.Ast
   alias Zkfol.Interpretation
+  alias Zkfol.Lang
+  alias Zkfol.Semantics
   alias Zkfol.Log
   alias Zkfol.Refusal
   alias Zkfol.Statement
@@ -45,6 +48,57 @@ defmodule Zkfol.Face do
   end
 
   def text(%Statement{} = statement), do: inspected(statement)
+
+  @doc """
+  I am the judgement as a table: one row per branch of the predicate,
+  one column per witness column, each cell the branch's Figure 2 value
+  there -- zero the branch answering for the column, anything else the
+  size of its objection. The labels come off the relations themselves,
+  in the order Lang emits their branches.
+  """
+  @spec judgement(Statement.t()) :: %{atom() => term()}
+  def judgement(%Statement{stage: %Solved{witness: witness}} = statement) do
+    branches =
+      case Statement.pred(statement) do
+        {:disj, branches} -> branches
+        pred -> [pred]
+      end
+
+    len = Interpretation.len(witness)
+    conjuncts = Enum.map(branches, &conjuncts_of/1)
+    table = table_of(statement.rels)
+
+    %{
+      labels: labels(statement.rels, table, length(branches)),
+      evals: for(b <- branches, do: for(x <- 1..len, do: Semantics.eval(b, witness, x))),
+      terms: for(goals <- conjuncts, do: Enum.map(goals, &phi_text/1)),
+      term_evals:
+        for goals <- conjuncts do
+          for x <- 1..len, do: for(g <- goals, do: Semantics.eval(g, witness, x))
+        end,
+      trees:
+        for goals <- conjuncts do
+          for x <- 1..len, do: for(g <- goals, do: tree(g, witness, x))
+        end,
+      sources: sources(statement.rels, table, length(branches)),
+      rows: row_labels(statement.rels, table),
+      witness:
+        for x <- 1..len do
+          for i <- 1..length(Interpretation.rows(witness)), do: Interpretation.at(witness, i, x)
+        end
+    }
+  end
+
+  def judgement(%Statement{}), do: %{labels: [], evals: []}
+
+  @doc "I am the act's judgement, read off its final stage."
+  @spec judgement_of(Log.Ran.t()) :: %{atom() => term()}
+  def judgement_of(%Log.Ran{pipeline: pipeline} = ran) do
+    case Log.stage(ran, length(pipeline.passes)) do
+      {:ok, statement} -> judgement(statement)
+      {:error, _reason} -> %{labels: [], evals: []}
+    end
+  end
 
   @doc """
   I am the emitted UAIR settled for its grid: the committed columns
@@ -312,5 +366,205 @@ defmodule Zkfol.Face do
   defp rows_of(_statement), do: nil
 
   @spec inspected(term()) :: String.t()
+  # A node of the computation: its text, its value here, and the parts
+  # it is computed from, down to the witness cells themselves. A
+  # composed cell's child is the pointer it reads through.
+  @spec tree(Ast.pred() | Ast.term_t(), Interpretation.t(), pos_integer()) ::
+          %{atom() => term()}
+  defp tree({:eq, t, u} = g, w, x),
+    do: %{
+      text: phi_text(g),
+      value: Semantics.eval(g, w, x),
+      children: [
+        Map.put(tree(t, w, x), :role, "left"),
+        Map.put(tree(u, w, x), :role, "right")
+      ]
+    }
+
+  defp tree({:conj, goals} = g, w, x),
+    do: %{
+      text: phi_text(g),
+      value: Semantics.eval(g, w, x),
+      children: Enum.map(goals, &tree(&1, w, x))
+    }
+
+  defp tree({:disj, goals} = g, w, x),
+    do: %{
+      text: phi_text(g),
+      value: Semantics.eval(g, w, x),
+      children: Enum.map(goals, &tree(&1, w, x))
+    }
+
+  # A literal operand says itself in the text; a node for it is noise.
+  defp tree({:add, t, u} = q, w, x),
+    do: %{
+      text: term_text(q),
+      value: Semantics.eval(q, w, x),
+      children: for(part <- [t, u], not is_integer(part), do: tree(part, w, x))
+    }
+
+  defp tree({:mul, t, u} = q, w, x),
+    do: %{
+      text: term_text(q),
+      value: Semantics.eval(q, w, x),
+      children: for(part <- [t, u], not is_integer(part), do: tree(part, w, x))
+    }
+
+  defp tree({:cell, _i, j} = q, w, x),
+    do: %{
+      text: term_text(q),
+      value: Semantics.eval(q, w, x),
+      at: Interpretation.at(w, j, x),
+      children: [Map.put(tree({:cell, j}, w, x), :role, "pointer")]
+    }
+
+  defp tree({:cell, _i} = q, w, x),
+    do: %{text: term_text(q), value: Semantics.eval(q, w, x), at: x, children: []}
+
+  defp tree({:reify, phi}, w, x), do: tree(phi, w, x)
+
+  defp tree(leaf, w, x),
+    do: %{text: term_text(leaf), value: Semantics.eval(leaf, w, x), children: []}
+
+  # Each branch's clause as the surface wrote it: why the equations
+  # are what they are, the lowering's own receipt.
+  @spec sources([Lang.Rel.t()], map() | nil, non_neg_integer()) :: [String.t()]
+  defp sources(_rels, nil, _n), do: []
+
+  defp sources(rels, table, n) do
+    written =
+      for %Lang.Rel{name: name, clauses: clauses} <- ordered(rels, table.tags),
+          {head, body} <- clauses,
+          do: clause_text(name, head, body)
+
+    if length(written) == n, do: written, else: []
+  end
+
+  @spec clause_text(atom(), [term()], [term()]) :: String.t()
+  defp clause_text(name, head, []), do: call_text(name, head)
+
+  defp clause_text(name, head, body),
+    do: call_text(name, head) <> " do " <> Enum.map_join(body, "; ", &goal_text/1) <> " end"
+
+  @spec call_text(atom(), [term()]) :: String.t()
+  defp call_text(name, args), do: "#{name}(#{Enum.map_join(args, ", ", &surface_text/1)})"
+
+  @spec goal_text(term()) :: String.t()
+  defp goal_text({:call, name, args}), do: call_text(name, args)
+  defp goal_text({:eq, t, u}), do: surface_text(t) <> " = " <> surface_text(u)
+  defp goal_text({:cmp, op, t, u}), do: surface_text(t) <> " #{op} " <> surface_text(u)
+
+  @spec surface_text(term()) :: String.t()
+  defp surface_text(q) when is_integer(q), do: Integer.to_string(q)
+  defp surface_text({:var, name}), do: to_string(name)
+  defp surface_text(:len), do: "len"
+
+  defp surface_text({:add, t, q}) when is_integer(q) and q < 0,
+    do: surface_text(t) <> " - " <> Integer.to_string(-q)
+
+  defp surface_text({:add, t, u}), do: surface_text(t) <> " + " <> surface_text(u)
+  defp surface_text({:mul, t, u}), do: surface_text(t) <> "*" <> surface_text(u)
+  defp surface_text({:reify, goal}), do: "reify(" <> goal_text(goal) <> ")"
+  defp surface_text(_pinned), do: "^"
+
+  # Every row of the interpretation named: a member's rows by its head
+  # variables, the tag row as itself, a pointer row by its target.
+  @spec row_labels([Lang.Rel.t()], map() | nil) :: [String.t()]
+  defp row_labels(_rels, nil), do: []
+
+  defp row_labels(rels, table) do
+    scope = Map.new(rels, &{&1.name, &1})
+
+    named =
+      for {name, rows} <- table.rows, {r, i} <- Enum.with_index(rows, 1), into: %{} do
+        {r, member_row(scope[name], name, i)}
+      end
+
+    named = if table.tag, do: Map.put(named, table.tag, "tag"), else: named
+
+    named =
+      Map.merge(named, Map.new(table.pointers, fn {at, r} -> {r, "ptr " <> term_text(at)} end))
+
+    for r <- 1..table.width, do: Map.get(named, r, "C#{r}")
+  end
+
+  @spec member_row(Lang.Rel.t(), atom(), pos_integer()) :: String.t()
+  defp member_row(%Lang.Rel{clauses: clauses}, name, i) do
+    vars =
+      Enum.find_value(clauses, fn {head, _body} ->
+        if Enum.all?(head, &match?({:var, _}, &1)), do: head
+      end)
+
+    case vars do
+      nil -> "#{name} #{i}"
+      head -> with({:var, nm} <- Enum.at(head, i - 1), do: "#{name} #{nm}")
+    end
+  end
+
+  @spec conjuncts_of(Ast.pred()) :: [Ast.pred()]
+  defp conjuncts_of({:conj, goals}), do: goals
+  defp conjuncts_of(pred), do: [pred]
+
+  # The predicate as the paper writes it, for a reader.
+  @spec phi_text(Ast.pred()) :: String.t()
+  defp phi_text({:eq, t, u}), do: term_text(t) <> " = " <> term_text(u)
+  defp phi_text({:conj, goals}), do: Enum.map_join(goals, " and ", &phi_text/1)
+  defp phi_text({:disj, goals}), do: Enum.map_join(goals, " or ", &phi_text/1)
+
+  @spec term_text(Ast.term_t()) :: String.t()
+  defp term_text(q) when is_integer(q), do: Integer.to_string(q)
+  defp term_text(:x), do: "X"
+  defp term_text(:len), do: "len"
+  defp term_text({:cell, i}), do: "C#{i}(X)"
+  defp term_text({:cell, i, j}), do: "C#{i}(C#{j}(X))"
+
+  defp term_text({:add, t, q}) when is_integer(q) and q < 0,
+    do: term_text(t) <> " - " <> Integer.to_string(-q)
+
+  defp term_text({:add, t, u}), do: term_text(t) <> " + " <> term_text(u)
+  defp term_text({:mul, t, u}), do: factor(t) <> "*" <> factor(u)
+  defp term_text({:reify, phi}), do: "[" <> phi_text(phi) <> "]"
+
+  @spec factor(Ast.term_t()) :: String.t()
+  defp factor({:add, _t, _u} = t), do: "(" <> term_text(t) <> ")"
+  defp factor(t), do: term_text(t)
+
+  # One compile feeds every derivation below; nil when there is
+  # nothing to walk or the closure refuses.
+  @spec table_of([Lang.Rel.t()]) :: map() | nil
+  defp table_of([]), do: nil
+
+  defp table_of([root | _rest] = rels) do
+    with {:ok, table} <- Lang.compile(root, rels), do: table
+  end
+
+  # Branch labels in emission order: members by their tag, a fact by
+  # its head, a rule by its name.
+  @spec labels([Lang.Rel.t()], map() | nil, non_neg_integer()) :: [String.t()]
+  defp labels(_rels, nil, n), do: for(i <- 1..n//1, do: "branch #{i}")
+
+  defp labels(rels, table, n) do
+    named = rels |> ordered(table.tags) |> Enum.flat_map(&clause_labels/1)
+    if length(named) == n, do: named, else: labels(rels, nil, n)
+  end
+
+  @spec ordered([Lang.Rel.t()], %{atom() => pos_integer()}) :: [Lang.Rel.t()]
+  defp ordered(rels, tags) when map_size(tags) == 0, do: Enum.take(rels, 1)
+
+  defp ordered(rels, tags) do
+    scope = Map.new(rels, &{&1.name, &1})
+    tags |> Enum.sort_by(&elem(&1, 1)) |> Enum.map(fn {name, _k} -> scope[name] end)
+  end
+
+  @spec clause_labels(Lang.Rel.t()) :: [String.t()]
+  defp clause_labels(%Lang.Rel{name: name, clauses: clauses}) do
+    for {head, body} <- clauses do
+      case body do
+        [] -> "#{name}(#{head |> Enum.map(&surface_text/1) |> Enum.join(",")})"
+        _rule -> "#{name} rule"
+      end
+    end
+  end
+
   defp inspected(term), do: inspect(term, pretty: true, limit: 100, printable_limit: 2048)
 end
