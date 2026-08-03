@@ -66,7 +66,8 @@ defmodule Zkfol.Al do
   unreported. Where `solve/3` stops at the first derivation, I report
   every one over the indices asked for: a free index has no last answer,
   so `:upto` says how far to look and is required when index one is not
-  pinned.
+  pinned. Each count runs as its own eval, renewing the reduction
+  budget as solve's deepening does.
   """
   @spec apply(Statement.t() | Rel.t() | [Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
@@ -87,26 +88,30 @@ defmodule Zkfol.Al do
 
     with {:ok, program, plan} <- clauses_program(rels, name),
          {:ok, bind} <- bind(plan.rows, args, opts),
-         :ok <- bounded(hd(args), opts) do
+         {:ok, counts} <- span(hd(args), opts) do
       names = for a <- args, is_atom(a) and a != :_, do: a
-      answers(program, every(name, bind, names, plan, args, opts), names, opts)
+      answers(program, &every(name, &1, bind, names, plan, args), counts, names, opts)
     end
   end
 
   # A free index has no last answer, so the caller says how far to look.
   # Without one this walks deeper derivations until the heap stops it.
-  @spec bounded(integer() | atom(), keyword()) :: :ok | {:error, Refusal.t()}
-  defp bounded(index, _opts) when is_integer(index), do: :ok
+  @spec span(integer() | atom(), keyword()) :: {:ok, Enumerable.t()} | {:error, Refusal.t()}
+  defp span(index, _opts) when is_integer(index), do: {:ok, [index]}
 
-  defp bounded(_index, opts) do
-    if Keyword.has_key?(opts, :upto),
-      do: :ok,
-      else: {:error, {:free_index_needs_a_bound, %{}}}
+  defp span(_index, opts) do
+    case Keyword.fetch(opts, :upto) do
+      {:ok, upto} -> {:ok, 1..upto}
+      :error -> {:error, {:free_index_needs_a_bound, %{}}}
+    end
   end
 
-  # The query solve/3 would make, under a findall that keeps every answer.
-  @spec every(atom(), bind(), [atom()], plan(), [integer() | atom()], keyword()) :: [struct()]
-  defp every(name, bind, names, plan, args, opts) do
+  # The query solve/3 would make at one count, under a findall that
+  # keeps each answer; a named or free index pins to the count by
+  # unification, an integer one arrived bound through bind/3.
+  @spec every(atom(), pos_integer(), bind(), [atom()], plan(), [integer() | atom()]) ::
+          [struct()]
+  defp every(name, count, bind, names, plan, args) do
     slots = Enum.zip(plan.rows, args ++ Stream.cycle([:_]))
 
     goal =
@@ -115,39 +120,34 @@ defmodule Zkfol.Al do
         {row, _} -> Map.get(bind, row, v(row(row, "c")))
       end)
 
-    [count | _rest] = goal
+    [index | _rest] = goal
+    pin = if is_integer(index), do: [], else: [quote(do: unify(unquote(index), unquote(count)))]
 
-    call = {name, [], [@class | goal ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]]}
-
-    condition = deepening(count, opts) ++ [call]
+    call = {name, [], [@class | goal ++ if(plan.len?, do: [index], else: []) ++ [v(:t)]]}
     template = Enum.map(names, &v/1)
 
-    [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote(condition), rs)))]
+    [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote(pin ++ [call]), rs)))]
   end
 
-  @spec deepening(Macro.t() | integer(), keyword()) :: [Macro.t()]
-  defp deepening(count, _opts) when is_integer(count), do: []
-
-  defp deepening(count, opts),
-    do: [
-      quote(do: between(unquote(@class), 1, unquote(Keyword.fetch!(opts, :upto)), unquote(count)))
-    ]
-
-  @spec answers([struct()], [struct()], [atom()], keyword()) ::
+  # One eval per count, as solve deepens: each candidate renews the
+  # reduction budget one `between` over the range would exhaust.
+  @spec answers([struct()], (pos_integer() -> [struct()]), Enumerable.t(), [atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
-  defp answers(program, query, names, opts) do
+  defp answers(program, query_at, counts, names, opts) do
     on_installed(program, opts, fn branch, heap ->
-      case AL.eval(query, nil, branch, heap: heap) do
-        {:atomic, {bindings, _}} ->
-          rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
-          {:ok, for(row <- rows, do: names |> Enum.zip(row) |> Map.new())}
+      Enum.reduce_while(counts, {:ok, []}, fn count, {:ok, acc} ->
+        case AL.eval(query_at.(count), nil, branch, heap: heap) do
+          {:atomic, {bindings, _}} ->
+            rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
+            {:cont, {:ok, acc ++ for(row <- rows, do: names |> Enum.zip(row) |> Map.new())}}
 
-        {:aborted, _reason} ->
-          {:ok, []}
+          {:aborted, _reason} ->
+            {:cont, {:ok, acc}}
 
-        exceeded ->
-          Refusal.from_al(exceeded)
-      end
+          exceeded ->
+            {:halt, Refusal.from_al(exceeded)}
+        end
+      end)
     end)
   end
 

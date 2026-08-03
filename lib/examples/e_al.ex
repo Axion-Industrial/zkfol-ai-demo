@@ -118,6 +118,18 @@ defmodule Examples.EAl do
     witness
   end
 
+  @doc "I renew the reduction budget per count, so depth cannot starve the answers."
+  @spec answers_keep_their_budget() :: [%{atom() => integer()}]
+  example answers_keep_their_budget do
+    # One between over 1..200 exhausts a single eval's budget quietly;
+    # one eval per count walks past where that form dies.
+    {:ok, answers} = Al.apply(EUser.fib(), [:n, :a], upto: 200)
+
+    assert length(answers) == 200
+    assert %{n: 200} = List.last(answers)
+    answers
+  end
+
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
