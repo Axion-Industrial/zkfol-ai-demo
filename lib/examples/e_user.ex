@@ -168,17 +168,25 @@ defmodule Examples.EUser do
     scaled
   end
 
-  # Repeated squaring writes and compiles, then stops at the frontier:
-  # the derivation by index finds only the even path from zero, and
-  # pinning the exponent instead is a capability the solver lacks yet.
-  @spec squaring_awaits_a_bound_output() :: Refusal.t()
-  example squaring_awaits_a_bound_output do
-    {:ok, degenerate} = Al.solve(epower(), [10])
-    assert degenerate |> Interpretation.rows() |> Enum.at(1) == List.duplicate(0, 10)
+  @spec squaring_solves_backward() :: Interpretation.t()
+  example squaring_solves_backward do
+    {:ok, witness} = Al.solve(epower(), [:_, 10])
 
-    {:error, reason} = Al.solve(epower(), [:_, 10])
-    assert {:one_bound_input_only, _} = reason
-    reason
+    assert Interpretation.len(witness) == 5
+    assert witness |> Interpretation.rows() |> Enum.at(0) |> List.last() == 5
+    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
+    assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
+    witness
+  end
+
+  @spec squaring_solves_at_the_base() :: Interpretation.t()
+  example squaring_solves_at_the_base do
+    {:ok, witness} = Al.solve(epower(), [:_, 0])
+
+    assert Interpretation.len(witness) == 1
+    assert witness |> Interpretation.rows() |> Enum.at(0) |> List.last() == 1
+    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 0
+    witness
   end
 
   example unknown_relation_is_refused do

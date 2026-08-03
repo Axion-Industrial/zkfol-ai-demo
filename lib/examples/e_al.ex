@@ -22,6 +22,41 @@ defmodule Examples.EAl do
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
 
+  @doc "I ask the emitted relation for its count rather than telling it."
+  @spec the_program_runs_backward() :: pos_integer()
+  example the_program_runs_backward do
+    {:ok, program} = Al.translate(EUser.fib())
+    branch = AL.Branch.fork()
+    {:atomic, _} = AL.eval(program, nil, branch, heap: 20_000_000)
+
+    # fib(self, x, c1, c2, t): row one is the count, so a free count is
+    # one variable standing in both places, and F(8) pins the value row.
+    x = {:x, [], nil}
+    goal = AL.ast_to_pattern({:fib, [], [:zkfol, x, x, EUser.fib(8), {:t, [], nil}]})
+    {:atomic, {bindings, _}} = AL.eval([goal], nil, branch, heap: 20_000_000)
+    AL.Branch.discard(branch)
+
+    count = bindings |> AL.Var.deref(:"$x") |> AL.Var.subst(bindings)
+    assert count == 8
+    count
+  end
+
+  @doc "I solve one relation both ways, one answer being the other's question."
+  @spec fib_solves_both_ways() :: Interpretation.t()
+  example fib_solves_both_ways do
+    n = 40
+    branch = AL.Branch.fork()
+    {:ok, forward} = Al.solve(EUser.fib(), [n], branch: branch.id)
+    value = Interpretation.at(forward, 2, Interpretation.len(forward))
+
+    {:ok, backward} = Al.solve(EUser.fib(), [:_, value], branch: branch.id)
+    AL.Branch.discard(branch)
+
+    assert Interpretation.len(backward) == n
+    assert backward == forward
+    backward
+  end
+
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
     branch = AL.Branch.fork()
@@ -47,6 +82,27 @@ defmodule Examples.EAl do
     last = Interpretation.len(witness)
     assert Interpretation.at(witness, 4, last) == n - 2
     assert Interpretation.at(witness, 5, last) == EUser.fib(n)
+    witness
+  end
+
+  @spec al_binds_a_bound_claim_too() :: Interpretation.t()
+  example al_binds_a_bound_claim_too do
+    statement = EDoubling.rewritten_fibonacci(10)
+    {:ok, witness} = Al.solve(statement, [55, 8], heap: 2_000_000)
+
+    last = Interpretation.len(witness)
+    assert last == 4
+    assert Interpretation.at(witness, 5, last) == 55
+    witness
+  end
+
+  @doc "I bind nothing, spelled two ways, so the first count answers."
+  @spec no_arguments_lands_on_the_first_count() :: Interpretation.t()
+  example no_arguments_lands_on_the_first_count do
+    {:ok, witness} = Al.solve(EUser.fib(), [])
+
+    assert {:ok, ^witness} = Al.solve(EUser.fib(), [:_, :_])
+    assert Interpretation.len(witness) == 1
     witness
   end
 

@@ -58,62 +58,27 @@ defmodule Zkfol.Al do
       solve(kernel_statement, [:_, n - 2])
       solve(Examples.EFacts.factorial(), [6], branch: :head)
 
-  A statement's arguments are its claims in order, `:_` free, the
-  column count found by deepening; a relation takes its final column
-  index. `:bind` fixes final-column cells by row, `:branch` keeps
-  the install, `:depth` caps the deepening, `:heap` bounds the
-  derivation, `:basedon` bases the journaled derivation, landing it
-  on that act's trail.
+  `arguments` address claimed rows in claim order when the target
+  carries claims, or the relation's own rows otherwise; `:_` leaves a
+  row free. The recursion count is always row one: bound, it runs
+  once at that count; free, depth deepens until a count satisfies
+  every other bound row. `:bind` fixes rows directly, merged over
+  whatever `arguments` bound. `:branch` keeps the install, `:depth`
+  caps the deepening, `:heap` bounds the derivation, `:basedon` bases
+  the journaled derivation, landing it on that act's trail.
   """
-  @spec solve(Ast.pred() | Statement.t() | Rel.t() | [Rel.t()], [pos_integer() | :_], keyword()) ::
+  @spec solve(Ast.pred() | Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def solve(target, arguments, opts \\ [])
 
-  def solve(%Statement{rels: [root | _rest] = rels, claims: []} = statement, [n | _args], opts)
-      when is_integer(n) and n > 0 do
-    opts = Keyword.put_new(opts, :name, root.name)
+  def solve(%Statement{rels: [_ | _] = rels, claims: claims}, args, opts),
+    do: solve_rels(rels, claims, args, opts)
 
-    with {:ok, pred} <- statement_pred(statement),
-         {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
-         do: run_installed(program, pred, plan, [n], Keyword.get(opts, :bind, %{}), opts)
-  end
+  def solve(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
 
-  def solve(
-        %Statement{rels: [root | _rest] = rels, claims: [_ | _] = claims} = statement,
-        arguments,
-        opts
-      ) do
-    bind =
-      claims
-      |> Enum.zip(arguments)
-      |> Enum.reject(&match?({_claim, :_}, &1))
-      |> Map.new(fn {{_name, i, _col}, value} -> {i, value} end)
-
-    counts = 1..Keyword.get(opts, :depth, 4096)
-
-    opts =
-      Keyword.merge(opts, name: root.name, bind: Map.merge(bind, Keyword.get(opts, :bind, %{})))
-
-    with {:ok, program, plan} <- clauses_program(rels, root.name),
-         {:ok, pred} <- statement_pred(statement),
-         do: run_installed(program, pred, plan, counts, Keyword.fetch!(opts, :bind), opts)
-  end
-
-  def solve(%Statement{rels: []}, _arguments, _opts),
-    do: {:error, {:no_relations, %{}}}
-
-  def solve(%Statement{}, args, _opts),
-    do: {:error, {:one_bound_input_only, %{args: args}}}
-
-  def solve(%Rel{} = root, arguments, opts), do: solve([root], arguments, opts)
-
-  def solve([%Rel{} | _rest] = rels, [n], opts) when is_integer(n) and n > 0 do
-    opts = Keyword.put_new(opts, :name, hd(rels).name)
-
-    with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
-         {:ok, %{pred: pred}} <- Lang.compile(hd(rels), rels),
-         do: run_installed(program, pred, plan, [n], Keyword.get(opts, :bind, %{}), opts)
-  end
+  def solve(%Rel{} = root, args, opts), do: solve_rels([root], [], args, opts)
+  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, [], args, opts)
+  def solve([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   def solve({tag, _parts}, _arguments, _opts) when tag in [:conj, :disj],
     do: {:error, {:raw_predicate_has_no_clauses, %{}}}
@@ -121,8 +86,39 @@ defmodule Zkfol.Al do
   def solve({:eq, _t, _u}, _arguments, _opts),
     do: {:error, {:raw_predicate_has_no_clauses, %{}}}
 
-  def solve(_pred, args, _opts),
-    do: {:error, {:one_bound_input_only, %{args: args}}}
+  # Row 1 is always the recursion driver (rel_plan/1 puts it first, and
+  # every clause head reads it as the count), so a bound row 1 is a
+  # bound trace length; anything else has to deepen for it.
+  @spec solve_rels([Rel.t()], [Interpretation.claim()], [integer() | :_], keyword()) ::
+          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp solve_rels(rels, claims, args, opts) do
+    opts = Keyword.put_new(opts, :name, hd(rels).name)
+
+    with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
+         {:ok, %{pred: pred}} <- Lang.compile(hd(rels), rels) do
+      bind = bind(rows(claims, plan), args, opts)
+      run_installed(program, pred, plan, counts(bind, opts), bind, opts)
+    end
+  end
+
+  @spec counts(bind(), keyword()) :: Enumerable.t()
+  defp counts(%{1 => n}, _opts), do: [n]
+  defp counts(_bind, opts), do: 1..Keyword.get(opts, :depth, 4096)
+
+  # Claimed rows in claim order, else the relation's own row order.
+  @spec rows([Interpretation.claim()], plan()) :: [pos_integer()]
+  defp rows([], plan), do: plan.rows
+  defp rows(claims, _plan), do: Enum.map(claims, &elem(&1, 1))
+
+  # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
+  @spec bind([pos_integer()], [integer() | :_], keyword()) :: bind()
+  defp bind(rows, args, opts) do
+    rows
+    |> Enum.zip(args)
+    |> Enum.reject(&match?({_row, :_}, &1))
+    |> Map.new()
+    |> Map.merge(Keyword.get(opts, :bind, %{}))
+  end
 
   # The pred the stage already carries; compiled only when none does.
   @spec statement_pred(Statement.t()) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
@@ -142,15 +138,17 @@ defmodule Zkfol.Al do
     end
   end
 
-  # A step guards past the window and recurses; its equations wait
-  # frozen for whichever side arrives, derefs wait on the trace, and a
+  # A step guards past the window and recurses. The guard and the
+  # descent wait frozen like every other equation rather than demanding
+  # a count up front, so a relation whose equations invert can be asked
+  # for its count instead of told it. Derefs wait on the trace, and a
   # pointer still free at the end enumerates.
   @spec step(atom(), [Macro.t()], [Macro.t()], [Macro.t()], plan()) :: Macro.t()
   defp step(name, head, current, defining, plan) do
     body =
       quote do
-        x > unquote(plan.window)
-        vm_is(x1, x - 1)
+        freeze(x, [x > unquote(plan.window)])
+        unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
         unquote_splicing(defining)
         unquote(recurse(name, plan))
         unquote_splicing(unpack(plan) ++ enumerations(plan))
@@ -445,6 +443,14 @@ defmodule Zkfol.Al do
 
     AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
       with {:atomic, _} <- AL.eval(program, nil, branch, heap: heap) do
+        # One eval per candidate, and that is the point. AL caps a single
+        # eval at 200_000 reductions (@max_reductions, a compile-time
+        # constant with no per-call override; `:heap` is the process heap
+        # and bounds something else), and any search long enough to matter
+        # exhausts it. Asking once per count buys the budget back each
+        # time. The same search stated inside AL as one `between` over
+        # the range is correct and reads better, and dies around a
+        # hundred and fifty columns.
         Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
           query = query(name, count, bind, plan)
 
@@ -471,7 +477,7 @@ defmodule Zkfol.Al do
   defp landing(:head), do: AL.Branch.head().id
   defp landing(other), do: other
 
-  @spec query(atom(), pos_integer(), bind(), plan()) :: struct()
+  @spec query(atom(), integer(), bind(), plan()) :: struct()
   defp query(name, count, bind, plan) do
     goal = Enum.map(plan.rows, &Map.get(bind, &1, v(row(&1, "c"))))
     args = [count | goal] ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]

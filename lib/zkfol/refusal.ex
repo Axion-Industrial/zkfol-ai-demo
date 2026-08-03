@@ -52,7 +52,7 @@ defmodule Zkfol.Refusal do
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
-    capability: ~w(one_bound_input_only calls_between_relations lookup_awaits_backend)a,
+    capability: ~w(calls_between_relations lookup_awaits_backend)a,
     false_statement: ~w(no_derivation no_derivation_at_depth column_unsatisfied
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
@@ -189,9 +189,6 @@ defmodule Zkfol.Refusal do
 
   def message({:raw_predicate_has_no_clauses, _detail}),
     do: "a raw predicate has no clauses to run; write it as relations"
-
-  def message({:one_bound_input_only, %{args: args}}),
-    do: "one bound input argument for now, got #{inspect(args)}"
 
   def message({:calls_between_relations, _detail}),
     do: "not yet: calls between relations derive through the core path"
