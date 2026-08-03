@@ -365,7 +365,7 @@ defmodule Examples.EAl do
 
     # A satisfiable ask now resolves by unification, guard or no
     # guard; only where no solution exists does the descent run free.
-    {:error, reason} = Al.solve(unguarded, [:_, 0], heap: 2_000_000)
+    {:error, reason} = Al.solve(unguarded, [:_, 0], heap: 200_000)
 
     assert {:heap_exhausted, _} = reason
     reason

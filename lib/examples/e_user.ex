@@ -158,7 +158,7 @@ defmodule Examples.EUser do
   # fails. CLP reads the same equation as 2*ee = e and inverts it.
   @spec squaring_backward_awaits_clp() :: Zkfol.Refusal.t()
   example squaring_backward_awaits_clp do
-    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 2_000_000)
+    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 200_000)
 
     assert kind in [:heap_exhausted, :unresolved_within_budget]
     reason
