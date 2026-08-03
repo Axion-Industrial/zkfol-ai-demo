@@ -159,17 +159,9 @@ defmodule Zkfol.Lang do
          do: {:ok, Statement.lowered(%{statement | ranges: ranges}, pred)}
   end
 
-  @doc "I am my verdict: `:lowers` when the closure compiles, the refusal it would earn if not."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(%Statement{rels: []}, _opts), do: :declines
-
-  def plan(%Statement{rels: [root | _rest] = rels}, _opts) do
-    case compile(root, rels) do
-      {:ok, _compiled} -> :lowers
-      {:error, reason} -> {:refuses, reason}
-    end
-  end
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :lowers
 
   @doc """
   I compile a root relation against the relations in scope, walking

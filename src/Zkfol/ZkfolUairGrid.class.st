@@ -25,14 +25,6 @@ ZkfolUairGrid class >> onUair: aUair [
 ]
 
 { #category : 'rows' }
-ZkfolUairGrid >> bitRows [
-	"The 0-based grid rows the composed-read lowering derived as pointer
-	 bits, named bit_rows in each emitted composed read."
-	^ (self composedReads
-		flatCollect: [ :each | (each at: #bit_rows ifAbsent: [ nil ]) ifNil: [ #() ] ]) asSet
-]
-
-{ #category : 'rows' }
 ZkfolUairGrid >> cellAtRow: aZeroBasedIndex position: aPosition [
 	"One cell as an object, its kind and bit coordinate derived. The
 	 column, the target strip, and every deref chain all build cells
@@ -226,11 +218,6 @@ ZkfolUairGrid >> labelTextFor: aKind at: aZeroBasedIndex [
 ]
 
 { #category : 'accessing' }
-ZkfolUairGrid >> len [
-	^ payload at: #len ifAbsent: [ nil ]
-]
-
-{ #category : 'accessing' }
 ZkfolUairGrid >> lookups [
 	^ payload at: #lookups ifAbsent: [ #() ]
 ]
@@ -291,24 +278,6 @@ ZkfolUairGrid >> refusal [
 ]
 
 
-
-{ #category : 'rows' }
-ZkfolUairGrid >> resultRows [
-	"The 0-based grid rows holding one dereference each, named result_row
-	 in each emitted composed read."
-	^ (self composedReads
-		collect: [ :each | each at: #result_row ifAbsent: [ nil ] ]
-		thenReject: [ :each | each isNil ]) asSet
-]
-
-{ #category : 'rows' }
-ZkfolUairGrid >> scheduledRows [
-	"The 0-based grid rows the shifts read through a schedule."
-	^ (self shifts
-		collect: [ :each |
-			(each isCollection and: [ each size = 2 ]) ifTrue: [ each first ] ifFalse: [ nil ] ]
-		thenReject: [ :each | each isNil ]) asSet
-]
 
 { #category : 'initialization' }
 ZkfolUairGrid >> setFromPayload: data [

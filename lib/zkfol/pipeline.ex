@@ -3,10 +3,9 @@ defmodule Zkfol.Pipeline do
   I am a pipeline as a value: my passes are data, the trace is a value.
   A pass is `{module, opts}`, the module taking a statement and its
   opts to the next statement or refusing with the reason. On a refusal
-  I name the pass and keep the trace up to it. `plan/2` asks every
-  pass, purely and ahead of any act, what it would do; `verdicts/3`
-  asks the same questions along a finished trace, one vocabulary for
-  the predicted and the observed.
+  I name the pass and keep the trace up to it. `verdicts/3` reads each
+  pass's verdict off a finished trace: an unchanged statement was
+  declined, a changed one earned the pass's verb.
   """
 
   use TypedStruct
@@ -20,8 +19,8 @@ defmodule Zkfol.Pipeline do
   @doc "I take `statement` to the next statement, or refuse with the reason."
   @callback run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
 
-  @doc "I am my verdict on `statement` as it stands: a pure, cheap query, never an act."
-  @callback plan(Statement.t(), keyword()) :: verdict()
+  @doc "I am the verb of my act: what a run of mine that changed the statement did."
+  @callback verb() :: verdict()
 
   @typedoc "One member: the pass module and its options."
   @type pass :: {module(), keyword()}
@@ -30,16 +29,10 @@ defmodule Zkfol.Pipeline do
   @type trace :: [{module(), Statement.t()}]
 
   @typedoc """
-  A pass's word on a statement: what it would do, with the delta where
-  one earns it. Every pass declines a statement it is not for.
+  A pass's word on a statement it ran: every pass declines a
+  statement it is not for.
   """
-  @type verdict ::
-          :declines
-          | :lowers
-          | :rewrites
-          | :solves
-          | {:expands, Accumulator.layout()}
-          | {:refuses, Refusal.t()}
+  @type verdict :: :declines | :lowers | :rewrites | :solves | :expands
 
   typedstruct enforce: true do
     field(:passes, [pass()])
@@ -73,24 +66,17 @@ defmodule Zkfol.Pipeline do
   end
 
   @doc """
-  I am the route asked ahead of the run: every pass's verdict on
-  `statement` as it stands, the potential trace as data.
-
-      Pipeline.plan(Pipeline.default(), statement)
-  """
-  @spec plan(t(), Statement.t()) :: [{module(), verdict()}]
-  def plan(%__MODULE__{passes: passes}, statement),
-    do: for({pass, opts} <- passes, do: {pass, pass.plan(statement, opts)})
-
-  @doc """
-  I am the act's verdicts: the questions of `plan/2`, each put to the
-  statement its pass actually received. Passes are pure, so asking
-  again is observing. The caller journals me as `{:piped, verdicts}`,
-  based on the event defining the route.
+  I am the act's verdicts, read off its trace: a pass that returned
+  its input declined it, one that changed it did what its verb names.
+  The caller journals me as `{:piped, verdicts}`, based on the event
+  defining the route.
   """
   @spec verdicts(t(), Statement.t(), trace()) :: [{module(), verdict()}]
   def verdicts(%__MODULE__{passes: passes}, statement, trace) do
     stages = [statement | Enum.map(trace, &elem(&1, 1))]
-    for {{pass, opts}, stage} <- Enum.zip(passes, stages), do: {pass, pass.plan(stage, opts)}
+
+    for {{pass, _opts}, [input, output]} <-
+          Enum.zip(passes, Enum.chunk_every(stages, 2, 1, :discard)),
+        do: {pass, if(output == input, do: :declines, else: pass.verb())}
   end
 end

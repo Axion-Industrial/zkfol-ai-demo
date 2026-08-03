@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns len traces_order kinds num_vars num_public shifts reads lookups)
+	^ #(columns traces_order kinds num_vars num_public shifts reads lookups)
 ]
 
 { #category : 'examples' }
@@ -79,7 +79,6 @@ ZkfolUairExamples >> classicAffine [
 	<return: #Dictionary>
 	^ {
 		#num_public -> 1.
-		#len -> 8.
 		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#plain #scheduled #index).
@@ -203,7 +202,6 @@ ZkfolUairExamples >> emittedFibonacci [
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#len -> 8.
 		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#scheduled #scheduled #plain #plain #scheduled #scheduled).
@@ -229,11 +227,10 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 	| grid element |
 	grid := ZkfolUairGrid onUair: self emittedFibonacci.
 	self assert: grid tracesOrder description: 'the feed is trace order'.
-	self assert: grid scheduledRows asSortedCollection asArray equals: #(0 1 4 5).
 	element := grid picture asElement.
 	self
 		assert: (self elementWithId: #zkfolOrientationMarker in: element) isNil
-		description: 'a len-bearing uair needs no marker'.
+		description: 'a trace-order uair needs no marker'.
 	^ grid
 ]
 
@@ -246,7 +243,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| broken |
-	#(miniatureHop hopWithLen hopWithTwoReads) do: [ :fx |
+	#(miniatureHop orientedHop hopWithTwoReads) do: [ :fx |
 		| grid |
 		grid := ZkfolUairGrid onUair: (self perform: fx).
 		self assert: grid failingChains isEmpty.
@@ -275,7 +272,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 { #category : 'examples' }
 ZkfolUairExamples >> gridElement [
 	"I render the fixture grid: the honesty marker, since this fixture
-	 carries neither len nor an index column, the position ruler, then
+	 is committed order and carries no index column, the position ruler, then
 	 one row element per committed column, the claimed row outlined, and
 	 last the connector layer the hover connectors are drawn into, always
 	 present and empty at rest."
@@ -312,9 +309,9 @@ ZkfolUairExamples >> gridFromFixture [
 ]
 
 { #category : 'examples' }
-ZkfolUairExamples >> gridFromLenFixture [
-	"I read the len-bearing fixture and assert the orientation rule:
-	 with len present the grid displays trace order, un-reversing the
+ZkfolUairExamples >> gridFromOrientedHop [
+	"I read the trace-order fixture and assert the orientation rule:
+	 marked traces_order, the grid displays trace order, un-reversing the
 	 committed columns and truncating the padding, so the address a
 	 pointer cell holds indexes the displayed grid directly and the
 	 deref chain agrees with itself. The raw committed columns stay as
@@ -322,7 +319,7 @@ ZkfolUairExamples >> gridFromLenFixture [
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid picture |
-	grid := ZkfolUairGrid onUair: self hopWithLen.
+	grid := ZkfolUairGrid onUair: self orientedHop.
 	picture := grid picture.
 	self assert: grid displayColumns first equals: #(7 8 9).
 	self assert: (grid displayColumns collect: [ :each | each size ]) asArray
@@ -382,15 +379,14 @@ ZkfolUairExamples >> hopReversed [
 
 
 { #category : 'fixtures' }
-ZkfolUairExamples >> hopWithLen [
-	"The composed hop as the face settles it: len 3, trace order, the
+ZkfolUairExamples >> orientedHop [
+	"The composed hop as the face settles it: length 3, trace order, the
 	 padding cut, every value asymmetric so a missed orientation cannot
 	 pass, and the deref chain self-consistent."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#len -> 3.
 		#traces_order -> true.
 		#num_vars -> 2.
 		#kinds -> #(#plain #pointer #bit #bit #result).
@@ -416,7 +412,6 @@ ZkfolUairExamples >> hopWithTwoReads [
 	<return: #Dictionary>
 	^ {
 			#num_public -> 0.
-			#len -> 3.
 			#traces_order -> true.
 			#num_vars -> 2.
 			#kinds -> #(#plain #plain #pointer #bit #bit #result #result).
@@ -907,7 +902,6 @@ ZkfolUairExamples >> syntheticGridOfLength: aLength vars: aNumVars rows: aRowCou
 	 setter afterwards."
 	| payload |
 	payload := Dictionary new.
-	payload at: #len put: aLength.
 	payload at: #traces_order put: true.
 	payload at: #num_vars put: aNumVars.
 	payload at: #columns put: ((1 to: aRowCount) collect: [ :row |
@@ -940,7 +934,7 @@ ZkfolUairExamples >> wideGridRendersInMondrian [
 	grid := self syntheticGridOfLength: 40 vars: 6 rows: 3 extra: {
 		#num_public -> 1.
 		#shifts -> { #(1 1). #(1 2) } } asDictionary.
-	self assert: grid tracesOrder description: 'the len makes it trace order'.
+	self assert: grid tracesOrder description: 'traces_order makes it trace order'.
 	self assert: grid displayColumns first size equals: 40.
 	firstLabel := grid labelTextFor: (grid kindOfRow: 0) at: 0.
 	view := grid gtPointerGridFor: GtPhlowView empty.

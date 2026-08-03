@@ -49,7 +49,7 @@ defmodule Examples.ELookup do
 
   @spec lookup_proves() :: Prover.Report.t()
   example lookup_proves do
-    {:ok, report, _id} = Uair.prove_uair(shadowed_uair())
+    {:ok, report, _id} = Prover.prove_uair(shadowed_uair())
 
     assert %Prover.Report{} = report
     report
@@ -62,7 +62,7 @@ defmodule Examples.ELookup do
     # under tamper must carry bit variation for the rejection to be real.
     assert Enum.any?(hd(shadowed_uair().mode.bin_columns), &(&1 != 0))
 
-    {:error, reason} = Uair.prove_uair(shadowed_uair(), tamper: true)
+    {:error, reason} = Prover.prove_uair(shadowed_uair(), tamper: true)
 
     assert {:verifier_rejected, _} = reason
     reason
@@ -72,7 +72,7 @@ defmodule Examples.ELookup do
   example tamper_needs_a_lookup do
     shadowed = shadowed_uair()
     uair = %{shadowed | mode: %{shadowed.mode | lookups: []}}
-    {:error, reason} = Uair.prove_uair(uair, tamper: true)
+    {:error, reason} = Prover.prove_uair(uair, tamper: true)
 
     assert {:prover_failed, _} = reason
     reason
@@ -82,7 +82,7 @@ defmodule Examples.ELookup do
   example wide_lookup_is_refused do
     shadowed = shadowed_uair()
     uair = %{shadowed | mode: %{shadowed.mode | lookups: [%{col: 0, table: {:bit_poly, 16, 8}}]}}
-    {:error, reason} = Uair.prove_uair(uair)
+    {:error, reason} = Prover.prove_uair(uair)
 
     assert {:lookup_width_mismatch, _} = reason
     reason
@@ -99,7 +99,7 @@ defmodule Examples.ELookup do
 
     [bare, shadowed, looked] =
       for uair <- [bare, shadow_only, with_lookup] do
-        {:ok, report, _id} = Uair.prove_uair(uair)
+        {:ok, report, _id} = Prover.prove_uair(uair)
         Map.take(report, [:prove_ms, :verify_ms, :proof_bytes])
       end
 

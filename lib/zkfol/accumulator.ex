@@ -12,7 +12,7 @@ defmodule Zkfol.Accumulator do
   statement emits with no composed reads left. Statements whose
   pointers all carry schedules pass through untouched. I am throwaway
   by design: when zinc+ lands the pointer query, delete me, my
-  examples, my note section, and my slot in the default pipeline.
+  examples, and my slot in the default pipeline.
 
       Zkfol.Pipeline.run(
         Zkfol.Pipeline.default(),
@@ -46,26 +46,17 @@ defmodule Zkfol.Accumulator do
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
   def run(statement, _opts), do: expand(statement)
 
-  @doc "I am my verdict: the row plan I would expand by, `:declines` when nothing is dynamic."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(statement, _opts) do
-    case layout(statement) do
-      {:ok, plan} when is_map(plan) -> {:expands, plan}
-      {:ok, _idle} -> :declines
-      {:error, reason} -> {:refuses, reason}
-    end
-  end
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :expands
 
-  @doc """
-  I expand every pointer read into the accumulator encoding. I am a
-  try: a statement whose pointers all carry schedules, or one still
-  missing its predicate or witness, passes through untouched. The
-  expanded statement emits through `Zkfol.Uair` with
-  `composed_reads: []`, so the prover boundary has nothing to refuse.
-  """
+  # I expand every pointer read into the accumulator encoding. I am a
+  # try: a statement whose pointers all carry schedules, or one still
+  # missing its predicate or witness, passes through untouched. The
+  # expanded statement emits through `Zkfol.Uair` with
+  # `composed_reads: []`, so the prover boundary has nothing to refuse.
   @spec expand(Statement.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def expand(%Statement{stage: %Statement.Solved{pred: pred, witness: witness}} = statement) do
+  defp expand(%Statement{stage: %Statement.Solved{pred: pred, witness: witness}} = statement) do
     with {:ok, plan} <- planned(pred, witness) do
       case plan do
         :no_dynamic_reads ->
@@ -86,9 +77,9 @@ defmodule Zkfol.Accumulator do
 
   # Only a solved statement has both a predicate to expand and a witness to
   # extend; anything earlier passes through untouched.
-  def expand(%Statement{stage: stage} = statement)
-      when stage == :raw or is_struct(stage, Statement.Lowered),
-      do: {:ok, statement}
+  defp expand(%Statement{stage: stage} = statement)
+       when stage == :raw or is_struct(stage, Statement.Lowered),
+       do: {:ok, statement}
 
   @doc """
   I am the row plan the expansion follows, on the statement as it
@@ -106,66 +97,66 @@ defmodule Zkfol.Accumulator do
       when stage == :raw or is_struct(stage, Statement.Lowered),
       do: {:ok, :not_solved}
 
-  # Allocation order: index bits, prev, pointer bits, results, then per
-  # column the broadcasts and the sum pairs. The queries spell it out.
-
-  @doc "I am the bit width shared by the index and every pointer."
+  # The bit width shared by the index and every pointer.
   @spec mu(layout()) :: pos_integer()
-  def mu(plan), do: Uair.num_vars(plan.len)
+  defp mu(plan), do: Uair.num_vars(plan.len)
 
-  @doc "I am the distinct pointer rows, in allocation order."
+  # The distinct pointer rows, in allocation order.
   @spec pointers(layout()) :: [pos_integer()]
-  def pointers(plan), do: plan.pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+  defp pointers(plan), do: plan.pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+
+  @typep descriptor ::
+           {:index_bit, pos_integer()}
+           | :prev
+           | {:pointer_bit, pos_integer(), pos_integer()}
+           | {:result, {pos_integer(), pos_integer()}}
+           | {:broadcast, pos_integer(), pos_integer(), pos_integer()}
+           | {:acc | :readout, pos_integer(), pos_integer(), pos_integer()}
+
+  # The one allocation order: every derived row named once, in place.
+  # Row numbers and witness values are both read off this list, so the
+  # constraints and the extension cannot drift apart.
+  @spec derived(layout()) :: [descriptor()]
+  defp derived(plan) do
+    mu = mu(plan)
+
+    for(nu <- 1..mu, do: {:index_bit, nu}) ++
+      [:prev] ++
+      for(a <- pointers(plan), nu <- 1..mu, do: {:pointer_bit, a, nu}) ++
+      for(pair <- plan.pairs, do: {:result, pair}) ++
+      for(x0 <- 1..plan.len, a <- pointers(plan), nu <- 1..mu, do: {:broadcast, a, x0, nu}) ++
+      for(x0 <- 1..plan.len, {i, a} <- plan.pairs, kind <- [:acc, :readout], do: {kind, i, a, x0})
+  end
+
+  # A derived row's number: its place in the order, past the witness.
+  @spec row(layout(), descriptor()) :: pos_integer()
+  defp row(plan, descriptor),
+    do: plan.arity + 1 + Enum.find_index(derived(plan), &(&1 == descriptor))
 
   @doc "I am the committed index bit rows, low bit first."
   @spec index_bits(layout()) :: [pos_integer()]
-  def index_bits(plan), do: span(plan.arity, mu(plan))
+  def index_bits(plan), do: for(nu <- 1..mu(plan), do: row(plan, {:index_bit, nu}))
 
-  @doc "I am the row carrying each column's predecessor."
+  # The row carrying each column's predecessor.
   @spec prev(layout()) :: pos_integer()
-  def prev(plan), do: plan.arity + mu(plan) + 1
+  defp prev(plan), do: row(plan, :prev)
 
-  @doc "I am pointer `a`'s committed bit rows."
+  # Pointer `a`'s committed bit rows.
   @spec pointer_bits(layout(), pos_integer()) :: [pos_integer()]
-  def pointer_bits(plan, a), do: span(prev(plan) + place(pointers(plan), a) * mu(plan), mu(plan))
+  defp pointer_bits(plan, a), do: for(nu <- 1..mu(plan), do: row(plan, {:pointer_bit, a, nu}))
 
   @doc "I am the derived result row of the read `{i, a}`."
   @spec result(layout(), {pos_integer(), pos_integer()}) :: pos_integer()
-  def result(plan, pair), do: prev(plan) + width(plan) + place(plan.pairs, pair) + 1
+  def result(plan, pair), do: row(plan, {:result, pair})
 
-  @doc "I am the rows broadcasting pointer `a`'s bits for column `x0`."
+  # The rows broadcasting pointer `a`'s bits for column `x0`.
   @spec broadcast(layout(), pos_integer(), pos_integer()) :: [pos_integer()]
-  def broadcast(plan, a, x0) do
-    at = tail(plan) + (x0 - 1) * width(plan) + place(pointers(plan), a) * mu(plan)
-    span(at, mu(plan))
-  end
+  defp broadcast(plan, a, x0), do: for(nu <- 1..mu(plan), do: row(plan, {:broadcast, a, x0, nu}))
 
   @doc "I am the accumulator and readout rows of the read `{i, a}` at column `x0`."
   @spec sum(layout(), pos_integer(), pos_integer(), pos_integer()) ::
           {pos_integer(), pos_integer()}
-  def sum(plan, i, a, x0) do
-    at =
-      tail(plan) + plan.len * width(plan) +
-        (x0 - 1) * 2 * length(plan.pairs) + place(plan.pairs, {i, a}) * 2
-
-    {at + 1, at + 2}
-  end
-
-  # A pointer block: mu bit rows per pointer, the per-column broadcast width too.
-  @spec width(layout()) :: pos_integer()
-  defp width(plan), do: length(pointers(plan)) * mu(plan)
-
-  # Rows ahead of the per-column tail: index bits, prev, pointer bits, results.
-  @spec tail(layout()) :: pos_integer()
-  defp tail(plan), do: prev(plan) + width(plan) + length(plan.pairs)
-
-  # The count rows just past at.
-  @spec span(non_neg_integer(), pos_integer()) :: [pos_integer()]
-  defp span(at, count), do: Enum.to_list((at + 1)..(at + count))
-
-  # x's zero-based place in the allocation-ordered list.
-  @spec place([elem], elem) :: non_neg_integer() when elem: term()
-  defp place(list, x), do: length(Enum.take_while(list, &(&1 != x)))
+  def sum(plan, i, a, x0), do: {row(plan, {:acc, i, a, x0}), row(plan, {:readout, i, a, x0})}
 
   # The plan behind expand and layout.
   @spec planned(Ast.pred(), Interpretation.t()) ::
@@ -177,7 +168,7 @@ defmodule Zkfol.Accumulator do
     plan = %{pairs: Ast.pointer_derefs(pred), len: len, arity: Interpretation.arity(witness)}
     mu = mu(plan)
 
-    with {:ok, schedules} <- Uair.schedules(pred) do
+    with {:ok, schedules} <- Ast.schedules(pred) do
       cond do
         Enum.all?(pointers(plan), &is_map_key(schedules, &1)) ->
           {:ok, :no_dynamic_reads}
@@ -326,46 +317,26 @@ defmodule Zkfol.Accumulator do
   @spec off(Ast.term_t()) :: Ast.term_t()
   defp off(t), do: Ast.add(1, Ast.mul(t, -1))
 
-  # The honest values of every derived row, in layout order.
+  # The honest values of every derived row, read off the one order.
   @spec extend(Interpretation.t(), layout()) :: Interpretation.t()
   defp extend(witness, plan) do
-    len = plan.len
-    mu = mu(plan)
     at = &Interpretation.at(witness, &1, &2)
+    rows = for d <- derived(plan), do: for(y <- 1..plan.len, do: value(d, y, at))
+    Interpretation.new(Interpretation.rows(witness) ++ rows)
+  end
 
-    index_bits =
-      for nu <- 1..mu, do: for(y <- 1..len, do: y >>> (nu - 1) &&& 1)
+  # A derived row's honest value at column y.
+  @spec value(descriptor(), pos_integer(), (pos_integer(), pos_integer() -> integer())) ::
+          integer()
+  defp value({:index_bit, nu}, y, _at), do: y >>> (nu - 1) &&& 1
+  defp value(:prev, y, _at), do: max(y - 1, 1)
+  defp value({:pointer_bit, a, nu}, y, at), do: at.(a, y) >>> (nu - 1) &&& 1
+  defp value({:result, {i, a}}, y, at), do: at.(i, at.(a, y))
+  defp value({:broadcast, a, x0, nu}, _y, at), do: at.(a, x0) >>> (nu - 1) &&& 1
+  defp value({:readout, i, a, x0}, _y, at), do: at.(i, at.(a, x0))
 
-    prev = for y <- 1..len, do: max(y - 1, 1)
-
-    pointer_bits =
-      for a <- pointers(plan),
-          nu <- 1..mu,
-          do: for(y <- 1..len, do: at.(a, y) >>> (nu - 1) &&& 1)
-
-    results = for {i, a} <- plan.pairs, do: for(y <- 1..len, do: at.(i, at.(a, y)))
-
-    sites =
-      for x0 <- 1..len, a <- pointers(plan) do
-        target = at.(a, x0)
-        for nu <- 1..mu, do: List.duplicate(target >>> (nu - 1) &&& 1, len)
-      end
-
-    sums =
-      for x0 <- 1..len, {i, a} <- plan.pairs do
-        target = at.(a, x0)
-        value = at.(i, target)
-        acc = for y <- 1..len, do: if(y >= target, do: value, else: 0)
-        [acc, List.duplicate(value, len)]
-      end
-
-    Interpretation.new(
-      Interpretation.rows(witness) ++
-        index_bits ++
-        [prev] ++
-        pointer_bits ++
-        results ++
-        Enum.concat(sites) ++ Enum.concat(sums)
-    )
+  defp value({:acc, i, a, x0}, y, at) do
+    target = at.(a, x0)
+    if y >= target, do: at.(i, target), else: 0
   end
 end

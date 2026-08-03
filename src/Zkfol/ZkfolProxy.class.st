@@ -15,15 +15,32 @@ ZkfolProxy class >> elixirClass [
 ]
 
 { #category : 'boundary' }
+ZkfolProxy class >> fetch: anElixirSource through: anApplication [
+	"The fetch seam for a caller holding a bare application rather than
+	 a proxy: the same wire and decode, nil when it cannot answer, so a
+	 view degrades to hidden."
+	^ [ self plainlyDecoded: (anApplication evaluateAndWait:
+		anElixirSource , ' |> GtBridge.Serializer.to_json() |> elem(1)') ]
+		on: Error
+		do: [ :anError | nil ]
+]
+
+{ #category : 'boundary' }
 ZkfolProxy class >> on: aProxy fetch: anElixirSource [
 	"The answer as ordinary Smalltalk, in one round trip. A refusal
 	 rather than nil when the node cannot answer, so a view can say why."
 	| json |
 	json := self on: aProxy evaluateOrNil: anElixirSource , ' |> GtBridge.Serializer.to_json() |> elem(1)'.
 	json isString ifFalse: [ ^ ZkfolRefusal because: 'the node did not answer' ].
-	^ [ self plainly: (BeamLinkDeserializer new decodeWire: (STONJSON fromString: json)) ]
+	^ [ self plainlyDecoded: json ]
 		on: Error
 		do: [ :anError | ZkfolRefusal because: anError messageText asString ]
+]
+
+{ #category : 'boundary' }
+ZkfolProxy class >> plainlyDecoded: aJsonString [
+	"One wire string to plain Smalltalk: the decode every fetch shares."
+	^ self plainly: (BeamLinkDeserializer new decodeWire: (STONJSON fromString: aJsonString))
 ]
 
 { #category : 'boundary' }

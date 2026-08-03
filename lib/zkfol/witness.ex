@@ -5,9 +5,8 @@ defmodule Zkfol.Witness do
   `Zkfol.Statement.Solved` through `Zkfol.Al.solve/3` and pass every
   other stage through untouched.
   The statement's arguments drive the derivation, `:args` in my
-  options overriding them; a root relation lends the program its
-  name. `:bind`, `:heap`, `:branch`, `:depth`, and `:basedon` pass
-  through.
+  options overriding them; `:bind`, `:heap`, `:branch`, `:depth`,
+  and `:basedon` pass through.
   """
 
   @behaviour Zkfol.Pipeline
@@ -18,30 +17,16 @@ defmodule Zkfol.Witness do
 
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{stage: %Statement.Lowered{} = lowered, claims: claims} = statement, opts) do
-    target =
-      case {statement.rels, claims} do
-        {[_ | _] = rels, []} -> rels
-        {_rels, []} -> lowered.pred
-        _claimed -> statement
-      end
-
+  def run(%Statement{stage: %Statement.Lowered{} = lowered} = statement, opts) do
     args = Keyword.get(opts, :args, statement.args)
 
-    with {:ok, witness} <- Al.solve(target, args, named(statement, opts)),
+    with {:ok, witness} <- Al.solve(statement, args, opts),
          do: {:ok, %{statement | stage: Statement.Lowered.solved(lowered, witness)}}
   end
 
   def run(statement, _opts), do: {:ok, statement}
 
-  @doc "I am my verdict: `:solves` for a lowered statement, `:declines` for any other stage."
   @impl Zkfol.Pipeline
-  @spec plan(Statement.t(), keyword()) :: Zkfol.Pipeline.verdict()
-  def plan(%Statement{stage: %Statement.Lowered{}}, _opts), do: :solves
-  def plan(_statement, _opts), do: :declines
-
-  defp named(%Statement{rels: [root | _rest]}, opts),
-    do: Keyword.put_new(opts, :name, root.name)
-
-  defp named(_statement, opts), do: opts
+  @spec verb() :: Zkfol.Pipeline.verdict()
+  def verb, do: :solves
 end

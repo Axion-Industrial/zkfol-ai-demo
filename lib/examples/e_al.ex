@@ -19,17 +19,7 @@ defmodule Examples.EAl do
   alias Zkfol.Refusal
   alias Zkfol.Interpretation
   alias Zkfol.Uair
-
-  @spec registers_program() :: Al.program()
-  example registers_program do
-    {:ok, program} = Al.translate(Examples.EUser.regs())
-
-    # The class row, the retraction, one clause per clause: facts first.
-    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, [_ | _]]} = step
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, []]} = base
-    program
-  end
+  alias Zkfol.ZincPlus
 
   @spec resending_replaces_declarations() :: Interpretation.t()
   example resending_replaces_declarations do
@@ -77,14 +67,6 @@ defmodule Examples.EAl do
     {:ok, direct} = Al.solve(EUser.fib(), [8])
 
     assert direct == Statement.witness(EUser.fibonacci(8))
-    direct
-  end
-
-  @spec registers_go_straight_down() :: Interpretation.t()
-  example registers_go_straight_down do
-    {:ok, direct} = Al.solve(Examples.EUser.regs(), [8])
-
-    assert direct == Statement.witness(EUser.registers(8))
     direct
   end
 
@@ -200,7 +182,7 @@ defmodule Examples.EAl do
   # prover boundary, not in the middle of the compiler.
   @spec composed_read_awaits_zinc() :: Refusal.t()
   example composed_read_awaits_zinc do
-    {:error, reason} = Uair.request(composed_hop_emits())
+    {:error, reason} = ZincPlus.request(composed_hop_emits())
 
     assert {:composed_read_awaits_backend, _} = reason
     reason

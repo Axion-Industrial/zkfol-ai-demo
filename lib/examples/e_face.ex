@@ -41,7 +41,6 @@ defmodule Examples.EFace do
     # Oriented at the source: trace order with the padding cut, so the
     # n row counts 1..len, and every row's kind named off the shifts.
     assert feed.traces_order
-    assert feed.len == 8
     assert hd(feed.columns) == Enum.to_list(1..8)
     assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :scheduled, :scheduled]
     assert Enum.all?(feed.columns, &(length(&1) == 8))
@@ -75,7 +74,7 @@ defmodule Examples.EFace do
     feed = Face.route(Zkfol.Pipeline.default())
 
     assert Enum.map(feed.passes, & &1.name) == ["Lang", "Doubling", "Witness", "Accumulator"]
-    assert Enum.all?(feed.passes, &(&1.implements == ["run/2", "plan/2"]))
+    assert Enum.all?(feed.passes, &(&1.implements == ["verb/0", "run/2"]))
     assert Enum.all?(feed.passes, &String.starts_with?(&1.says, "I "))
     feed
   end

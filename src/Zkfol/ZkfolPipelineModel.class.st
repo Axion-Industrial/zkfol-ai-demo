@@ -41,13 +41,13 @@ ZkfolPipelineModel class >> example [
 		#report -> report.
 		#failure -> nil.
 		#passes -> {
-			{ #index -> 1. #name -> 'Lang'. #verdict -> #lowers. #extra -> nil } asDictionary.
-			{ #index -> 2. #name -> 'Doubling'. #verdict -> #rewrites. #extra -> nil } asDictionary.
-			{ #index -> 3. #name -> 'Witness'. #verdict -> #solves. #extra -> nil } asDictionary.
-			{ #index -> 4. #name -> 'Accumulator'. #verdict -> #expands. #extra -> '{:accumulator, 3}' } asDictionary }.
+			{ #index -> 1. #name -> 'Lang'. #verdict -> #lowers } asDictionary.
+			{ #index -> 2. #name -> 'Doubling'. #verdict -> #rewrites } asDictionary.
+			{ #index -> 3. #name -> 'Witness'. #verdict -> #solves } asDictionary.
+			{ #index -> 4. #name -> 'Accumulator'. #verdict -> #expands } asDictionary }.
 		#trail -> {
 			{ #id -> 41. #basedon -> nil. #body -> '{:define, :composed_hop, %Zkfol.Pipeline{}}' } asDictionary.
-			{ #id -> 42. #basedon -> 41. #body -> '{:piped, [lowers, rewrites, solves, expands]}' } asDictionary.
+			{ #id -> 42. #basedon -> 41. #body -> '{:piped, [{Zkfol.Lang, :lowers}, ...]}' } asDictionary.
 			{ #id -> 43. #basedon -> 42. #body -> '{:prove_requested, :composed_hop}' } asDictionary.
 			{ #id -> 44. #basedon -> 43. #body -> '{:proved, %Zkfol.Prover.Report{}}' } asDictionary } } asDictionary)
 		stageSpawner: [ :k | summaries at: k + 1 ];
@@ -92,9 +92,9 @@ ZkfolPipelineModel >> gtTrailFor: aView [
 		title: 'Trail';
 		priority: 6;
 		items: [ self trail ];
-		column: 'Id' text: [ :each | (each at: #id ifAbsent: [ nil ]) printString ] width: 60;
-		column: 'Based on' text: [ :each | (each at: #basedon ifAbsent: [ nil ]) printString ] width: 70;
-		column: 'Body' text: [ :each | each at: #body ifAbsent: [ '' ] ]
+		column: 'Id' text: [ :each | (each at: #id) printString ] width: 60;
+		column: 'Based on' text: [ :each | (each at: #basedon) printString ] width: 70;
+		column: 'Body' text: [ :each | each at: #body ]
 ]
 
 { #category : 'accessing' }
@@ -103,50 +103,32 @@ ZkfolPipelineModel >> intentName [
 ]
 
 { #category : 'accessing' }
-ZkfolPipelineModel >> nodeLabeled: aString chipText: chipTextOrNil chipColor: aColorOrNil id: anIdSymbol click: aBlockOrNil [
-	"One pipeline node: a quiet rounded box with its name, a verdict
-	 chip when it earned one, spawning what it names when clicked. A
-	 node with nothing to spawn still consumes its clicks, or Mondrian's
+ZkfolPipelineModel >> nodeLabeled: aString color: aColorOrNil id: anIdSymbol click: aBlockOrNil [
+	"One pipeline node: a quiet rounded box with its label, its verdict
+	 tinting the border, spawning what it names when clicked. A node
+	 with nothing to spawn still consumes its clicks, or Mondrian's
 	 default would spawn the node's model: a bare index."
-	| node layout |
-	layout := BlLinearLayout horizontal.
-	layout alignCenterLeft.
+	| node |
 	node := BlElement new
 		id: anIdSymbol;
-		layout: layout;
+		layout: BlLinearLayout horizontal;
 		background: ZkfolPalette nodeBackgroundColor;
 		geometry: (BlRoundedRectangleGeometry cornerRadius: 4);
-		border: (BlBorder paint: ZkfolPalette nodeBorderColor width: 1);
+		border: (BlBorder
+			paint: (aColorOrNil ifNil: [ ZkfolPalette nodeBorderColor ])
+			width: 1);
 		padding: (BlInsets top: 4 right: 10 bottom: 4 left: 10);
 		margin: (BlInsets top: 1 right: 0 bottom: 1 left: 0);
 		constraintsDo: [ :c |
 			c horizontal fitContent.
 			c vertical fitContent ];
+		addChild: (BlTextElement new
+			text: (aString asRopedText fontSize: 11);
+			yourself);
 		yourself.
-	node addChild: (BlTextElement new
-		text: (aString asRopedText fontSize: 11);
-		yourself).
-	chipTextOrNil ifNotNil: [
-		node addChild: (BlElement new
-			layout: (BlLinearLayout horizontal in: [ :l | l alignCenter. l ]);
-			background: aColorOrNil;
-			geometry: (BlRoundedRectangleGeometry cornerRadius: 7);
-			padding: (BlInsets top: 2 right: 7 bottom: 2 left: 7);
-			margin: (BlInsets top: 0 right: 0 bottom: 0 left: 8);
-			constraintsDo: [ :c |
-				c horizontal fitContent.
-				c vertical fitContent ];
-			addChild: (BlTextElement new
-				text: (chipTextOrNil asRopedText fontSize: 9);
-				yourself);
-			yourself) ].
 	aBlockOrNil
 		ifNotNil: [
 			node mouseCursor: BlHandCursor new.
-			node aptitude: (BrStyleCommonAptitude new
-				default: [ :w | w border: (BlBorder paint: ZkfolPalette nodeBorderColor width: 1) ];
-				hovered: [ :w | w border: (BlBorder paint: ZkfolPalette hoverColor width: 1) ];
-				yourself).
 			node addEventHandlerOn: BlClickEvent do: [ :evt |
 				evt consumed: true.
 				evt currentTarget phlow spawnObject: aBlockOrNil value ] ]
@@ -194,22 +176,20 @@ ZkfolPipelineModel >> printOn: aStream [
 
 { #category : 'private' }
 ZkfolPipelineModel >> readAct: aFeed [
-	"One settled act feed from the face, taken in as it arrives. A nil
-	 feed, a stale proxy answering the fetch with nothing, reads as an
-	 empty act rather than a raise."
-	| feed |
-	feed := aFeed ifNil: [ Dictionary new ].
-	routeName := feed at: #route ifAbsent: [ nil ].
-	intentName := feed at: #intent ifAbsent: [ nil ].
-	report := feed at: #report ifAbsent: [ nil ].
-	proveFailure := feed at: #failure ifAbsent: [ nil ].
-	trail := feed at: #trail ifAbsent: [ #() ].
-	passes := (feed at: #passes ifAbsent: [ #() ]) collect: [ :each |
+	"One settled act feed from the face, taken in as it arrives, every
+	 key present by construction. A nil feed, a stale proxy answering
+	 the fetch with nothing, reads as an empty act rather than a raise."
+	aFeed ifNil: [ ^ self ].
+	routeName := aFeed at: #route.
+	intentName := aFeed at: #intent.
+	report := aFeed at: #report.
+	proveFailure := aFeed at: #failure.
+	trail := aFeed at: #trail.
+	passes := (aFeed at: #passes) collect: [ :each |
 		ZkfolPipelineStage
-			index: (each at: #index ifAbsent: [ 0 ])
-			name: (each at: #name ifAbsent: [ '?' ])
-			verdict: (each at: #verdict ifAbsent: [ nil ])
-			extra: (each at: #extra ifAbsent: [ nil ]) ]
+			index: (each at: #index)
+			name: (each at: #name)
+			verdict: (each at: #verdict) ]
 ]
 
 { #category : 'accessing' }
@@ -226,13 +206,13 @@ ZkfolPipelineModel >> reportLabel [
 	report ifNil: [ ^ 'unsettled' ].
 	^ String streamContents: [ :s |
 		s nextPutAll: 'proved'.
-		(report at: #prove_ms ifAbsent: [ nil ])
+		(report at: #prove_ms)
 			ifNotNil: [ :ms | s nextPutAll: ' · prove ' , ms printString , ' ms' ].
-		(report at: #verify_ms ifAbsent: [ nil ])
+		(report at: #verify_ms)
 			ifNotNil: [ :ms | s nextPutAll: ' · verify ' , ms printString , ' ms' ].
-		(report at: #proof_bytes ifAbsent: [ nil ])
+		(report at: #proof_bytes)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b printString , ' B' ].
-		(report at: #backend ifAbsent: [ nil ])
+		(report at: #backend)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b asString ] ]
 ]
 
@@ -258,36 +238,28 @@ ZkfolPipelineModel >> stageNodes [
 	nodes := OrderedCollection new.
 	nodes add: [ self
 		nodeLabeled: 'source · ' , routeName asString
-		chipText: nil
-		chipColor: nil
+		color: nil
 		id: #zkfolPipelineSource
 		click: [ self stageStateAt: 0 ] ].
 	self passes do: [ :each |
 		nodes add: [ self
 			nodeLabeled: each label
-			chipText: each verdictLabel
-			chipColor: each verdictColor
+			color: each verdictColor
 			id: #zkfolPipelineNode
 			click: [ self transformFor: each ] ] ].
 	intentName ifNotNil: [
 		nodes add: [ self
 			nodeLabeled: 'prove · ' , intentName asString
-			chipText: 'emit'
-			chipColor: (ZkfolPalette kindColor: #pointer)
+			color: (ZkfolPalette kindColor: #pointer)
 			id: #zkfolPipelineIntent
 			click: (emitSpawner ifNotNil: [ [ emitSpawner value ] ]) ] ].
 	(report notNil or: [ proveFailure notNil ]) ifTrue: [
-		| settled |
-		"a report exists only where it proved, so its presence settles it.
-		 This read report's #proved field until that field was removed on
-		 the Elixir side, which made every successful proof wear a red chip."
-		settled := proveFailure isNil.
+		"a report exists only where it proved, so its presence settles it."
 		nodes add: [ self
 			nodeLabeled: self reportLabel
-			chipText: (settled ifTrue: [ 'ok' ] ifFalse: [ 'fail' ])
-			chipColor: (settled
-				ifTrue: [ ZkfolPalette kindColor: #result ]
-				ifFalse: [ ZkfolPalette highlightColor ])
+			color: (proveFailure
+				ifNil: [ ZkfolPalette kindColor: #result ]
+				ifNotNil: [ ZkfolPalette highlightColor ])
 			id: #zkfolPipelineReport
 			click: (reportSpawner
 				ifNotNil: [ [ reportSpawner value ] ]

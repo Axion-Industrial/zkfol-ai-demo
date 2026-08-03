@@ -1,9 +1,9 @@
 defmodule Zkfol.Uair do
   @moduledoc """
-  I translate a statement to a UAIR and prove it on zinc+: Figure 2 over
-  committed columns. `emit/3` is the artifact, a `t/0`; `prove/3` journals
-  an intent, hands the UAIR to `Zkfol.Prover`, and waits on the log for
-  the verdict.
+  I am the UAIR of a statement: Figure 2 over committed columns.
+  `emit/3` is the artifact, a `t/0`, a value; proving it is
+  `Zkfol.Prover`'s conversation, and carrying it to the NIF is
+  `Zkfol.ZincPlus`'s wire.
 
   The trace runs in reverse, so a pointer's schedule becomes a forward
   shift. A pointer with no schedule has no shift to become, and lowers
@@ -16,8 +16,6 @@ defmodule Zkfol.Uair do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Log
-  alias Zkfol.Prover
   alias Zkfol.Refusal
   alias Zkfol.Semantics
   alias Zkfol.Uair.Composed
@@ -51,13 +49,6 @@ defmodule Zkfol.Uair do
     field(:mode, mode(), default: %Plain{})
   end
 
-  # One addition of headroom under each cell width: narrow cells are i64,
-  # wide cells 768 or 7040 bits, and values must be non-negative past i64, since
-  # limbs carry no sign.
-  @i64_bound Integer.pow(2, 62)
-  @big_bound Integer.pow(2, 766)
-  @huge_bound Integer.pow(2, 7038)
-
   @doc "I am the committed column count: the columns themselves say it."
   @spec num_cols(t()) :: non_neg_integer()
   def num_cols(%__MODULE__{columns: columns}), do: length(columns)
@@ -67,129 +58,6 @@ defmodule Zkfol.Uair do
   def num_vars(%__MODULE__{len: len}), do: num_vars(len)
   def num_vars(len) when is_integer(len), do: max(ceil_log2(len), 3)
 
-  @doc """
-  I prove `pred` against `witness` and journal it: an intent, then the
-  report observed, a `Zkfol.Prover.Report`. `opts` takes `:name`,
-  `:basedon`, `:claims`. I return `{:ok, report, id}`.
-  """
-  @spec prove(Ast.pred(), Interpretation.t(), keyword()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  def prove(pred, witness, opts \\ []) do
-    with {:ok, uair} <- emit(pred, witness, Keyword.get(opts, :claims, [])) do
-      prove_uair(uair, opts)
-    end
-  end
-
-  @doc """
-  I prove an already-emitted `uair`, journaling it and awaiting it
-  through the log. `opts` takes `:name`, `:basedon`, and `:timeout`
-  (milliseconds or `:infinity`, one minute by default).
-  """
-  @spec prove_uair(t(), keyword()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  def prove_uair(uair, opts \\ []) do
-    id = Log.push({:prove_requested, Keyword.get(opts, :name)}, Keyword.get(opts, :basedon))
-    filter = [%Prover.Settled{intent: id}]
-    EventBroker.subscribe_me(filter)
-
-    try do
-      with :ok <- Prover.run(uair, id, opts),
-           do: settled(id, Keyword.get(opts, :timeout, 60_000))
-    after
-      EventBroker.unsubscribe_me(filter)
-      drained(id)
-    end
-  end
-
-  # I wait on the log for the observation that settles intent `id`;
-  # only that intent, so a verdict lingering from an abandoned wait
-  # can never be heard as this one.
-  @spec settled(pos_integer(), timeout()) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  defp settled(id, timeout) do
-    receive do
-      %EventBroker.Event{body: %Log.Event{basedon: ^id, body: {:proved, report}}} ->
-        {:ok, report, id}
-
-      %EventBroker.Event{body: %Log.Event{basedon: ^id, body: {:prove_failed, reason}}} ->
-        {:error, reason}
-    after
-      timeout -> {:error, {:prover_timeout, %{intent: id}}}
-    end
-  end
-
-  # Whatever the subscription delivered and nobody consumed, drop.
-  @spec drained(pos_integer()) :: :ok
-  defp drained(id) do
-    receive do
-      %EventBroker.Event{body: %Log.Event{basedon: ^id}} -> drained(id)
-    after
-      0 -> :ok
-    end
-  end
-
-  @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
-  @spec request(t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
-  def request(%__MODULE__{} = uair, opts \\ []) do
-    values = List.flatten(uair.columns)
-
-    with {:ok, bins, lookups} <- mode_payload(uair.mode),
-         :ok <- non_negative(values) do
-      queued =
-        ZincPlus.prove_fol(%ZincPlus.Payload{
-          num_cols: num_cols(uair),
-          num_public: uair.num_public,
-          shifts: uair.shifts,
-          program: uair.program,
-          cells: cells(uair, values),
-          bins: bins,
-          lookups: lookups,
-          num_vars: num_vars(uair),
-          tamper: Keyword.get(opts, :tamper, false)
-        })
-
-      # The backend answers in prose either way; it is read into a
-      # refusal here so no caller has to tell a rejected proof from a
-      # malformed lookup by matching on text.
-      with {:error, said} <- queued, do: {:error, Refusal.from_backend(said)}
-    end
-  end
-
-  # The shadow columns and lookup tuples the mode owes the NIF, or the
-  # refusal that keeps it away.
-  @spec mode_payload(mode()) ::
-          {:ok, [[non_neg_integer()]], [ZincPlus.lookup()]} | {:error, Refusal.t()}
-  defp mode_payload(%Plain{}), do: {:ok, [], []}
-  defp mode_payload(%Composed{}), do: Composed.refusal()
-
-  defp mode_payload(%Lookup{bin_columns: bins} = lookup),
-    do: with({:ok, tuples} <- Lookup.tuples(lookup), do: {:ok, bins, tuples})
-
-  # The widest value decides the transport; the limbing stays on this side
-  # of the NIF, so Rust only unpacks what it is handed.
-  @spec cells(t(), [integer()]) :: ZincPlus.cells()
-  defp cells(uair, values) do
-    cond do
-      Enum.any?(values, &(&1 >= @big_bound)) -> {:huge, limbed(uair)}
-      Enum.any?(values, &(&1 >= @i64_bound)) -> {:big, limbed(uair)}
-      true -> {:i64, uair.columns}
-    end
-  end
-
-  # Unsigned limbs have no negative; refuse before the NIF decode crashes.
-  @spec non_negative([integer()]) :: :ok | {:error, Refusal.t()}
-  defp non_negative(values),
-    do: Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}})
-
-  # Values as little-endian base-2^64 digits, the wide cells' transport.
-  @spec limbed(t()) :: [[[non_neg_integer()]]]
-  defp limbed(uair),
-    do:
-      for(
-        col <- uair.columns,
-        do: for(v <- col, do: v |> Integer.digits(1 <<< 64) |> Enum.reverse())
-      )
-
   @doc "I am the UAIR of the statement: columns, claimed rows first, shifts, program."
   @spec emit(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           {:ok, t()} | {:error, Refusal.t()}
@@ -197,8 +65,8 @@ defmodule Zkfol.Uair do
     len = Interpretation.len(witness)
     num_vars = num_vars(len)
     # schedule calculates cells having a fixed relation backwords to a set previous column
-    with {:ok, schedules} <- schedules(pred),
-         pred = bind_pointers(pred, schedules),
+    with {:ok, schedules} <- Ast.schedules(pred),
+         pred = Ast.bind_pointers(pred, schedules),
          {:ok, pred, witness, lowering} <- Composed.lower(pred, schedules, witness, num_vars),
          poly = Ast.arithmetize(pred),
          refs = refs(poly, schedules) ++ Enum.map(Composed.value_rows(lowering), &{&1, nil}),
@@ -212,8 +80,8 @@ defmodule Zkfol.Uair do
       {shifts, program, columns} =
         index_pin(x_col, len, num_vars, shifts, program, columns(witness, rows, len, num_vars))
 
-      with :ok <- fits(columns),
-           :ok <- constants_fit(program) do
+      with :ok <- ZincPlus.fits(columns),
+           :ok <- ZincPlus.constants_fit(program) do
         {:ok,
          %__MODULE__{
            num_public: length(public),
@@ -242,101 +110,6 @@ defmodule Zkfol.Uair do
     shifts = Enum.sort(shifts)
     down = shifts |> Enum.with_index() |> Map.new()
     %{rows: rows, cols: cols, shifts: shifts, down: down}
-  end
-
-  @doc """
-  I am the affine pointer schedules for the rows the predicate reads
-  through: an index row constrained to a pointed index row plus a
-  constant names the offset, a pointer bound to X declares its own,
-  and a branch guarded eq(X, k) that pins a read row corroborates it.
-  A composed read pinned to a term names a computed target, so its
-  pointer takes no schedule. Ambiguity refuses: conflicting offsets
-  and offsets that do not look back have no shift.
-  """
-  @spec schedules(Ast.pred()) ::
-          {:ok, %{pos_integer() => pos_integer()}} | {:error, Refusal.t()}
-  def schedules(pred) do
-    read = Ast.pointer_reads(pred)
-
-    # Relate cell i to itself in a different column/recursion
-    syntax =
-      pred
-      |> Ast.branches()
-      |> Enum.flat_map(&Ast.conjuncts/1)
-      |> Enum.flat_map(fn
-        # Constants ride right in canonical terms, so one shape suffices.
-        {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
-        # A pointer bound to X by a constant declares its own schedule.
-        {:eq, {:cell, j}, {:add, :x, k}} when is_integer(k) -> [{j, -k}]
-        _part -> []
-      end)
-
-    # If we fix a computation at a column, we know more info about what m must be.
-    # We note this as j may be a pointer
-    pins =
-      for branch <- Ast.branches(pred),
-          parts = Ast.conjuncts(branch),
-          {:eq, :x, k} when is_integer(k) <- parts,
-          {:eq, {:cell, j}, m} when is_integer(m) <- parts,
-          # We simply note how many rows we must look
-          do: {j, k - m}
-
-    # A composed read pinned to a term marks its pointer as computed:
-    # the value equation shape must not hand it a schedule.
-    computed =
-      for branch <- Ast.branches(pred),
-          {:eq, {:cell, _i, j}, _t} <- Ast.conjuncts(branch),
-          uniq: true,
-          do: j
-
-    by_row =
-      (syntax ++ pins)
-      # Filter for pointer chases
-      |> Enum.filter(fn {j, _} -> j in read and j not in computed end)
-      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-      |> Map.new(fn {j, offsets} -> {j, Enum.uniq(offsets)} end)
-
-    # A row with more than one offset demonstrates a conflict.
-    case Enum.find(by_row, fn {_j, offsets} -> not match?([_], offsets) end) do
-      nil ->
-        {:ok,
-         by_row
-         |> Enum.filter(fn {_j, [offset]} -> offset > 0 end)
-         |> Map.new(fn {j, [offset]} -> {j, offset} end)}
-
-      {j, offsets} ->
-        {:error, {:conflicting_schedule_offsets, %{row: j, offsets: offsets}}}
-    end
-  end
-
-  # We pin the cells inside the conjunctions with the schedules we've found.
-  # Meaning we add these constraints, if we confirm they are indeed there and
-  # not already bound.
-  @spec bind_pointers(Ast.pred(), %{pos_integer() => pos_integer()}) :: Ast.pred()
-  defp bind_pointers(pred, schedules) do
-    pred
-    |> Ast.branches()
-    |> Enum.map(fn branch ->
-      parts = Ast.conjuncts(branch)
-      # Only a pin to a constant or an explicit X-binding already fixes
-      # the row to its schedule; an equality to another cell does not,
-      # and must not skip the binding.
-      pinned =
-        Enum.flat_map(parts, fn
-          {:eq, {:cell, j}, m} when is_integer(m) -> [j]
-          {:eq, {:cell, j}, {:add, :x, m}} when is_integer(m) -> [j]
-          _part -> []
-        end)
-
-      bindings =
-        for j <- Ast.pointer_reads(branch),
-            j not in pinned,
-            is_map_key(schedules, j),
-            do: Ast.eq(Ast.cell(j), Ast.add(Ast.x(), -Map.get(schedules, j)))
-
-      Ast.conj(parts ++ bindings)
-    end)
-    |> Ast.disj()
   end
 
   # Validate each claim by resolving its value; out of range refuses.
@@ -491,24 +264,6 @@ defmodule Zkfol.Uair do
   @spec padded([integer()], integer(), pos_integer()) :: [integer()]
   defp padded(values, base, num_vars),
     do: values ++ List.duplicate(base, (1 <<< num_vars) - length(values))
-
-  @spec fits([[integer()]]) :: :ok | {:error, Refusal.t()}
-  defp fits(columns) do
-    Refusal.refute(
-      List.flatten(columns),
-      &(&1 >= @huge_bound or &1 < 0),
-      &{:value_exceeds_cell, %{value: &1}}
-    )
-  end
-
-  @spec constants_fit([{atom(), integer()}]) :: :ok | {:error, Refusal.t()}
-  defp constants_fit(program) do
-    Refusal.refute(
-      program,
-      &match?({:const, k} when abs(k) >= @i64_bound, &1),
-      fn {:const, k} -> {:constant_exceeds_cell, %{constant: k}} end
-    )
-  end
 
   # The exact bit width: the smallest k with 2^k >= n, no float rounding.
   @spec ceil_log2(pos_integer()) :: non_neg_integer()

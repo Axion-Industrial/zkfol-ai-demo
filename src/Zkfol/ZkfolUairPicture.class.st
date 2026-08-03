@@ -35,8 +35,8 @@ ZkfolUairPicture >> asElement [
 	"The whole trace at a glance: a clickable position ruler, then one
 	 row per committed column, colored by what the emitter derived it
 	 for, claimed rows outlined, cells pointing where they point. Trace
-	 order when I know the length, committed order with a marker when I
-	 do not, so the reader is never shown the mirror as the trace. A
+	 order when the face marked the feed so, committed order with a
+	 marker when it did not, so the reader is never shown the mirror as the trace. A
 	 trace past the render cap shows its first positions and says so."
 	| container |
 	cellElements := Dictionary new.
@@ -306,7 +306,7 @@ ZkfolUairPicture >> maxPositions [
 
 { #category : 'rendering' }
 ZkfolUairPicture >> orientationMarkerElement [
-	"I cannot resolve the trace length, so I show committed order and say
+	"The face left the feed in committed order, so I show it that way and say
 	 so rather than index the mirror cell with false confidence."
 	^ self
 		markerElement: 'committed order, orientation unknown'

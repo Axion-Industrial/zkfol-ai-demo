@@ -128,26 +128,26 @@ defmodule Zkfol.Ast do
   def conjuncts({:conj, preds}), do: Enum.flat_map(preds, &conjuncts/1)
   def conjuncts(pred), do: [pred]
 
-  @doc "I rebuild a node with `fun` applied to each immediate child."
+  # Rebuild a node with `fun` applied to each immediate child.
   @spec map_children(node, (node -> node)) :: node when node: var
-  def map_children({:add, t, u}, fun), do: {:add, fun.(t), fun.(u)}
-  def map_children({:mul, t, u}, fun), do: {:mul, fun.(t), fun.(u)}
-  def map_children({:reify, phi}, fun), do: {:reify, fun.(phi)}
-  def map_children({:eq, t, u}, fun), do: {:eq, fun.(t), fun.(u)}
-  def map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
-  def map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
-  def map_children(leaf, _fun), do: leaf
+  defp map_children({:add, t, u}, fun), do: {:add, fun.(t), fun.(u)}
+  defp map_children({:mul, t, u}, fun), do: {:mul, fun.(t), fun.(u)}
+  defp map_children({:reify, phi}, fun), do: {:reify, fun.(phi)}
+  defp map_children({:eq, t, u}, fun), do: {:eq, fun.(t), fun.(u)}
+  defp map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
+  defp map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
+  defp map_children(leaf, _fun), do: leaf
 
   @doc "I rewrite bottom-up: children first, then `fun` on the rebuilt node."
   @spec postwalk(node, (node -> node)) :: node when node: var
   def postwalk(node, fun), do: fun.(map_children(node, &postwalk(&1, fun)))
 
-  @doc "I am the immediate children of `node`: its subterms and subpredicates, none for a leaf."
+  # The immediate children of `node`: its subterms and subpredicates, none for a leaf.
   @spec children(node) :: [node] when node: var
-  def children({tag, t, u}) when tag in [:add, :mul, :eq], do: [t, u]
-  def children({:reify, phi}), do: [phi]
-  def children({tag, preds}) when tag in [:conj, :disj], do: preds
-  def children(_leaf), do: []
+  defp children({tag, t, u}) when tag in [:add, :mul, :eq], do: [t, u]
+  defp children({:reify, phi}), do: [phi]
+  defp children({tag, preds}) when tag in [:conj, :disj], do: preds
+  defp children(_leaf), do: []
 
   @doc "I fold `fun` over every node, each parent before its children (pre-order)."
   @spec reduce(node, acc, (node, acc -> acc)) :: acc when node: var, acc: var
@@ -170,5 +170,102 @@ defmodule Zkfol.Ast do
     end)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  @doc """
+  I am the affine pointer schedules for the rows the predicate reads
+  through: an index row constrained to a pointed index row plus a
+  constant names the offset, a pointer bound to X declares its own,
+  and a branch guarded eq(X, k) that pins a read row corroborates it.
+  A composed read pinned to a term names a computed target, so its
+  pointer takes no schedule. Ambiguity refuses: conflicting offsets
+  and offsets that do not look back have no shift.
+  """
+  @spec schedules(pred()) ::
+          {:ok, %{pos_integer() => pos_integer()}} | {:error, Zkfol.Refusal.t()}
+  def schedules(pred) do
+    read = pointer_reads(pred)
+
+    # Relate cell i to itself in a different column/recursion
+    syntax =
+      pred
+      |> branches()
+      |> Enum.flat_map(&conjuncts/1)
+      |> Enum.flat_map(fn
+        # Constants ride right in canonical terms, so one shape suffices.
+        {:eq, {:cell, i}, {:add, {:cell, i, j}, k}} when is_integer(k) -> [{j, k}]
+        # A pointer bound to X by a constant declares its own schedule.
+        {:eq, {:cell, j}, {:add, :x, k}} when is_integer(k) -> [{j, -k}]
+        _part -> []
+      end)
+
+    # If we fix a computation at a column, we know more info about what m must be.
+    # We note this as j may be a pointer
+    pins =
+      for branch <- branches(pred),
+          parts = conjuncts(branch),
+          {:eq, :x, k} when is_integer(k) <- parts,
+          {:eq, {:cell, j}, m} when is_integer(m) <- parts,
+          # We simply note how many rows we must look
+          do: {j, k - m}
+
+    # A composed read pinned to a term marks its pointer as computed:
+    # the value equation shape must not hand it a schedule.
+    computed =
+      for branch <- branches(pred),
+          {:eq, {:cell, _i, j}, _t} <- conjuncts(branch),
+          uniq: true,
+          do: j
+
+    by_row =
+      (syntax ++ pins)
+      # Filter for pointer chases
+      |> Enum.filter(fn {j, _} -> j in read and j not in computed end)
+      |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+      |> Map.new(fn {j, offsets} -> {j, Enum.uniq(offsets)} end)
+
+    # A row with more than one offset demonstrates a conflict.
+    case Enum.find(by_row, fn {_j, offsets} -> not match?([_], offsets) end) do
+      nil ->
+        {:ok,
+         by_row
+         |> Enum.filter(fn {_j, [offset]} -> offset > 0 end)
+         |> Map.new(fn {j, [offset]} -> {j, offset} end)}
+
+      {j, offsets} ->
+        {:error, {:conflicting_schedule_offsets, %{row: j, offsets: offsets}}}
+    end
+  end
+
+  @doc """
+  I pin the scheduled pointers into the branches: a read row with a
+  schedule and no pin of its own gains the binding to X it already
+  obeys, so the polynomial reads it where the schedule says.
+  """
+  @spec bind_pointers(pred(), %{pos_integer() => pos_integer()}) :: pred()
+  def bind_pointers(pred, schedules) do
+    pred
+    |> branches()
+    |> Enum.map(fn branch ->
+      parts = conjuncts(branch)
+      # Only a pin to a constant or an explicit X-binding already fixes
+      # the row to its schedule; an equality to another cell does not,
+      # and must not skip the binding.
+      pinned =
+        Enum.flat_map(parts, fn
+          {:eq, {:cell, j}, m} when is_integer(m) -> [j]
+          {:eq, {:cell, j}, {:add, :x, m}} when is_integer(m) -> [j]
+          _part -> []
+        end)
+
+      bindings =
+        for j <- pointer_reads(branch),
+            j not in pinned,
+            is_map_key(schedules, j),
+            do: eq(cell(j), add(x(), -Map.get(schedules, j)))
+
+      conj(parts ++ bindings)
+    end)
+    |> disj()
   end
 end

@@ -3,17 +3,14 @@ defmodule Examples.EPipeline do
   I am the pipeline's evidence: generation fills the witness slot, the
   doubled route walks through the front door and leaves its receipt,
   the emit act leaves a receipt with no proof, the trail replays the
-  act off the log, the plan reads the route ahead of the run, and a
-  refusal names its pass.
+  act off the log, and a refusal names its pass.
   """
 
   use ExExample
 
   import ExUnit.Assertions
 
-  alias Examples.EAccumulator
   alias Examples.EUser
-  alias Zkfol.Accumulator
   alias Zkfol.Doubling
   alias Zkfol.Log
   alias Zkfol.Pipeline
@@ -57,18 +54,12 @@ defmodule Examples.EPipeline do
     ran = doubled_through_the_pipeline()
     trail = Log.trail(Log.snapshot(), ran)
 
-    # The whole act off the log, threaded by basedon: the route, the
-    # derivation under it, the verdicts, the intent, the report settling it.
-    assert [
-             %Log.Event{id: defined, body: {:define, :doubled_fibonacci, pipeline}},
-             %Log.Event{basedon: defined, body: {:al_solved, %{name: :fib_kernel}}},
-             %Log.Event{id: piped, basedon: defined, body: {:piped, verdicts}},
-             %Log.Event{id: intent, basedon: piped, body: {:prove_requested, :doubled_fibonacci}},
-             %Log.Event{basedon: intent, body: {:proved, %Prover.Report{}}}
-           ] = trail
-
-    assert pipeline == ran.pipeline and intent == ran.intended
-    assert verdicts == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
+    # The trail's event shapes are ELog's claim; here the act replays:
+    # the verdicts off the trail, the stages re-run from the source.
+    assert Enum.find_value(trail, fn
+             %Log.Event{body: {:piped, verdicts}} -> verdicts
+             _event -> nil
+           end) == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
 
     # A stage is a re-run, never a record: 0 the source, 1 lowered, 2 doubled.
     assert Log.stage(ran, 0) == {:ok, ran.source}
@@ -88,7 +79,7 @@ defmodule Examples.EPipeline do
     # derivation on its trail, the verdicts piped, and no proof on top.
     ran = Zkfol.emit(source, pipeline: pipeline, name: :emitted_fibonacci)
 
-    assert %Log.Ran{pipeline: ^pipeline, source: ^source, intended: nil} = ran
+    assert %Log.Ran{pipeline: ^pipeline, source: ^source} = ran
 
     trail = Log.trail(Log.snapshot(), ran)
 
@@ -106,30 +97,6 @@ defmodule Examples.EPipeline do
     assert Log.report(Log.snapshot(), ran) == nil
 
     ran
-  end
-
-  @spec the_plan_reads_the_route_ahead() :: [{module(), Pipeline.verdict()}]
-  example the_plan_reads_the_route_ahead do
-    statement = EAccumulator.hop_at_the_door()
-    plan = Pipeline.plan(Pipeline.default(), statement)
-
-    # Pure queries, no act: the facts decline the doubling, the solved
-    # witness stills the generator, the layout foretells the rows.
-    assert [
-             {Zkfol.Lang, :lowers},
-             {Doubling, :declines},
-             {Witness, :declines},
-             {Accumulator, {:expands, layout}}
-           ] = plan
-
-    assert %{pairs: [{1, 3}, {2, 3}], len: 5, arity: 3} = layout
-
-    # One vocabulary for the predicted and the observed: on a statement
-    # already at the door, the act's verdicts are the plan.
-    {:ok, _expanded, trace} = Pipeline.run(Pipeline.default(), statement)
-    assert Pipeline.verdicts(Pipeline.default(), statement, trace) == plan
-
-    plan
   end
 
   @spec a_refusal_names_its_pass() :: Refusal.t()

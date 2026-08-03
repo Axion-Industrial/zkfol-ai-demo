@@ -2,9 +2,8 @@ defmodule Examples.EDoubling do
   @moduledoc """
   I am the doubling rewrite's evidence: one predicate for every n, the
   oracle validating it, claims agreeing with the generic route, the
-  witness arriving late from its goal, the try leaving other statements
-  alone, the position claim's absence keeping n private, and refusal
-  of the walk that leaves N.
+  try leaving other statements alone, the position claim's absence
+  keeping n private, and refusal of the walk that leaves N.
   """
 
   use ExExample
@@ -19,19 +18,21 @@ defmodule Examples.EDoubling do
   alias Zkfol.Facts
   alias Zkfol.Interpretation
   alias Zkfol.Pipeline
+  alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
-  alias Zkfol.Witness
 
   @spec rewritten_fibonacci(pos_integer()) :: Statement.t()
   example rewritten_fibonacci(n \\ 8) do
     {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
+    witness = Statement.witness(statement)
 
-    assert Semantics.valid?(
-             Statement.pred(statement),
-             statement.ranges,
-             Statement.witness(statement)
+    assert Enum.all?(statement.ranges, &Zkfol.Range.holds?(&1, witness))
+
+    assert Enum.all?(
+             1..Interpretation.len(witness),
+             &Semantics.holds?(Statement.pred(statement), witness, &1)
            )
 
     statement
@@ -72,7 +73,7 @@ defmodule Examples.EDoubling do
     statement = rewritten_fibonacci(100)
 
     {:ok, report, _id} =
-      Uair.prove(Statement.pred(statement), Statement.witness(statement),
+      Prover.prove(Statement.pred(statement), Statement.witness(statement),
         claims: statement.claims,
         name: :doubled_fibonacci
       )
@@ -81,24 +82,6 @@ defmodule Examples.EDoubling do
     assert value == EUser.fib(100)
     assert walked == 98
     report
-  end
-
-  @spec the_witness_arrives_later() :: Statement.t()
-  example the_witness_arrives_later do
-    fused = rewritten_fibonacci(100)
-
-    # The bits seed the slot; the walk derives.
-    {:ok, count, bind} = Doubling.goal(EUser.fib(), 100)
-    pipeline = %Pipeline{passes: [{Doubling, []}, {Witness, args: [count], bind: bind}]}
-
-    source = %Statement{rels: [EUser.fib()]}
-    {:ok, statement, trace} = Pipeline.run(pipeline, source)
-
-    assert [{Doubling, bare}, {Witness, ^statement}] = trace
-    assert Statement.pred(bare) == Statement.pred(fused)
-    assert %Statement{stage: %Statement.Lowered{}} = bare
-    assert Statement.witness(statement) == Statement.witness(fused)
-    %{statement | claims: fused.claims}
   end
 
   @spec the_try_leaves_other_statements_alone() :: Statement.t()
@@ -123,16 +106,16 @@ defmodule Examples.EDoubling do
       Uair.emit(Statement.pred(statement), Statement.witness(statement), statement.claims)
 
     assert uair.num_public == 1
-    {:ok, report, _id} = Uair.prove_uair(uair, name: :private_n)
+    {:ok, report, _id} = Prover.prove_uair(uair, name: :private_n)
     assert [{_claim, value}] = report.claims
     assert value == EUser.fib(100)
     report
   end
 
-  @doc "I read the claimed result out of a rewritten statement's witness."
+  @doc "I read the claimed result out of a rewritten statement's witness: the head claim."
   @spec claimed(Statement.t()) :: integer()
-  def claimed(%Statement{stage: %Statement.Solved{witness: witness}, claims: claims}) do
-    {_name, row, column} = List.keyfind(claims, "claim_recurrence_n_exact", 0)
+  def claimed(%Statement{stage: %Statement.Solved{witness: witness}, claims: [claim | _rest]}) do
+    {_name, row, column} = claim
     Interpretation.at(witness, row, column)
   end
 

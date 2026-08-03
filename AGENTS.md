@@ -66,7 +66,7 @@ messages end with `Co-Authored-By:` only — **never a session-URL trailer** (de
 
 ## Project-specific notes
 
-- Zinc+ is a cargo git dep on the `mariari/zkfol-backend` fork. The trace column wall depends
+- Zinc+ is a cargo git dep on the `mariari/zinc-plus` fork. The trace column wall depends
   on the pinned `PnttConfig`; read `native/zkfol_zinc_plus/src/config.rs` for the current
   limit rather than quoting a number (it moves with the pin).
 - `src/` (Glamorous Toolkit) and `lib/` diverge in both directions — some GT work is done in

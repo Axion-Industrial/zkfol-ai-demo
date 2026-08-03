@@ -40,15 +40,8 @@ defmodule Zkfol.Statement do
   @spec witness(t()) :: Interpretation.t()
   def witness(%__MODULE__{stage: %Solved{witness: witness}}), do: witness
 
-  @doc """
-  I am the statement lowered to `pred`. Lowering is re-runnable, so a
-  witness that already models the relations survives a fresh predicate:
-  only the predicate is restated, never the stage reached.
-  """
+  @doc "I am the statement lowered to `pred`."
   @spec lowered(t(), Ast.pred()) :: t()
-  def lowered(%__MODULE__{stage: %Solved{} = solved} = statement, pred),
-    do: %{statement | stage: %Solved{solved | pred: pred}}
-
   def lowered(%__MODULE__{} = statement, pred),
     do: %{statement | stage: %Lowered{pred: pred}}
 end

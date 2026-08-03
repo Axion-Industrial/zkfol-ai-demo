@@ -10,12 +10,7 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 	 log and should look broken."
 	<gtElixirModuleView>
 	| fetch feed |
-	fetch := [ :source |
-		[ ZkfolProxy plainly: (BeamLinkDeserializer new decodeWire:
-			(STONJSON fromString: (self application evaluateAndWait:
-				source , ' |> GtBridge.Serializer.to_json() |> elem(1)'))) ]
-			on: Error
-			do: [ :e | nil ] ].
+	fetch := [ :source | ZkfolProxy fetch: source through: self application ].
 	feed := fetch value: 'Zkfol.Face.pass(Zkfol.Log.snapshot(), ' , self moduleName , ')'.
 	((feed isKindOf: Dictionary) and: [ (feed at: #implements) == true ])
 		ifFalse: [ ^ aView empty ].
