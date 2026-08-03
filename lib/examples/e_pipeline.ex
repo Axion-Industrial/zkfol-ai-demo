@@ -116,13 +116,12 @@ defmodule Examples.EPipeline do
 
     {:ok, statement, trace} = Pipeline.run(Pipeline.default(), source)
 
-    # The doubling try declined, the witness derived, and the affine
-    # schedules left the accumulator nothing: the statement rides on.
+    # The doubling try declined and the witness derived: the statement
+    # rides on.
     assert [
              {Zkfol.Lang, lowered},
              {Doubling, lowered},
-             {Zkfol.Witness, solved},
-             {Zkfol.Accumulator, solved}
+             {Zkfol.Witness, solved}
            ] = trace
 
     assert statement == solved

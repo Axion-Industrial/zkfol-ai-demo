@@ -46,13 +46,13 @@ defmodule Zkfol.Refusal do
          step_needs_an_equation not_order_two step_not_linear no_relations
          raw_predicate_has_no_clauses unbound_variable relation_not_in_scope
          call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
+         read_row_claimed
          row_undetermined unliftable_term head_not_a_column
          lookup_width_mismatch lookup_chunk_indivisible)a,
-    out_of_range: ~w(precedes_base_case len_exceeds_index_bits read_row_outside_witness
+    out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
-    capability: ~w(one_bound_input_only calls_between_relations composed_read_awaits_backend
-         lookup_awaits_backend)a,
+    capability: ~w(one_bound_input_only calls_between_relations lookup_awaits_backend)a,
     false_statement: ~w(no_derivation no_derivation_at_depth column_unsatisfied
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
@@ -203,6 +203,11 @@ defmodule Zkfol.Refusal do
   def message({:unbound_variable, %{variable: name}}),
     do: "the variable #{name} is not bound by the head or a call"
 
+  def message({:read_row_claimed, %{row: row}}),
+    do:
+      "row #{row} is both claimed and part of a composed read; " <>
+        "the pointer query binds witness columns only"
+
   def message({:row_undetermined, %{cell: cell}}),
     do: "the derivation left a row free: nothing in the relation determines #{inspect(cell)}"
 
@@ -221,9 +226,6 @@ defmodule Zkfol.Refusal do
   def message({:conflicting_schedule_offsets, %{row: row, offsets: offsets}}),
     do: "pointer row #{row} has conflicting schedule offsets #{inspect(offsets)}"
 
-  def message({:len_exceeds_index_bits, %{len: len, bits: mu}}),
-    do: "len #{len} does not fit #{mu} index bits; the fallback needs len < 2^#{mu}"
-
   def message({:read_row_outside_witness, %{row: row}}),
     do: "the composed read names row #{row} outside the witness"
 
@@ -235,9 +237,6 @@ defmodule Zkfol.Refusal do
 
   def message({:witness_value_negative, %{value: value}}),
     do: "witness value #{value} is negative; cells carry no sign"
-
-  def message({:composed_read_awaits_backend, _detail}),
-    do: "the composed read awaits zinc+ (paper section 4, the pointer query step)"
 
   def message({:lookup_awaits_backend, %{table: table}}),
     do: "the #{inspect(table)} lookup awaits zinc+"

@@ -38,6 +38,9 @@ pub struct Spec {
     pub program: Vec<Op>,
     /// BitPoly lookups: (binary column, table width, chunk width).
     pub lookups: Vec<(usize, usize, usize)>,
+    /// Composed reads: (value_row, bit_rows, result_row), int-section
+    /// indices; the pointer query binds them.
+    pub reads: Vec<(usize, Vec<usize>, usize)>,
 }
 
 pub static SPEC: Mutex<Option<Spec>> = Mutex::new(None);
@@ -103,7 +106,16 @@ where
                 },
             })
             .collect();
-        UairSignature::new(total, public, shifts, lookups, vec![])
+        let reads = spec
+            .reads
+            .iter()
+            .map(|(value, bits, result)| zinc_uair::ComposedReadSpec {
+                value_col: spec.bin_cols + value,
+                bit_cols: bits.iter().map(|&b| spec.bin_cols + b).collect(),
+                result_col: spec.bin_cols + result,
+            })
+            .collect();
+        UairSignature::new(total, public, shifts, lookups, vec![]).with_composed_reads(reads)
     }
 
     fn constrain_general<B, FromR, MBS, IFromR>(

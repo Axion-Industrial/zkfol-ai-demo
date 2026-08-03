@@ -6,9 +6,11 @@ defmodule Zkfol.Uair.Composed do
   constrains the bits to reconstruct the pointer on every branch. Every
   row I add derives from the witness, so the oracle stays the judge.
 
-  `emitted/3` then names those rows in committed-column coordinates, which
-  is what the pointer query will bind. Emission is total, but a UAIR
-  wearing me never reaches the NIF: zinc+ has no pointer query yet.
+  `emitted/3` then names those rows in committed-column coordinates,
+  which is what zinc+'s pointer query binds. The bits spell the cube
+  index of the address, `len - a(x)`, so the committed columns'
+  reversed layout reads directly: result(x) = value at the spelled
+  position.
   """
 
   use TypedStruct
@@ -35,11 +37,6 @@ defmodule Zkfol.Uair.Composed do
               pairs: [{pos_integer(), pos_integer()}],
               results: %{{pos_integer(), pos_integer()} => pos_integer()}
             }
-
-  @doc "I am the capability boundary: zinc+ has no pointer query yet."
-  @spec refusal() :: {:error, Refusal.t()}
-  def refusal,
-    do: {:error, {:composed_read_awaits_backend, %{}}}
 
   @doc """
   I lower every pointer `schedules` left unscheduled: mu bit rows apiece,
@@ -138,8 +135,12 @@ defmodule Zkfol.Uair.Composed do
 
   # Booleanity and reconstruction per pointer, riding every branch.
   @spec constraints([pos_integer()], %{pos_integer() => [pos_integer()]}) :: [Ast.pred()]
-  defp constraints(dynamic, bits),
-    do: Enum.flat_map(dynamic, &spelled(Map.fetch!(bits, &1), Ast.cell(&1)))
+  defp constraints(dynamic, bits) do
+    Enum.flat_map(dynamic, fn a ->
+      cube_index = Ast.add(Ast.len(), Ast.mul(Ast.cell(a), -1))
+      spelled(Map.fetch!(bits, a), cube_index)
+    end)
+  end
 
   # Each dynamic deref becomes a plain read of its result row, and the bit
   # constraints ride every branch the way the scheduled bindings ride theirs.
@@ -174,7 +175,7 @@ defmodule Zkfol.Uair.Composed do
 
     bit_rows =
       for a <- dynamic, nu <- 1..mu do
-        for x <- 1..len, do: witness |> Interpretation.at(a, x) |> bsr(nu - 1) |> band(1)
+        for x <- 1..len, do: (len - Interpretation.at(witness, a, x)) |> bsr(nu - 1) |> band(1)
       end
 
     result_rows =

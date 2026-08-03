@@ -43,8 +43,8 @@ its stage a sum-type — `Raw` → `Lowered` → `Solved`:
 - `Zkfol.Witness` — derives the witness via `Al.solve`.
 - `Zkfol.Uair` — `emit/3` translates a Solved statement to Figure 2 over committed
   columns; `prove/3` proves it on Zinc+. Mode is a sum: `Uair.Plain | Lookup | Composed`
-  (`Composed` = Section 4 lowering for unscheduled pointers). `Zkfol.Accumulator` is a
-  throwaway pass standing in for the pointer query until Zinc+ ships it.
+  (`Composed` = Section 4 lowering for unscheduled pointers; its reads prove
+  natively on Zinc+'s pointer query).
 - `Zkfol` — the front door: `compile/2` / `emit/2`, journalling the whole act.
 
 Cross-cutting: `Zkfol.Ast` (the algebra, Figure 2), `Zkfol.Refusal` (typed refusals —

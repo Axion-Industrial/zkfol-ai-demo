@@ -10,7 +10,6 @@ defmodule Zkfol.Pipeline do
 
   use TypedStruct
 
-  alias Zkfol.Accumulator
   alias Zkfol.Doubling
   alias Zkfol.Refusal
   alias Zkfol.Statement
@@ -32,7 +31,7 @@ defmodule Zkfol.Pipeline do
   A pass's word on a statement it ran: every pass declines a
   statement it is not for.
   """
-  @type verdict :: :declines | :lowers | :rewrites | :solves | :expands
+  @type verdict :: :declines | :lowers | :rewrites | :solves
 
   typedstruct enforce: true do
     field(:passes, [pass()])
@@ -40,14 +39,12 @@ defmodule Zkfol.Pipeline do
 
   @doc """
   I am the default route: lower the relations, try the doubling
-  rewrite, derive the witness, and expand composed reads through the
-  accumulator until zinc+ proves them natively.
+  rewrite, and derive the witness. Composed reads emit as they are;
+  zinc+'s pointer query proves them natively.
   """
   @spec default() :: t()
   def default,
-    do: %__MODULE__{
-      passes: [{Zkfol.Lang, []}, {Doubling, []}, {Witness, []}, {Accumulator, []}]
-    }
+    do: %__MODULE__{passes: [{Zkfol.Lang, []}, {Doubling, []}, {Witness, []}]}
 
   @doc "I run `statement` through my passes, keeping every intermediate; `opts` ride under each pass's own."
   @spec run(t(), Statement.t(), keyword()) ::

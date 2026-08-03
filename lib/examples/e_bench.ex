@@ -5,11 +5,10 @@ defmodule Examples.EBench do
 
   use ExExample
 
-  import ExUnit.Assertions
-
   alias Examples.EDoubling
   alias Examples.EUser
   alias Zkfol.Interpretation
+  alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -45,16 +44,14 @@ defmodule Examples.EBench do
     )
   end
 
-  # The composed-read fallback proves end to end; dies with Zkfol.Accumulator.
-  @spec measured_accumulator_hop() :: map()
-  example measured_accumulator_hop do
-    # An 8-step trace asks nothing of the machine; a starved one fails loudly here.
-    assert available_memory_mb() > 512
-
-    statement = Examples.EAccumulator.expanded_hop()
+  # Value-addressed reads through zinc+'s pointer query, end to end.
+  @spec measured_hop(pos_integer()) :: map()
+  example measured_hop(n \\ 64) do
+    {:ok, statement, _trace} =
+      Pipeline.run(Pipeline.default(), %Statement{rels: [Examples.EAl.hop_rel()], args: [n]})
 
     measurement(
-      "hop n=5, accumulator fallback",
+      "hop n=#{n}, pointer query",
       Statement.pred(statement),
       Statement.witness(statement)
     )
@@ -67,7 +64,7 @@ defmodule Examples.EBench do
       measured_fibonacci(),
       measured_registers_fibonacci(),
       measured_doubled_fibonacci(),
-      measured_accumulator_hop()
+      measured_hop()
     ]
   end
 
@@ -86,17 +83,5 @@ defmodule Examples.EBench do
       proof_bytes: report.proof_bytes,
       program: length(uair.program)
     }
-  end
-
-  @doc "I am MemAvailable in megabytes, straight from /proc/meminfo."
-  @spec available_memory_mb() :: non_neg_integer()
-  def available_memory_mb do
-    "MemAvailable:" <> rest =
-      File.read!("/proc/meminfo")
-      |> String.split("\n")
-      |> Enum.find(&String.starts_with?(&1, "MemAvailable:"))
-
-    {kb, " kB"} = rest |> String.trim() |> Integer.parse()
-    div(kb, 1024)
   end
 end

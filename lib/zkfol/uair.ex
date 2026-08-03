@@ -7,7 +7,8 @@ defmodule Zkfol.Uair do
 
   The trace runs in reverse, so a pointer's schedule becomes a forward
   shift. A pointer with no schedule has no shift to become, and lowers
-  through `Zkfol.Uair.Composed` instead, which emits but cannot yet prove.
+  through `Zkfol.Uair.Composed` instead, whose reads zinc+'s pointer
+  query proves.
   """
 
   use TypedStruct
@@ -196,8 +197,8 @@ defmodule Zkfol.Uair do
   @typep pin :: Ast.poly({:up, non_neg_integer()} | {:down, non_neg_integer()})
 
   # X is a free committed column: nothing ties it to the reversed column
-  # number, so a forge that slides X reads the accumulator out at the wrong
-  # row. When X is present I add it and pin it. A forced ones column (one on
+  # number, so a forge that slides X satisfies X-bearing constraints at
+  # the wrong rows. When X is present I add it and pin it. A forced ones column (one on
   # every constrained row, and over the last row through its head shift by
   # rows - len + 1) is a region indicator: one over columns len..2, zero at
   # column one and the padding. The pins then hold X to a strict decrement

@@ -46,6 +46,7 @@ defmodule Zkfol.ZincPlus do
     field(:cells, Zkfol.ZincPlus.cells())
     field(:bins, [[non_neg_integer()]], default: [])
     field(:lookups, [Zkfol.ZincPlus.lookup()], default: [])
+    field(:reads, [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}], default: [])
     field(:num_vars, pos_integer())
     # Bends one looked-up chunk lift after proving: the verdict must
     # refuse, or the lookup was decorative.
