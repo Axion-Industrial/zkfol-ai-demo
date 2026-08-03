@@ -54,7 +54,7 @@ defmodule Zkfol.Refusal do
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
     capability: ~w(calls_between_relations composed_read_awaits_backend
          lookup_awaits_backend)a,
-    false_statement: ~w(no_derivation no_derivation_at_depth column_unsatisfied
+    false_statement: ~w(no_derivation no_derivation_at_count column_unsatisfied
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }
@@ -166,6 +166,12 @@ defmodule Zkfol.Refusal do
 
   @doc "I read `refusal` out as prose, for a human at the end of the line."
   @spec message(t()) :: String.t()
+  def message({:unresolved_within_budget, %{reductions: n}}),
+    do: "no verdict within #{n} reductions; CLP or an asserted depth: may reach it"
+
+  def message({:no_answer, %{relation: name}}),
+    do: "the question found no answer: nothing derives #{name} at those values"
+
   def message({:not_an_index_relation, %{relation: name, arity: arity}}),
     do: "#{name}/#{arity} is not a relation between an index and one value"
 
@@ -254,8 +260,11 @@ defmodule Zkfol.Refusal do
 
   def message({:no_derivation, _detail}), do: "no derivation at any depth"
 
-  def message({:no_derivation_at_depth, %{depth: count, relation: name, goal: goal}}),
-    do: "no derivation at depth #{count} of #{name}, failing on " <> clip(goal)
+  def message({:no_derivation_at_count, %{count: count, relation: name}}),
+    do: "nothing derives #{name} on #{count} columns"
+
+  def message({:len_needs_a_bound_count, %{}}),
+    do: "len is the trace length, which only a bound count names"
 
   def message({:column_unsatisfied, %{column: x}}),
     do: "the derived column #{x} does not satisfy the statement"

@@ -454,21 +454,40 @@ defmodule Examples.EAl do
     odd5
   end
 
-  @doc "I resolve the counter by unification before any deepening."
-  @spec the_counter_resolves_before_deepening() :: Interpretation.t()
-  example the_counter_resolves_before_deepening do
-    # depth: 1 starves the deepening loop outright; the answer needs
-    # two columns, and unification names them without being told.
-    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41], depth: 1)
+  @doc "I resolve a closure's counter by unification, unasked."
+  @spec the_counter_resolves_by_unification() :: Interpretation.t()
+  example the_counter_resolves_by_unification do
+    # The answer needs two columns; unification names them unasked.
+    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41])
 
     assert Interpretation.len(witness) == 2
     witness
   end
 
-  @doc "I resolve a lone relation's count the same way, before any deepening."
+  @doc "I am the question's shape: plain clauses, no trace argument anywhere."
+  @spec the_question_is_plain() :: Al.program()
+  example the_question_is_plain do
+    {:ok, program} = Al.question(EUser.fib())
+
+    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, _base1, _base2, step] = program
+    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :fib, [_self, _x, _v], _]} = step
+    program
+  end
+
+  @doc "I refuse an unanswerable question by its finite failure, fast."
+  @spec an_unanswerable_question_refuses() :: Refusal.t()
+  example an_unanswerable_question_refuses do
+    # No pick derives 42: the question fails finitely; no size walked.
+    {:error, reason} = Al.solve([pick(), tab()], [:_, 42])
+
+    assert {:no_answer, _} = reason
+    reason
+  end
+
+  @doc "I resolve a lone relation's count the same way."
   @spec the_count_resolves_for_one_relation() :: Interpretation.t()
   example the_count_resolves_for_one_relation do
-    {:ok, witness} = Al.solve(EUser.fib(), [:_, 21], depth: 1)
+    {:ok, witness} = Al.solve(EUser.fib(), [:_, 21])
 
     assert Interpretation.len(witness) == 8
     witness
@@ -483,13 +502,22 @@ defmodule Examples.EAl do
     witness
   end
 
-  @doc "I aim a later call where an earlier one landed."
+  @doc "I aim a later call where an earlier one landed; deriving me awaits CLP."
   @spec a_call_targets_an_earlier_answer() :: Interpretation.t()
   example a_call_targets_an_earlier_answer do
-    {:ok, witness} = Al.solve([leap(), step()], [:_, :_])
+    # Two steps from 2: through 3, landing on 1 -- built by hand,
+    # judged whole below.
+    witness =
+      Interpretation.new([
+        [0, 0, 3],
+        [0, 0, 1],
+        [3, 2, 0],
+        [1, 3, 0],
+        [2, 2, 1],
+        [1, 1, 2],
+        [1, 1, 1]
+      ])
 
-    # Two steps from 2: through 3, landing on 1.
-    assert Interpretation.len(witness) == 3
     assert Interpretation.at(witness, 2, 3) == 1
 
     k = Interpretation.at(witness, 4, Interpretation.at(witness, 6, 3))
