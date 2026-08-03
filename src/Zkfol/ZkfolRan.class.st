@@ -22,6 +22,41 @@ ZkfolRan >> emitted [
 ]
 
 { #category : 'views' }
+ZkfolRan >> gtJudgementFor: aView [
+	"The act's final stage judged branch by column on the node, off the
+	 log alone, the named witness beneath it: labels, clauses and row
+	 names from the relations, values and computation trees from the
+	 oracle. On the canvas it pans and zooms as one picture."
+	<gtView>
+	<gtBeamView>
+	^ aView mondrian
+		title: 'Judgement';
+		priority: 9;
+		painting: [ :aMondrian |
+			| feed judgement |
+			feed := ZkfolProxy
+				on: self
+				fetch: 'Zkfol.Face.judgement_of(' , self resolve , ')'.
+			judgement := ((feed isKindOf: Dictionary)
+				and: [ (feed at: #evals ifAbsent: [ #() ]) notEmpty ])
+					ifTrue: [ ZkfolJudgement new
+						setLabels: (feed at: #labels)
+							evals: (feed at: #evals)
+							terms: (feed at: #terms ifAbsent: [ nil ])
+							termEvals: (feed at: #term_evals ifAbsent: [ nil ])
+							trees: (feed at: #trees ifAbsent: [ nil ])
+							sources: (feed at: #sources ifAbsent: [ nil ])
+							rows: (feed at: #rows ifAbsent: [ nil ])
+							witness: (feed at: #witness ifAbsent: [ nil ]);
+						yourself ]
+					ifFalse: [ ZkfolJudgement new
+						refuse: 'no judgement to show'; yourself ].
+			aMondrian nodes
+				stencil: [ :each | each elementOrError ];
+				with: { judgement } ]
+]
+
+{ #category : 'views' }
 ZkfolRan >> gtPipelineFor: aView [
 	"I show the journaled act as its vertical pipeline, built image-side
 	 from the trail fetched over the bridge."
