@@ -857,14 +857,13 @@ defmodule Zkfol.Al do
     basedon = Keyword.get(opts, :basedon)
 
     on_installed(program, opts, fn branch, heap ->
-      # A closure's chain equations always invert -- the counter is
-      # only ever descended by one -- so a free counter resolves
-      # structurally: the terminal names the bottom and the descent
-      # names every level above it. Ask once that way first; the
-      # deepening below is the fallback for what one budget cannot
-      # reach.
+      # Chain equations always invert -- a count is only ever descended
+      # by one -- so a free count resolves structurally, closure or
+      # lone: the terminal names the bottom and the descent names every
+      # level above it. Ask once that way first; the deepening below is
+      # the fallback for what one budget cannot reach.
       resolved =
-        if plan.counter == :argument and match?(%Range{}, counts) do
+        if match?(%Range{}, counts) do
           case AL.eval(query(name, v(:zkc), bind, plan), nil, branch, heap: min(heap, 20_000_000)) do
             {:atomic, _} = derived ->
               deliver(derived, pred, :derive, plan, branch, name, basedon)

@@ -342,7 +342,9 @@ defmodule Examples.EAl do
         end
       end
 
-    {:error, reason} = Al.solve(unguarded, [:_, 4], heap: 2_000_000)
+    # A satisfiable ask now resolves by unification, guard or no
+    # guard; only where no solution exists does the descent run free.
+    {:error, reason} = Al.solve(unguarded, [:_, 0], heap: 2_000_000)
 
     assert {:heap_exhausted, _} = reason
     reason
@@ -438,6 +440,15 @@ defmodule Examples.EAl do
     {:ok, witness} = Al.solve([pick(), tab()], [:_, 41], depth: 1)
 
     assert Interpretation.len(witness) == 2
+    witness
+  end
+
+  @doc "I resolve a lone relation's count the same way, before any deepening."
+  @spec the_count_resolves_for_one_relation() :: Interpretation.t()
+  example the_count_resolves_for_one_relation do
+    {:ok, witness} = Al.solve(EUser.fib(), [:_, 21], depth: 1)
+
+    assert Interpretation.len(witness) == 8
     witness
   end
 
