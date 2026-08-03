@@ -139,9 +139,12 @@ defmodule Zkfol.Lang do
   defp term({:-, _meta, [a, b]}) when is_integer(b), do: {:add, term(a), -b}
   defp term({:-, _meta, [a, b]}), do: {:add, term(a), {:mul, term(b), -1}}
 
-  # Surface goals: equations and calls.
+  # Surface goals: equations, guards, and calls.
   @spec goal(Macro.t()) :: term()
   defp goal({:=, _meta, [a, b]}), do: {:eq, term(a), term(b)}
+
+  defp goal({op, _meta, [a, b]}) when op in [:<, :>, :<=, :>=],
+    do: {:cmp, op, term(a), term(b)}
 
   defp goal({name, _meta, args}) when is_atom(name) and is_list(args),
     do: {:call, name, Enum.map(args, &term/1)}

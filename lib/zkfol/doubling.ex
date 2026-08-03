@@ -151,6 +151,7 @@ defmodule Zkfol.Doubling do
       kernel(1, 1, ^p, 1, ^(x2 * p + q * x1))
 
       kernel(x, u, w, e, r) do
+        x > 1
         kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 0
         u = uu * (2 * ww + ^(-p) * uu)
@@ -159,6 +160,7 @@ defmodule Zkfol.Doubling do
       end
 
       kernel(x, u, w, e, r) do
+        x > 1
         kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 1
         u = ^q * (uu * uu) + ww * ww

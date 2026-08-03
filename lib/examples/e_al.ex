@@ -147,6 +147,7 @@ defmodule Examples.EAl do
         end
 
         gap(x, v) do
+          x > 1
           gap(x - 1, _w)
           v = reify(x = len)
         end
@@ -164,6 +165,7 @@ defmodule Examples.EAl do
       hop(1, 1)
 
       hop(x, v) do
+        x > 0
         hop(v - 1, w)
         v = w + 1
       end
@@ -189,6 +191,7 @@ defmodule Examples.EAl do
         mixed(1, 1, 1)
 
         mixed(x, v, w) do
+          x > 1
           mixed(x - 1, a, _b)
           mixed(v - 1, _c, d)
           v = a + 1
@@ -272,6 +275,47 @@ defmodule Examples.EAl do
     uair
   end
 
+  @doc "I leave the guard off, and the step runs away as it should."
+  @spec an_unguarded_step_runs_away() :: Refusal.t()
+  example an_unguarded_step_runs_away do
+    unguarded =
+      rel :unguarded do
+        unguarded(1, 1)
+
+        unguarded(x, v) do
+          unguarded(x - 1, w)
+          v = w + 1
+        end
+      end
+
+    {:error, reason} = Al.solve(unguarded, [:_, 4], heap: 2_000_000)
+
+    assert {:heap_exhausted, _} = reason
+    reason
+  end
+
+  @doc "I bound a step from both ends, and past the top it derives nothing."
+  @spec a_guard_bounds_from_either_end() :: Zkfol.Lang.Rel.t()
+  example a_guard_bounds_from_either_end do
+    band =
+      rel :band do
+        band(1, 1)
+
+        band(x, v) do
+          x > 1
+          x <= 5
+          band(x - 1, w)
+          v = w + 1
+        end
+      end
+
+    {:ok, witness} = Al.solve(band, [5])
+    assert witness |> Interpretation.rows() |> Enum.at(1) == [1, 2, 3, 4, 5]
+
+    assert {:error, _past_the_top} = Al.solve(band, [9])
+    band
+  end
+
   # A row nothing determines is the prover's knowledge, not the witness's:
   # the derivation ends with that cell still an AL variable, and the
   # refusal names the cell rather than calling it a negative number.
@@ -282,6 +326,7 @@ defmodule Examples.EAl do
         loose(1, 1, 1)
 
         loose(x, v, w) do
+          x > 1
           loose(x - 1, a, _b)
           v = a + 1
         end
@@ -302,6 +347,7 @@ defmodule Examples.EAl do
         rc(1, 1)
 
         rc(x, v) do
+          x > 1
           rc(x - 1, w)
           v = reify(rc(3, w))
         end
@@ -312,6 +358,7 @@ defmodule Examples.EAl do
         bad(1, 1)
 
         bad(x + 1, v) do
+          x > 1
           bad(x - 1, w)
           v = w + 1
         end
