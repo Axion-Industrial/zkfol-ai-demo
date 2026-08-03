@@ -12,7 +12,6 @@ defmodule Zkfol.Semantics do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Range
 
   @doc "I evaluate a term or predicate at column `x` under `itp`; for a predicate 0 means true."
   @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer()
@@ -32,15 +31,9 @@ defmodule Zkfol.Semantics do
     end)
   end
 
-  @doc """
-  I am the judgement: `itp` satisfies `phi` under range checks `ranges`
-  exactly when every range check holds and `phi` is 0 at every column.
-  """
-  @spec valid?(Ast.pred(), [Range.check()], Interpretation.t()) :: boolean()
-  def valid?(phi, ranges, itp) do
-    Enum.all?(ranges, &Range.holds?(&1, itp)) and
-      Enum.all?(1..Interpretation.len(itp), &holds?(phi, itp, &1))
-  end
+  @doc "I am the judgement: `itp` satisfies `phi` exactly when `phi` is 0 at every column."
+  @spec valid?(Ast.pred(), Interpretation.t()) :: boolean()
+  def valid?(phi, itp), do: Enum.all?(1..Interpretation.len(itp), &holds?(phi, itp, &1))
 
   @doc """
   I am true when `phi` holds at column `x` under `itp`. A pointer that

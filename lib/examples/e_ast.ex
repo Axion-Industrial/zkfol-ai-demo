@@ -2,7 +2,7 @@ defmodule Examples.EAst do
   @moduledoc """
   I am the algebra's evidence: the arithmetized polynomial (Figure 2)
   agrees with the oracle at every column, in both directions, and the
-  oracle's judgements reject a witness that lies, guarded by ranges or
+  oracle's judgements reject a witness that lies, guarded by
   meeting the out-of-range dereference itself.
   """
 
@@ -33,7 +33,7 @@ defmodule Examples.EAst do
   example wrong_value_is_rejected do
     tampered = tamper(Statement.witness(EUser.power()), 3, 4, 9)
 
-    refute Semantics.valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    refute Semantics.valid?(Statement.pred(EUser.power()), tampered)
     tampered
   end
 
@@ -41,19 +41,8 @@ defmodule Examples.EAst do
   example out_of_range_pointer_is_rejected do
     tampered = tamper(Statement.witness(EUser.power()), 4, 4, 7)
 
-    refute Semantics.valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    refute Semantics.valid?(Statement.pred(EUser.power()), tampered)
     tampered
-  end
-
-  @spec unguarded_out_of_range_is_false() :: boolean()
-  example unguarded_out_of_range_is_false do
-    # With no range guarding the pointer, the oracle meets the out-of-range
-    # dereference itself, and answers false rather than raising.
-    result =
-      Semantics.valid?(Statement.pred(EUser.power()), [], out_of_range_pointer_is_rejected())
-
-    refute result
-    result
   end
 
   @spec figure_two_rejects_what_the_oracle_rejects() :: Interpretation.t()

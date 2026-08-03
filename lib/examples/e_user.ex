@@ -2,7 +2,7 @@ defmodule Examples.EUser do
   @moduledoc """
   I am the book of user relations: every statement of the corpus as
   defrel or rel writes it, each carried by the pipeline to the solved
-  statement holding its predicate, ranges, and witness, and the whole
+  statement holding its predicate and witness, and the whole
   act through the front door. Inspecting `compiled/1` is the pipeline
   view.
   """
@@ -78,7 +78,7 @@ defmodule Examples.EUser do
   end
 
   # The plain route carries a source to the solved statement: the
-  # predicate, the ranges guarding its pointers, and the witness, all
+  # predicate and the witness, all
   # derived off the relation alone.
   @spec fibonacci(pos_integer()) :: Statement.t()
   example fibonacci(n \\ 8) do
@@ -86,7 +86,7 @@ defmodule Examples.EUser do
 
     witness = Statement.witness(statement)
     assert witness |> Interpretation.rows() |> Enum.at(1) == Enum.map(1..n, &fib/1)
-    assert Semantics.valid?(Statement.pred(statement), statement.ranges, witness)
+    assert Semantics.valid?(Statement.pred(statement), witness)
     statement
   end
 

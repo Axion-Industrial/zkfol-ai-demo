@@ -21,7 +21,6 @@ defmodule Zkfol.Lang do
   @behaviour Zkfol.Pipeline
 
   alias Zkfol.Ast
-  alias Zkfol.Range
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
@@ -155,8 +154,8 @@ defmodule Zkfol.Lang do
   def run(%Statement{rels: []} = statement, _opts), do: {:ok, statement}
 
   def run(%Statement{rels: [root | _rest] = rels} = statement, _opts) do
-    with {:ok, %{pred: pred, ranges: ranges}} <- compile(root, rels),
-         do: {:ok, Statement.lowered(%{statement | ranges: ranges}, pred)}
+    with {:ok, %{pred: pred}} <- compile(root, rels),
+         do: {:ok, Statement.lowered(statement, pred)}
   end
 
   @doc "I am my verdict: `:lowers` when the closure compiles, the refusal it would earn if not."
@@ -179,7 +178,7 @@ defmodule Zkfol.Lang do
       Lang.compile(fib(), [fib(), double()])
   """
   @spec compile(Rel.t(), [Rel.t()]) ::
-          {:ok, %{pred: Ast.pred(), rows: %{atom() => [pos_integer()]}, ranges: [Range.check()]}}
+          {:ok, %{pred: Ast.pred(), rows: %{atom() => [pos_integer()]}}}
           | {:error, Refusal.t()}
   def compile(%Rel{} = root, rels) do
     scope = Map.new(rels, &{&1.name, &1})
@@ -192,8 +191,7 @@ defmodule Zkfol.Lang do
         end)
 
       with {:ok, branches, {pointers, _next}} <- branches(order, scope, values, {%{}, next}) do
-        ranges = pointers |> Map.values() |> Enum.sort() |> Enum.flat_map(&Range.pointer/1)
-        {:ok, %{pred: Ast.disj(branches), rows: values, ranges: ranges}}
+        {:ok, %{pred: Ast.disj(branches), rows: values}}
       end
     end
   end

@@ -28,11 +28,7 @@ defmodule Examples.EDoubling do
   example rewritten_fibonacci(n \\ 8) do
     {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
 
-    assert Semantics.valid?(
-             Statement.pred(statement),
-             statement.ranges,
-             Statement.witness(statement)
-           )
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
 
     statement
   end

@@ -17,7 +17,6 @@ defmodule Zkfol.Uair.Composed do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Range
   alias Zkfol.Refusal
   alias Zkfol.Uair
 
@@ -131,7 +130,10 @@ defmodule Zkfol.Uair.Composed do
   defp confined(pairs, witness) do
     Refusal.refute(
       pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq(),
-      fn a -> not Enum.all?(Range.pointer(a), &Range.holds?(&1, witness)) end,
+      fn a ->
+        len = Interpretation.len(witness)
+        witness |> Interpretation.rows() |> Enum.at(a - 1) |> Enum.any?(&(&1 not in 1..len))
+      end,
       &{:pointer_row_outside_matrix, %{row: &1}}
     )
   end
