@@ -39,6 +39,8 @@ defmodule Zkfol.Al do
 
   @typep bind :: %{optional(pos_integer()) => integer()}
 
+  @typep judgement :: {Ast.pred(), [Zkfol.Range.check()]}
+
   @doc """
   I emit the AL program of a relation under its own name, or refuse
   with the reason.
@@ -267,17 +269,27 @@ defmodule Zkfol.Al do
     end
   end
 
-  # The predicate rides the stage once a statement is lowered, so a
-  # closure walk here would be the second of two. Only a raw target
-  # still has to compile.
-  @spec target_pred(Statement.t() | [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
+  # The predicate and its range checks ride the stage once a statement
+  # is lowered, so a closure walk here would be the second of two. Only
+  # a raw target still has to compile. Together they are the judgement
+  # deliver holds every witness to.
+  @spec target_pred(Statement.t() | [Rel.t()]) :: {:ok, judgement()} | {:error, Refusal.t()}
   defp target_pred(%Statement{stage: :raw, rels: [root | _rest] = rels}),
-    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
+    do:
+      with(
+        {:ok, %{pred: pred, ranges: ranges}} <- Lang.compile(root, rels),
+        do: {:ok, {pred, ranges}}
+      )
 
-  defp target_pred(%Statement{} = statement), do: {:ok, Statement.pred(statement)}
+  defp target_pred(%Statement{} = statement),
+    do: {:ok, {Statement.pred(statement), statement.ranges}}
 
   defp target_pred([root | _rest] = rels),
-    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
+    do:
+      with(
+        {:ok, %{pred: pred, ranges: ranges}} <- Lang.compile(root, rels),
+        do: {:ok, {pred, ranges}}
+      )
 
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
@@ -1005,7 +1017,7 @@ defmodule Zkfol.Al do
 
   # --- the run: install, deepen, judge ---
 
-  @spec run_installed(program(), Ast.pred(), plan(), [pos_integer()], bind(), keyword()) ::
+  @spec run_installed(program(), judgement(), plan(), [pos_integer()], bind(), keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   defp run_installed(program, pred, plan, counts, bind, opts) do
     name = Keyword.get(opts, :name, :col)
@@ -1021,7 +1033,7 @@ defmodule Zkfol.Al do
         if counts == [] do
           case AL.eval(query(name, v(:zkc), bind, plan), nil, branch, heap: min(heap, 20_000_000)) do
             {:atomic, _} = derived ->
-              deliver(derived, pred, :derive, plan, branch, name, basedon)
+              deliver(derived, pred, :derive, plan)
 
             {:aborted, %{reason: {:resource_limit_exceeded, n}}} ->
               {:error, {:unresolved_within_budget, %{reductions: n}}}
@@ -1034,23 +1046,30 @@ defmodule Zkfol.Al do
           end
         end
 
-      resolved ||
-        case counts do
-          [] ->
-            {:error, {:no_derivation, %{}}}
+      derived =
+        resolved ||
+          case counts do
+            [] ->
+              {:error, {:no_derivation, %{}}}
 
-          [count] ->
-            case AL.eval(query(name, count, bind, plan), nil, branch, heap: heap) do
-              {:atomic, _} = derived ->
-                deliver(derived, pred, count, plan, branch, name, basedon)
+            [count] ->
+              case AL.eval(query(name, count, bind, plan), nil, branch, heap: heap) do
+                {:atomic, _} = answer ->
+                  deliver(answer, pred, count, plan)
 
-              {:aborted, _reason} ->
-                {:error, {:no_derivation_at_count, %{count: count, relation: name}}}
+                {:aborted, _reason} ->
+                  {:error, {:no_derivation_at_count, %{count: count, relation: name}}}
 
-              exceeded ->
-                Refusal.from_al(exceeded)
-            end
-        end
+                exceeded ->
+                  Refusal.from_al(exceeded)
+              end
+          end
+
+      with {:ok, witness} <- derived do
+        count = Interpretation.len(witness)
+        Log.push({:al_solved, %{name: name, count: count, branch: branch.id}}, basedon)
+        {:ok, witness}
+      end
     end)
   end
 
@@ -1091,14 +1110,12 @@ defmodule Zkfol.Al do
   # unread rows are padding, and the oracle judges every column.
   @spec deliver(
           {:atomic, {AL.Var.bindings(), AL.t()}},
-          Ast.pred(),
+          judgement(),
           pos_integer() | :derive,
-          plan(),
-          AL.Branch.t(),
-          atom(),
-          pos_integer() | nil
-        ) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp deliver({:atomic, {bindings, _state}}, pred, asked, plan, branch, name, basedon) do
+          plan()
+        ) ::
+          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp deliver({:atomic, {bindings, _state}}, {pred, ranges}, asked, plan) do
     trace = bindings |> AL.Var.deref(:"$t") |> AL.Var.subst(bindings) |> Enum.reverse()
     count = if is_integer(asked), do: asked, else: length(trace)
 
@@ -1127,14 +1144,9 @@ defmodule Zkfol.Al do
            Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}}) do
       witness = Interpretation.new(matrix)
 
-      case Enum.find(1..count, &(Semantics.eval(pred, witness, &1) != 0)) do
-        nil ->
-          Log.push({:al_solved, %{name: name, count: count, branch: branch.id}}, basedon)
-          {:ok, witness}
-
-        x ->
-          {:error, {:column_unsatisfied, %{column: x}}}
-      end
+      if Semantics.valid?(pred, ranges, witness),
+        do: {:ok, witness},
+        else: {:error, {:witness_invalid, %{}}}
     end
   end
 

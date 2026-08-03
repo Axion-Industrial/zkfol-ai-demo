@@ -54,7 +54,7 @@ defmodule Zkfol.Refusal do
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
     capability: ~w(calls_between_relations lookup_awaits_backend)a,
-    false_statement: ~w(no_derivation no_derivation_at_count column_unsatisfied
+    false_statement: ~w(no_derivation no_derivation_at_count witness_invalid
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }
@@ -255,8 +255,8 @@ defmodule Zkfol.Refusal do
   def message({:len_needs_a_bound_count, %{}}),
     do: "len is the trace length, which only a bound count names"
 
-  def message({:column_unsatisfied, %{column: x}}),
-    do: "the derived column #{x} does not satisfy the statement"
+  def message({:witness_invalid, %{}}),
+    do: "the derived witness does not satisfy the judgement"
 
   def message({:witness_unsatisfies_schedule, %{column: x}}),
     do: "the witness does not satisfy the scheduled statement at column #{x}"
