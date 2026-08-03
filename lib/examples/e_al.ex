@@ -29,10 +29,10 @@ defmodule Examples.EAl do
     branch = AL.Branch.fork()
     {:atomic, _} = AL.eval(program, nil, branch, heap: 20_000_000)
 
-    # fib(self, x, c1, c2, t): row one is the count, so a free count is
-    # one variable standing in both places, and F(8) pins the value row.
+    # fib(self, x, v, t): row one is the count, so leaving it free is
+    # the whole question, and F(8) pins the value row.
     x = {:x, [], nil}
-    goal = AL.ast_to_pattern({:fib, [], [:zkfol, x, x, EUser.fib(8), {:t, [], nil}]})
+    goal = AL.ast_to_pattern({:fib, [], [:zkfol, x, EUser.fib(8), {:t, [], nil}]})
     {:atomic, {bindings, _}} = AL.eval([goal], nil, branch, heap: 20_000_000)
     AL.Branch.discard(branch)
 

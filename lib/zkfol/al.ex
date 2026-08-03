@@ -177,10 +177,18 @@ defmodule Zkfol.Al do
   @spec defmethod(atom(), [Macro.t()], Macro.t()) :: Macro.t()
   defp defmethod(name, head, body), do: {:defmethod, [], [@class, name, head, [do: body]]}
 
+  # Row one carries the descent: the next level's index is this one's
+  # x1, which is what makes the step descend at all. Window rows above
+  # one come off the previous slot.
   @spec recurse(atom(), plan()) :: Macro.t()
   defp recurse(name, plan) do
-    args = Enum.map(plan.rows, &v(row(&1, "p1"))) ++ if(plan.len?, do: [v(:len)], else: [])
-    {name, [], [v(:self), v(:x1) | args] ++ [v(:t)]}
+    args =
+      Enum.map(plan.rows, fn
+        1 -> v(:x1)
+        r -> v(row(r, "p1"))
+      end) ++ if(plan.len?, do: [v(:len)], else: [])
+
+    {name, [], [v(:self) | args] ++ [v(:t)]}
   end
 
   # Columns beyond the first live in the trace; one unification reads them all.
@@ -308,7 +316,7 @@ defmodule Zkfol.Al do
       for {{:var, nm}, at} <- Enum.with_index(outs, 2), into: %{}, do: {nm, row(at, "c")}
 
     current = current ++ List.duplicate(1, length(plan.rows) - length(current))
-    head = [v(:self), k | current] ++ if(plan.len?, do: [v(:len)], else: [])
+    head = [v(:self) | current] ++ if(plan.len?, do: [v(:len)], else: [])
 
     with {:ok, defining} <- rel_equations(body, i, Map.put(env, :__index__, k)),
          do: {:ok, pinned(name, head, current, defining, k, plan)}
@@ -361,7 +369,7 @@ defmodule Zkfol.Al do
 
     with {:ok, reads} <- rel_derefs(pointed, computed, env, plan),
          {:ok, equations} <- rel_equations(body, i, env) do
-      {:ok, step(name, [v(:self), v(:x) | current] ++ len, current, reads ++ equations, plan)}
+      {:ok, step(name, [v(:self) | current] ++ len, current, reads ++ equations, plan)}
     end
   end
 
@@ -477,10 +485,17 @@ defmodule Zkfol.Al do
   defp landing(:head), do: AL.Branch.head().id
   defp landing(other), do: other
 
+  # Row one is the count, so the goal carries the candidate there
+  # rather than in an argument of its own.
   @spec query(atom(), integer(), bind(), plan()) :: struct()
   defp query(name, count, bind, plan) do
-    goal = Enum.map(plan.rows, &Map.get(bind, &1, v(row(&1, "c"))))
-    args = [count | goal] ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]
+    goal =
+      Enum.map(plan.rows, fn
+        1 -> count
+        r -> Map.get(bind, r, v(row(r, "c")))
+      end)
+
+    args = goal ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]
     AL.ast_to_pattern({name, [], [@class | args]})
   end
 
