@@ -47,7 +47,7 @@ defmodule Zkfol.Refusal do
          raw_predicate_has_no_clauses unbound_variable relation_not_in_scope
          call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
-         row_undetermined unliftable_term head_not_a_column
+         row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
          lookup_width_mismatch lookup_chunk_indivisible)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
@@ -183,6 +183,9 @@ defmodule Zkfol.Refusal do
 
   def message({:precedes_base_case, %{n: n, base: base}}),
     do: "n=#{n} precedes the base case index #{base}"
+
+  def message({:arguments_exceed_rows, %{args: args, rows: rows}}),
+    do: "#{args} arguments for a relation of #{rows} rows"
 
   def message({:no_relations, _detail}),
     do: "the statement carries no relations; supply its witness instead"
