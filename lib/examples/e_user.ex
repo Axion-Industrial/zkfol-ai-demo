@@ -148,7 +148,7 @@ defmodule Examples.EUser do
       end
 
     {:error, reason} = Al.solve(unseeded, [4])
-    assert elem(reason, 0) in [:no_derivation, :no_derivation_at_depth, :witness_value_negative]
+    assert elem(reason, 0) in [:no_derivation, :no_derivation_at_count, :witness_value_negative]
     reason
   end
 
@@ -174,15 +174,15 @@ defmodule Examples.EUser do
     scaled
   end
 
-  @spec squaring_solves_backward() :: Interpretation.t()
-  example squaring_solves_backward do
-    {:ok, witness} = Al.solve(epower(), [:_, 10])
+  # Two recursive clauses put the answer behind an infinite DFS
+  # subtree, and unification cannot invert ee + ee; we fail as AL
+  # fails. CLP reads the same equation as 2*ee = e and inverts it.
+  @spec squaring_backward_awaits_clp() :: Zkfol.Refusal.t()
+  example squaring_backward_awaits_clp do
+    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 2_000_000)
 
-    assert Interpretation.len(witness) == 5
-    assert witness |> Interpretation.rows() |> Enum.at(0) |> List.last() == 5
-    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
-    assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
-    witness
+    assert kind in [:heap_exhausted, :unresolved_within_budget]
+    reason
   end
 
   @spec squaring_solves_at_the_base() :: Interpretation.t()

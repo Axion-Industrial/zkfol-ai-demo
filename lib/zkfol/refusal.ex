@@ -54,7 +54,7 @@ defmodule Zkfol.Refusal do
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
     capability: ~w(calls_between_relations lookup_awaits_backend)a,
-    false_statement: ~w(no_derivation no_derivation_at_depth column_unsatisfied
+    false_statement: ~w(no_derivation no_derivation_at_count column_unsatisfied
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }
@@ -243,8 +243,17 @@ defmodule Zkfol.Refusal do
 
   def message({:no_derivation, _detail}), do: "no derivation at any depth"
 
-  def message({:no_derivation_at_depth, %{depth: count, relation: name, goal: goal}}),
-    do: "no derivation at depth #{count} of #{name}, failing on " <> clip(goal)
+  def message({:no_derivation_at_count, %{count: count, relation: name}}),
+    do: "nothing derives #{name} on #{count} columns"
+
+  def message({:no_answer, %{relation: name}}),
+    do: "the question found no answer: nothing derives #{name} at those values"
+
+  def message({:unresolved_within_budget, %{reductions: n}}),
+    do: "no verdict within #{n} reductions; CLP or a bound count may reach it"
+
+  def message({:len_needs_a_bound_count, %{}}),
+    do: "len is the trace length, which only a bound count names"
 
   def message({:column_unsatisfied, %{column: x}}),
     do: "the derived column #{x} does not satisfy the statement"

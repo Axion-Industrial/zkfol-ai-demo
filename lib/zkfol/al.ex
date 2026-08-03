@@ -56,6 +56,16 @@ defmodule Zkfol.Al do
   end
 
   @doc """
+  I emit the question program of a relation: the clauses as plain AL,
+  no witness laid out.
+
+      question(Examples.EUser.fib())
+  """
+  @spec question(Rel.t() | [Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
+  def question(%Rel{} = root), do: question([root])
+  def question([%Rel{} | _rest] = rels), do: question_program(rels)
+
+  @doc """
   I derive every answer at `arguments`, naming the ones I report.
 
       apply(Examples.EUser.fib(), [5, :a])
@@ -177,12 +187,16 @@ defmodule Zkfol.Al do
   the root's, the list reading root-first-then-scope as a statement's
   rels do -- whatever claims a pass may have hung on the statement; `:_`
   leaves a row free, and `:bind` names a row directly when counting to
-  it is unpleasant. The recursion count is always row one: bound, it runs
-  once at that count; free, depth deepens until a count satisfies
-  every other bound row. `:bind` fixes rows directly, merged over
-  whatever `arguments` bound. `:branch` keeps the install, `:depth`
-  caps the deepening, `:heap` bounds the derivation, `:basedon` bases
-  the journaled derivation, landing it on that act's trail.
+  it is unpleasant. The recursion count is always row one: bound, it
+  runs once at that count. Free, the clauses are asked plainly first
+  -- no trace, no size -- and the answer's ground values pin the
+  derivation; what the question cannot ground, the structural ask
+  resolves. A question that fails finitely refuses as no_answer; one
+  that outruns its budgets refuses by the budget; nothing searches by
+  witness size. `:bind` fixes rows directly, merged over whatever
+  `arguments` bound. `:branch` keeps the install, `:heap` bounds the
+  derivation, `:basedon` bases the journaled derivation, landing it
+  on that act's trail.
   """
   @spec solve(Ast.pred() | Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
@@ -212,15 +226,46 @@ defmodule Zkfol.Al do
     opts = Keyword.put_new(opts, :name, hd(rels).name)
 
     with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
-         {:ok, pred} <- target_pred(target) do
-      with {:ok, bind} <- bind(plan.asked, args, opts),
-           do: run_installed(program, pred, plan, counts(bind, opts), bind, opts)
+         {:ok, pred} <- target_pred(target),
+         {:ok, bind} <- bind(plan.asked, args, opts),
+         {:ok, bind, counts} <- question(rels, plan, bind, opts) do
+      run_installed(program, pred, plan, counts, bind, opts)
     end
   end
 
-  @spec counts(bind(), keyword()) :: Enumerable.t()
-  defp counts(%{1 => n}, _opts), do: [n]
-  defp counts(_bind, opts), do: 1..Keyword.get(opts, :depth, 4096)
+  # With the count bound the trace machinery knows what to do; len is
+  # the trace length, which only a bound count names. Anything else
+  # asks the question first: what it grounds is bound, a lone answer's
+  # index is the count, and past the question only the structural ask
+  # remains -- nothing searches by witness size.
+  @spec question([Rel.t()], plan(), bind(), keyword()) ::
+          {:ok, bind(), [pos_integer()]} | {:error, Refusal.t()}
+  defp question(rels, plan, bind, opts) do
+    cond do
+      is_map_key(bind, 1) ->
+        {:ok, bind, [Map.fetch!(bind, 1)]}
+
+      Enum.any?(rels, &mentions_len?(&1.clauses)) ->
+        {:error, {:len_needs_a_bound_count, %{}}}
+
+      true ->
+        case asked(rels, plan, bind, opts) do
+          {:ok, bind} ->
+            counts =
+              if plan.counter == :row and is_map_key(bind, 1),
+                do: [Map.fetch!(bind, 1)],
+                else: []
+
+            {:ok, bind, counts}
+
+          :unresolved ->
+            {:ok, bind, []}
+
+          {:error, _reason} = refusal ->
+            refusal
+        end
+    end
+  end
 
   # The predicate rides the stage once a statement is lowered, so a
   # closure walk here would be the second of two. Only a raw target
@@ -331,20 +376,141 @@ defmodule Zkfol.Al do
   end
 
   # A program: the class, the retraction preamble, then the clauses.
-  @spec installed(atom(), [Macro.t()]) :: program()
-  defp installed(name, clauses) do
+  @spec installed(atom() | [atom()], [Macro.t()]) :: program()
+  defp installed(name, clauses) when is_atom(name), do: installed([name], clauses)
+
+  defp installed(names, clauses) do
+    retractions =
+      for name <- names do
+        quote do
+          forall([vm_method(unquote(@class), unquote(name), impl), vm_clause(impl, h, _b)]) do
+            vm_retract_oapply(impl, h)
+          end
+        end
+      end
+
     program =
       quote do
         vm_set_class(unquote(@class), :object)
-
-        forall([vm_method(unquote(@class), unquote(name), impl), vm_clause(impl, h, _b)]) do
-          vm_retract_oapply(impl, h)
-        end
-
-        unquote_splicing(clauses)
+        unquote_splicing(retractions ++ clauses)
       end
 
     AL.ast_to_pattern(program)
+  end
+
+  # --- the question: the clauses as plain AL, no witness laid out ---
+
+  # A question asks what is derivable without laying anything out: the
+  # clauses go down as written, calls in body order, equations and
+  # guards frozen in both directions. len names the trace, which a
+  # question does not have, so len keeps the traced path.
+  @spec question_program([Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
+  defp question_program(rels) do
+    if Enum.any?(rels, &mentions_len?(&1.clauses)) do
+      {:error, {:len_needs_a_bound_count, %{}}}
+    else
+      question_clauses(rels)
+    end
+  end
+
+  @spec question_clauses([Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
+  defp question_clauses(rels) do
+    rels
+    |> Enum.flat_map(fn rel -> Enum.map(rel.clauses, &{rel.name, &1}) end)
+    |> Enum.with_index()
+    |> Refusal.map(fn {{rname, clause}, i} -> question_clause(rname, clause, i) end)
+    |> case do
+      {:ok, clauses} -> {:ok, installed(Enum.map(rels, & &1.name), clauses)}
+      refusal -> refusal
+    end
+  end
+
+  @spec question_clause(atom(), {[term()], [term()]}, non_neg_integer()) ::
+          {:ok, Macro.t()} | {:error, Refusal.t()}
+  defp question_clause(rname, {head, body}, i) do
+    env = [head | Enum.map(body, &Tuple.to_list/1)] |> qvars() |> Map.new(&{&1, &1})
+    params = Enum.map(head, &qterm/1)
+
+    {calls, defs} =
+      body
+      |> Enum.filter(&match?({:call, _n, _a}, &1))
+      |> Enum.with_index()
+      |> Enum.map_reduce([], fn {{:call, n, args}, j}, defs ->
+        {args, defs} = qargs(args, i, j, env, defs)
+        {{n, [], [v(:self) | args]}, defs}
+      end)
+
+    with {:ok, guards} <- rel_guards(body, env),
+         {:ok, equations} <- rel_equations(body, i, env) do
+      goals = {:__block__, [], defs ++ guards ++ equations ++ calls}
+      {:ok, defmethod(rname, [v(:self) | params], goals)}
+    end
+  end
+
+  # A call argument beyond a variable or literal computes through a
+  # fresh name, its equation frozen in both directions.
+  @spec qargs([term()], non_neg_integer(), non_neg_integer(), map(), [Macro.t()]) ::
+          {[Macro.t()], [Macro.t()]}
+  defp qargs(args, i, j, env, defs) do
+    args
+    |> Enum.with_index()
+    |> Enum.map_reduce(defs, fn
+      {{:var, nm}, _k}, defs ->
+        {v(nm), defs}
+
+      {q, _k}, defs when is_integer(q) ->
+        {q, defs}
+
+      {expr, k}, defs ->
+        fresh = :"q#{i}c#{j}a#{k}"
+        {:ok, prefix} = rel_prefix(expr, env)
+        {v(fresh), defs ++ AL.Equations.equation(fresh, prefix, "qq#{i}#{j}#{k}")}
+    end)
+  end
+
+  @spec qterm(term()) :: Macro.t()
+  defp qterm({:var, nm}), do: v(nm)
+  defp qterm(q), do: q
+
+  @spec qvars(term()) :: [atom()]
+  defp qvars({:var, nm}), do: [nm]
+  defp qvars(t) when is_tuple(t), do: t |> Tuple.to_list() |> qvars()
+  defp qvars(t) when is_list(t), do: Enum.uniq(Enum.flat_map(t, &qvars/1))
+  defp qvars(_t), do: []
+
+  # Ask the question at the root, free rows genuinely free; every
+  # integer the answer grounds binds its row for the trace to come.
+  @spec asked([Rel.t()], plan(), bind(), keyword()) ::
+          {:ok, bind()} | :unresolved | {:error, Refusal.t()}
+  defp asked(rels, plan, bind, opts) do
+    with {:ok, program} <- question_program(rels) do
+      name = hd(rels).name
+      args = Enum.map(plan.asked, fn r -> Map.get(bind, r, v(:"qa#{r}")) end)
+      query = [AL.ast_to_pattern({name, [], [@class | args]})]
+
+      on_installed(program, opts, fn branch, heap ->
+        case AL.eval(query, nil, branch, heap: heap) do
+          {:atomic, {bindings, _state}} ->
+            ground =
+              for r <- plan.asked,
+                  not is_map_key(bind, r),
+                  value = bindings |> AL.Var.deref(:"$qa#{r}") |> AL.Var.subst(bindings),
+                  is_integer(value),
+                  do: {r, value}
+
+            {:ok, Map.merge(bind, Map.new(ground))}
+
+          {:aborted, %{reason: {:resource_limit_exceeded, _n}}} ->
+            :unresolved
+
+          {:aborted, _reason} ->
+            {:error, {:no_answer, %{relation: name}}}
+
+          _exceeded ->
+            :unresolved
+        end
+      end)
+    end
   end
 
   # --- clauses, directly: a relation is nearly the program ---
@@ -839,7 +1005,7 @@ defmodule Zkfol.Al do
 
   # --- the run: install, deepen, judge ---
 
-  @spec run_installed(program(), Ast.pred(), plan(), Enumerable.t(), bind(), keyword()) ::
+  @spec run_installed(program(), Ast.pred(), plan(), [pos_integer()], bind(), keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   defp run_installed(program, pred, plan, counts, bind, opts) do
     name = Keyword.get(opts, :name, :col)
@@ -849,42 +1015,42 @@ defmodule Zkfol.Al do
       # Chain equations always invert -- a count is only ever descended
       # by one -- so a free count resolves structurally, closure or
       # lone: the terminal names the bottom and the descent names every
-      # level above it. Ask once that way first; the deepening below is
-      # the fallback for what one budget cannot reach.
+      # level above it. This ask is the only search a free count gets;
+      # what it cannot reach refuses by name.
       resolved =
-        if match?(%Range{}, counts) do
+        if counts == [] do
           case AL.eval(query(name, v(:zkc), bind, plan), nil, branch, heap: min(heap, 20_000_000)) do
             {:atomic, _} = derived ->
               deliver(derived, pred, :derive, plan, branch, name, basedon)
 
-            _unresolved ->
+            {:aborted, %{reason: {:resource_limit_exceeded, n}}} ->
+              {:error, {:unresolved_within_budget, %{reductions: n}}}
+
+            {:aborted, _reason} ->
               nil
+
+            exceeded ->
+              Refusal.from_al(exceeded)
           end
         end
 
-      # One eval per candidate, and that is the point. AL caps a single
-      # eval at 200_000 reductions (@max_reductions, a compile-time
-      # constant with no per-call override; `:heap` is the process heap
-      # and bounds something else), and any search long enough to matter
-      # exhausts it. Asking once per count buys the budget back each
-      # time. The same search stated inside AL as one `between` over
-      # the range is correct and reads better, and dies around a
-      # hundred and fifty columns.
       resolved ||
-        Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
-          query = query(name, count, bind, plan)
+        case counts do
+          [] ->
+            {:error, {:no_derivation, %{}}}
 
-          case AL.eval(query, nil, branch, heap: heap) do
-            {:atomic, _} = derived ->
-              {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
+          [count] ->
+            case AL.eval(query(name, count, bind, plan), nil, branch, heap: heap) do
+              {:atomic, _} = derived ->
+                deliver(derived, pred, count, plan, branch, name, basedon)
 
-            {:aborted, _} = refused ->
-              {:cont, keep_named(refused, deepest, count, name)}
+              {:aborted, _reason} ->
+                {:error, {:no_derivation_at_count, %{count: count, relation: name}}}
 
-            exceeded ->
-              {:halt, Refusal.from_al(exceeded)}
-          end
-        end)
+              exceeded ->
+                Refusal.from_al(exceeded)
+            end
+        end
     end)
   end
 
@@ -920,15 +1086,6 @@ defmodule Zkfol.Al do
     pin = quote(do: unify(unquote([{:|, [], [goal, v(:rest)]}]), t))
     Enum.map([pin, {name, [], [@class, count | len] ++ [v(:t)]}], &AL.ast_to_pattern/1)
   end
-
-  # Deepening keeps the deepest refusal for the day none derives.
-  @spec keep_named({:aborted, term()}, {:error, Refusal.t()}, pos_integer(), atom()) ::
-          {:error, Refusal.t()}
-  defp keep_named({:aborted, %{failed_on: goal}}, _deepest, count, name) do
-    {:error, {:no_derivation_at_depth, %{depth: count, relation: name, goal: goal}}}
-  end
-
-  defp keep_named({:aborted, _reason}, deepest, _count, _name), do: deepest
 
   # Semantic rows come off the trace, pointer rows off their schedule,
   # unread rows are padding, and the oracle judges every column.
