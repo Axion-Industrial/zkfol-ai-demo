@@ -1083,9 +1083,12 @@ defmodule Zkfol.Al do
     end
   end
 
-  # :head reads as wherever the session is checked out, for the viewer.
+  # :head reads as wherever the session is checked out, for the viewer;
+  # nothing named falls to the configured branch, if one is configured
+  # -- the test suite lands every solve on one branch this way.
   @spec landing(term() | nil) :: term() | nil
   defp landing(:head), do: AL.Branch.head().id
+  defp landing(nil), do: Application.get_env(:zkfol, :branch)
   defp landing(other), do: other
 
   # For a lone relation row one is the count, so the goal carries the
