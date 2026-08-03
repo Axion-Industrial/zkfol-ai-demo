@@ -202,6 +202,7 @@ defmodule Zkfol.Lang do
              rows: %{atom() => [pos_integer()]},
              ranges: [Range.check()],
              pointers: %{Ast.term_t() => pos_integer()},
+             calls: %{atom() => [[pos_integer()]]},
              width: pos_integer(),
              tag: pos_integer() | nil,
              tags: %{atom() => pos_integer()}
@@ -219,7 +220,8 @@ defmodule Zkfol.Lang do
 
       {tag, next} = tag(order, next)
 
-      with {:ok, branches, {pointers, next}} <- branches(order, scope, values, tag, {%{}, next}) do
+      with {:ok, branches, calls, {pointers, next}} <-
+             branches(order, scope, values, tag, {%{}, next}) do
         ranges = pointers |> Map.values() |> Enum.sort() |> Enum.flat_map(&Range.pointer/1)
 
         {:ok,
@@ -228,6 +230,7 @@ defmodule Zkfol.Lang do
            rows: values,
            ranges: ranges,
            pointers: pointers,
+           calls: calls,
            width: next - 1,
            tag: with({row, _tags} <- tag, do: row),
            tags: with({_row, tags} <- tag, do: tags) || %{}
@@ -263,21 +266,23 @@ defmodule Zkfol.Lang do
   end
 
   @spec branches([atom()], %{atom() => Rel.t()}, rows(), tag(), pointers()) ::
-          {:ok, [Ast.pred()], pointers()} | {:error, Refusal.t()}
+          {:ok, [Ast.pred()], %{atom() => [[pos_integer()]]}, pointers()} | {:error, Refusal.t()}
   defp branches(order, scope, values, tag, pointers) do
-    with {:ok, branches, pointers} <-
+    with {:ok, compiled, pointers} <-
            Refusal.map_reduce(order, pointers, fn name, pointers ->
              rel_branches(scope[name], values[name], values, tag, pointers)
            end),
-         do: {:ok, Enum.concat(branches), pointers}
+         {branches, calls} = Enum.unzip(compiled),
+         do: {:ok, Enum.concat(branches), Map.new(Enum.zip(order, calls)), pointers}
   end
 
   @spec rel_branches(Rel.t(), [pos_integer()], rows(), tag(), pointers()) ::
-          {:ok, [Ast.pred()], pointers()} | {:error, Refusal.t()}
+          {:ok, {[Ast.pred()], [[pos_integer()]]}, pointers()} | {:error, Refusal.t()}
   defp rel_branches(%Rel{name: name, clauses: clauses}, rows, values, tag, pointers) do
-    with {:ok, branches, pointers} <-
+    with {:ok, compiled, pointers} <-
            Refusal.map_reduce(clauses, pointers, &branch(&1, rows, values, tag, &2)),
-         do: {:ok, Enum.map(branches, &claim(&1, name, tag)), pointers}
+         {branches, calls} = Enum.unzip(compiled),
+         do: {:ok, {Enum.map(branches, &claim(&1, name, tag)), calls}, pointers}
   end
 
   # Every branch of a tagged closure claims its column; drop the claim
@@ -293,7 +298,7 @@ defmodule Zkfol.Lang do
   # binds a pointer row and its outputs, then the equations close over
   # the environment.
   @spec branch({[term()], [term()]}, [pos_integer()], rows(), tag(), pointers()) ::
-          {:ok, Ast.pred(), pointers()} | {:error, Refusal.t()}
+          {:ok, {Ast.pred(), [pos_integer()]}, pointers()} | {:error, Refusal.t()}
   defp branch({params, body}, rows, values, tag, pointers) do
     bound = Enum.zip(params, Enum.map(rows, &Ast.cell/1))
 
@@ -312,15 +317,16 @@ defmodule Zkfol.Lang do
         {literal, cell} -> [Ast.eq(cell, literal)]
       end)
 
-    with {:ok, goals, env, pointers} <- calls(body, values, tag, env, pointers),
+    with {:ok, goals, ptrs, env, pointers} <- calls(body, values, tag, env, pointers),
          {:ok, equations} <- equations(body, env),
-         do: {:ok, Ast.conj(heads ++ goals ++ equations), pointers}
+         do: {:ok, {Ast.conj(heads ++ goals ++ equations), ptrs}, pointers}
   end
 
   # Calls resolving to one target share their pointer row: a pointer
-  # is a position, whoever reads through it.
+  # is a position, whoever reads through it. I also say which row each
+  # call site got, in body order, so a backend reads them positionally.
   @spec calls([term()], rows(), tag(), env(), pointers()) ::
-          {:ok, [Ast.pred()], env(), pointers()} | {:error, Refusal.t()}
+          {:ok, [Ast.pred()], [pos_integer()], env(), pointers()} | {:error, Refusal.t()}
   defp calls(body, values, tag, env, pointers) do
     body
     |> Enum.filter(&match?({:call, _n, _a}, &1))
@@ -330,11 +336,16 @@ defmodule Zkfol.Lang do
       with {:ok, target} <- resolve(at, env),
            {row, pointers} = point(pointers, target),
            {:ok, env} <- outputs(outs, value_rows, row, env),
-           do: {:ok, [schedule(index, row, target) | check(tag, name, row)], {env, pointers}}
+           do:
+             {:ok, {[schedule(index, row, target) | check(tag, name, row)], row}, {env, pointers}}
     end)
     |> case do
-      {:ok, goals, {env, pointers}} -> {:ok, Enum.concat(goals), env, pointers}
-      refusal -> refusal
+      {:ok, compiled, {env, pointers}} ->
+        {goals, ptrs} = Enum.unzip(compiled)
+        {:ok, Enum.concat(goals), ptrs, env, pointers}
+
+      refusal ->
+        refusal
     end
   end
 
