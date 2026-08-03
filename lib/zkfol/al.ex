@@ -146,36 +146,35 @@ defmodule Zkfol.Al do
   @spec answers([struct()], (pos_integer() -> [struct()]), Enumerable.t(), [atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
   defp answers(program, query_at, counts, names, opts) do
-    on_installed(program, opts, fn branch, heap ->
-      Enum.reduce_while(counts, {:ok, []}, fn count, {:ok, acc} ->
-        case AL.eval(query_at.(count), nil, branch, heap: heap) do
-          {:atomic, {bindings, _}} ->
-            rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
-            {:cont, {:ok, acc ++ for(row <- rows, do: names |> Enum.zip(row) |> Map.new())}}
-
-          {:aborted, _reason} ->
-            {:cont, {:ok, acc}}
-
-          exceeded ->
-            {:halt, Refusal.from_al(exceeded)}
-        end
-      end)
-    end)
-  end
-
-  # The shell every ask shares: land the branch, install the program,
-  # then run the caller's question; an install that cannot land refuses.
-  @spec on_installed([struct()], keyword(), (term(), pos_integer() -> term())) :: term()
-  defp on_installed(program, opts, fun) do
     heap = Keyword.get(opts, :heap, 256_000_000)
 
     AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
-      case AL.eval(program, nil, branch, heap: heap) do
-        {:atomic, _} -> fun.(branch, heap)
-        {:aborted, reason} -> {:error, {:send_failed, %{reason: reason}}}
-        exceeded -> Refusal.from_al(exceeded)
+      with :ok <- install(program, branch, heap) do
+        Enum.reduce_while(counts, {:ok, []}, fn count, {:ok, acc} ->
+          case AL.eval(query_at.(count), nil, branch, heap: heap) do
+            {:atomic, {bindings, _}} ->
+              rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
+              {:cont, {:ok, acc ++ for(row <- rows, do: names |> Enum.zip(row) |> Map.new())}}
+
+            {:aborted, _reason} ->
+              {:cont, {:ok, acc}}
+
+            exceeded ->
+              {:halt, Refusal.from_al(exceeded)}
+          end
+        end)
       end
     end)
+  end
+
+  # An install that cannot land refuses; the caller owns the branch.
+  @spec install(program(), AL.Branch.t(), pos_integer()) :: :ok | {:error, Refusal.t()}
+  defp install(program, branch, heap) do
+    case AL.eval(program, nil, branch, heap: heap) do
+      {:atomic, _} -> :ok
+      {:aborted, reason} -> {:error, {:send_failed, %{reason: reason}}}
+      exceeded -> Refusal.from_al(exceeded)
+    end
   end
 
   @doc """
@@ -229,9 +228,12 @@ defmodule Zkfol.Al do
 
     with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
          {:ok, pred} <- target_pred(target),
-         {:ok, bind} <- bind(plan.asked, args, opts),
-         {:ok, bind, counts} <- question(rels, plan, bind, opts) do
-      run_installed(program, pred, plan, counts, bind, opts)
+         {:ok, bind} <- bind(plan.asked, args, opts) do
+      AL.Branch.on(landing(Keyword.get(opts, :branch)), fn branch ->
+        with {:ok, bind, counts} <- question(rels, plan, bind, opts, branch) do
+          run_installed(program, pred, plan, counts, bind, opts, branch)
+        end
+      end)
     end
   end
 
@@ -240,9 +242,9 @@ defmodule Zkfol.Al do
   # asks the question first: what it grounds is bound, a lone answer's
   # index is the count, and past the question only the structural ask
   # remains -- nothing searches by witness size.
-  @spec question([Rel.t()], plan(), bind(), keyword()) ::
+  @spec question([Rel.t()], plan(), bind(), keyword(), AL.Branch.t()) ::
           {:ok, bind(), [pos_integer()]} | {:error, Refusal.t()}
-  defp question(rels, plan, bind, opts) do
+  defp question(rels, plan, bind, opts, branch) do
     cond do
       is_map_key(bind, 1) ->
         {:ok, bind, [Map.fetch!(bind, 1)]}
@@ -251,7 +253,7 @@ defmodule Zkfol.Al do
         {:error, {:len_needs_a_bound_count, %{}}}
 
       true ->
-        case asked(rels, plan, bind, opts) do
+        case asked(rels, plan, bind, opts, branch) do
           {:ok, bind} ->
             counts =
               if plan.counter == :row and is_map_key(bind, 1),
@@ -484,15 +486,16 @@ defmodule Zkfol.Al do
 
   # Ask the question at the root, free rows genuinely free; every
   # integer the answer grounds binds its row for the trace to come.
-  @spec asked([Rel.t()], plan(), bind(), keyword()) ::
+  @spec asked([Rel.t()], plan(), bind(), keyword(), AL.Branch.t()) ::
           {:ok, bind()} | :unresolved | {:error, Refusal.t()}
-  defp asked(rels, plan, bind, opts) do
+  defp asked(rels, plan, bind, opts, branch) do
     with {:ok, program} <- question_program(rels) do
       name = hd(rels).name
       args = Enum.map(plan.asked, fn r -> Map.get(bind, r, v(:"qa#{r}")) end)
       query = [AL.ast_to_pattern({name, [], [@class | args]})]
+      heap = Keyword.get(opts, :heap, 256_000_000)
 
-      on_installed(program, opts, fn branch, heap ->
+      with :ok <- install(program, branch, heap) do
         case AL.eval(query, nil, branch, heap: heap) do
           {:atomic, {bindings, _state}} ->
             ground =
@@ -513,7 +516,7 @@ defmodule Zkfol.Al do
           _exceeded ->
             :unresolved
         end
-      end)
+      end
     end
   end
 
@@ -1015,13 +1018,22 @@ defmodule Zkfol.Al do
 
   # --- the run: install, deepen, judge ---
 
-  @spec run_installed(program(), judgement(), plan(), [pos_integer()], bind(), keyword()) ::
+  @spec run_installed(
+          program(),
+          judgement(),
+          plan(),
+          [pos_integer()],
+          bind(),
+          keyword(),
+          AL.Branch.t()
+        ) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp run_installed(program, pred, plan, counts, bind, opts) do
+  defp run_installed(program, pred, plan, counts, bind, opts, branch) do
     name = Keyword.get(opts, :name, :col)
     basedon = Keyword.get(opts, :basedon)
+    heap = Keyword.get(opts, :heap, 256_000_000)
 
-    on_installed(program, opts, fn branch, heap ->
+    with :ok <- install(program, branch, heap) do
       # Chain equations always invert -- a count is only ever descended
       # by one -- so a free count resolves structurally, closure or
       # lone: the terminal names the bottom and the descent names every
@@ -1068,7 +1080,7 @@ defmodule Zkfol.Al do
         Log.push({:al_solved, %{name: name, count: count, branch: branch.id}}, basedon)
         {:ok, witness}
       end
-    end)
+    end
   end
 
   # :head reads as wherever the session is checked out, for the viewer.
