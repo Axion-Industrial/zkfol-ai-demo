@@ -119,6 +119,7 @@ defmodule Examples.EUser do
         power(1, b, 0, 1)
 
         power(x, b, e, v) do
+          x > 1
           power(x - 1, bb, ee, w)
           b = bb
           e = ee + 1

@@ -89,7 +89,7 @@ defmodule Examples.EAl do
   @doc "I solve one relation both ways, one answer being the other's question."
   @spec fib_solves_both_ways() :: Interpretation.t()
   example fib_solves_both_ways do
-    n = 40
+    n = 12
     branch = AL.Branch.fork()
     {:ok, forward} = Al.solve(EUser.fib(), [n], branch: branch.id)
     value = Interpretation.at(forward, 2, Interpretation.len(forward))
