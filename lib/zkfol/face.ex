@@ -65,9 +65,17 @@ defmodule Zkfol.Face do
       shifts: Enum.map(uair.shifts, &Tuple.to_list/1),
       reads: reads,
       lookups: lookups,
-      kinds: kinds(columns, reads, lookups, uair.shifts)
+      kinds: kinds(columns, reads, lookups, uair.shifts),
+      origins: Enum.map(uair.rows, &origin_text/1)
     }
   end
+
+  # Where a committed column came from: a row of the interpretation by
+  # its C number, or the index machinery the pinning added.
+  @spec origin_text(pos_integer() | :x | :ones) :: String.t()
+  defp origin_text(:x), do: "x"
+  defp origin_text(:ones), do: "ones"
+  defp origin_text(row), do: "C#{row}"
 
   @doc """
   I am the journaled act read off the log for its pipeline view: the

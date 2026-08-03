@@ -45,6 +45,10 @@ defmodule Examples.EFace do
     assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :scheduled, :scheduled]
     assert Enum.all?(feed.columns, &(length(&1) == 8))
     assert feed.num_vars == 3
+
+    # Every committed column says which interpretation row it carries.
+    assert length(feed.origins) == length(feed.columns)
+    assert Enum.all?(feed.origins, &(String.starts_with?(&1, "C") or &1 in ["x", "ones"]))
     feed
   end
 

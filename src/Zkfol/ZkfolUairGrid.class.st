@@ -203,11 +203,15 @@ ZkfolUairGrid >> kindOfRow: aZeroBasedIndex [
 	^ kinds at: aZeroBasedIndex + 1 ifAbsent: [ #plain ]
 ]
 
-{ #category : 'rendering' }
+{ #category : 'accessing' }
 ZkfolUairGrid >> labelTextFor: aKind at: aZeroBasedIndex [
-	"A row label at a glance: the index, its kind or schedule, its claim."
-	| parts |
+	"A row label at a glance: the index, the interpretation row it
+	 carries, its kind or schedule, its claim."
+	| parts origins |
 	parts := OrderedCollection with: aZeroBasedIndex printString.
+	origins := payload at: #origins ifAbsent: [ nil ].
+	(origins notNil and: [ aZeroBasedIndex < origins size ]) ifTrue: [
+		parts add: (origins at: aZeroBasedIndex + 1) ].
 	aKind = #scheduled
 		ifTrue: [ parts add: 'shifts '
 			, (', ' join: ((self shiftOffsetsOfRow: aZeroBasedIndex)
