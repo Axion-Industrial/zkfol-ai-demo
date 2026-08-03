@@ -258,17 +258,28 @@ defmodule Zkfol.Face do
   defp read_event({:piped, verdicts}, feed) do
     passes =
       for {{pass, verdict}, index} <- Enum.with_index(verdicts, 1) do
-        %{index: index, name: pass |> Module.split() |> List.last(), verdict: verdict}
+        %{index: index, name: pass |> Module.split() |> List.last(), verdict: word(verdict)}
       end
 
-    %{feed | passes: passes}
+    failure =
+      Enum.find_value(verdicts, feed.failure, fn
+        {_pass, {:errors, refusal}} -> Refusal.message(refusal)
+        {_pass, _verdict} -> nil
+      end)
+
+    %{feed | passes: passes, failure: failure}
   end
 
   defp read_event(_body, feed), do: feed
 
+  # A verdict's word alone: the erred pass's refusal rides the feed's
+  # failure, not the chip.
+  @spec word(Zkfol.Pipeline.verdict()) :: atom()
+  defp word({:errors, _refusal}), do: :errors
+  defp word(verdict), do: verdict
+
   @spec mode_feed(Uair.mode()) :: {[map()], [map()]}
   defp mode_feed(%Uair.Composed{reads: reads, lookups: lookups}), do: {reads, lookups}
-  defp mode_feed(%Uair.Lookup{lookups: lookups}), do: {[], lookups}
   defp mode_feed(_plain), do: {[], []}
 
   @spec kinds([[integer()]], [map()], [map()], [tuple()]) :: [atom()]

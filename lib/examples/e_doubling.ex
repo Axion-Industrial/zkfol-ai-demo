@@ -28,8 +28,6 @@ defmodule Examples.EDoubling do
     {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
     witness = Statement.witness(statement)
 
-    assert Enum.all?(statement.ranges, &Zkfol.Range.holds?(&1, witness))
-
     assert Enum.all?(
              1..Interpretation.len(witness),
              &Semantics.holds?(Statement.pred(statement), witness, &1)

@@ -15,7 +15,6 @@ defmodule Zkfol.ZincPlus do
   alias Zkfol.Refusal
   alias Zkfol.Uair
   alias Zkfol.Uair.Composed
-  alias Zkfol.Uair.Lookup
   alias Zkfol.Uair.Plain
 
   # One addition of headroom under each cell width: narrow cells are i64,
@@ -67,7 +66,8 @@ defmodule Zkfol.ZincPlus do
   def request(%Uair{} = uair, opts \\ []) do
     values = List.flatten(uair.columns)
 
-    with {:ok, bins, lookups} <- mode_payload(uair.mode),
+    with {:ok, bins, lookups, reads} <- mode_payload(uair.mode),
+         :ok <- unclaimed(reads, uair.num_public),
          :ok <- non_negative(values) do
       queued =
         prove_fol(%Payload{
@@ -78,6 +78,7 @@ defmodule Zkfol.ZincPlus do
           cells: cells(uair, values),
           bins: bins,
           lookups: lookups,
+          reads: reads,
           num_vars: Uair.num_vars(uair),
           tamper: Keyword.get(opts, :tamper, false)
         })
@@ -109,25 +110,32 @@ defmodule Zkfol.ZincPlus do
     )
   end
 
-  # The shadow columns and lookup tuples the mode owes the NIF, or the
-  # refusal that keeps it away.
+  # The shadow columns, lookup tuples, and composed reads the mode owes
+  # the NIF. A composed mode's Word range obligation is not yet carried
+  # (the pointer query's region read); the emit-time oracle still
+  # judges every pointer.
   @spec mode_payload(Uair.mode()) ::
-          {:ok, [[non_neg_integer()]], [lookup()]} | {:error, Refusal.t()}
-  defp mode_payload(%Plain{}), do: {:ok, [], []}
-  defp mode_payload(%Composed{}), do: Composed.refusal()
+          {:ok, [[non_neg_integer()]], [lookup()],
+           [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}]}
+          | {:error, Refusal.t()}
+  defp mode_payload(%Plain{}), do: {:ok, [], [], []}
 
-  defp mode_payload(%Lookup{bin_columns: bins, lookups: lookups}) do
-    with {:ok, tuples} <- lookup_tuples(lookups), do: {:ok, bins, tuples}
+  defp mode_payload(%Composed{reads: reads}) do
+    {:ok, [], [], for(r <- reads, do: {r.value_row, r.bit_rows, r.result_row})}
   end
 
-  # BitPoly lookups as the tuples the NIF takes; any other table still
-  # waits on zinc+.
-  @spec lookup_tuples([Uair.lookup()]) :: {:ok, [lookup()]} | {:error, Refusal.t()}
-  defp lookup_tuples(lookups) do
-    Refusal.map(lookups, fn
-      %{col: col, table: {:bit_poly, width, chunk}} -> {:ok, {col, width, chunk}}
-      %{table: table} -> {:error, {:lookup_awaits_backend, %{table: table}}}
-    end)
+  # A claimed row is public, and the pointer query binds witness columns
+  # only; refuse by name before the NIF refuses by panic.
+  @spec unclaimed(
+          [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}],
+          non_neg_integer()
+        ) :: :ok | {:error, Refusal.t()}
+  defp unclaimed(reads, num_public) do
+    Refusal.refute(
+      Enum.flat_map(reads, fn {value, bits, result} -> [value, result | bits] end),
+      &(&1 < num_public),
+      &{:read_row_claimed, %{row: &1}}
+    )
   end
 
   # The widest value decides the transport; the limbing stays on this side

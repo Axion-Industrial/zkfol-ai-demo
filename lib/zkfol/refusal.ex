@@ -53,7 +53,7 @@ defmodule Zkfol.Refusal do
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
-    capability: ~w(calls_between_relations lookup_awaits_backend)a,
+    capability: ~w(calls_between_relations)a,
     false_statement: ~w(no_derivation no_derivation_at_count witness_invalid
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
@@ -237,9 +237,6 @@ defmodule Zkfol.Refusal do
 
   def message({:witness_value_negative, %{value: value}}),
     do: "witness value #{value} is negative; cells carry no sign"
-
-  def message({:lookup_awaits_backend, %{table: table}}),
-    do: "the #{inspect(table)} lookup awaits zinc+"
 
   def message({:no_derivation, _detail}), do: "no derivation at any depth"
 

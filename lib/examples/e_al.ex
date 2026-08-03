@@ -242,6 +242,24 @@ defmodule Examples.EAl do
     direct
   end
 
+  @doc "I negate in a clause: one node, the term times -1."
+  @spec negation_goes_straight_down() :: Interpretation.t()
+  example negation_goes_straight_down do
+    flip =
+      rel :flip do
+        flip(1, 0)
+
+        flip(x, v) do
+          flip(x - 1, w)
+          v = -w + 1
+        end
+      end
+
+    {:ok, direct} = Al.solve(flip, [5])
+    assert direct |> Interpretation.rows() |> Enum.at(1) == [0, 1, 0, 1, 0]
+    direct
+  end
+
   # A value aims the pointer: the call reads the column another row names.
   @spec hop_rel() :: Zkfol.Lang.Rel.t()
   example hop_rel do
@@ -433,14 +451,14 @@ defmodule Examples.EAl do
   # demands the pointed column wear tab. The math objects either way.
   @spec a_forged_fact_is_rejected() :: Interpretation.t()
   example a_forged_fact_is_rejected do
-    {:ok, %{pred: pred, ranges: ranges}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
 
     honest = Interpretation.new([[0, 2], [0, 41], [3, 0], [40, 0], [2, 1], [1, 1]])
-    assert Zkfol.Semantics.valid?(pred, ranges, honest)
+    assert Zkfol.Semantics.valid?(pred, honest)
 
     for tag <- [1, 2] do
       forged = Interpretation.new([[0], [100], [3], [99], [tag], [1]])
-      refute Zkfol.Semantics.valid?(pred, ranges, forged)
+      refute Zkfol.Semantics.valid?(pred, forged)
     end
 
     honest
@@ -531,8 +549,8 @@ defmodule Examples.EAl do
     k = Interpretation.at(witness, 4, Interpretation.at(witness, 6, 3))
     assert Interpretation.at(witness, 3, Interpretation.at(witness, 7, 3)) == k
 
-    {:ok, %{pred: pred, ranges: ranges}} = Zkfol.Lang.compile(leap(), [leap(), step()])
-    assert Zkfol.Semantics.valid?(pred, ranges, witness)
+    {:ok, %{pred: pred}} = Zkfol.Lang.compile(leap(), [leap(), step()])
+    assert Zkfol.Semantics.valid?(pred, witness)
     witness
   end
 

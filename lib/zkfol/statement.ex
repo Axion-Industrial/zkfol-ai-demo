@@ -16,7 +16,6 @@ defmodule Zkfol.Statement do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Range
   alias Zkfol.Statement.Lowered
   alias Zkfol.Statement.Solved
 
@@ -26,7 +25,6 @@ defmodule Zkfol.Statement do
   typedstruct enforce: true do
     field(:rels, [Zkfol.Lang.Rel.t()], default: [])
     field(:args, [integer() | :_], default: [])
-    field(:ranges, [Range.check()], default: [])
     field(:claims, [Interpretation.claim()], default: [])
     field(:stage, stage(), default: :raw)
   end

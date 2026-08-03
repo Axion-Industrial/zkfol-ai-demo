@@ -39,8 +39,6 @@ defmodule Zkfol.Al do
 
   @typep bind :: %{optional(pos_integer()) => integer()}
 
-  @typep judgement :: {Ast.pred(), [Zkfol.Range.check()]}
-
   @doc """
   I emit the AL program of a relation under its own name, or refuse
   with the reason.
@@ -271,27 +269,17 @@ defmodule Zkfol.Al do
     end
   end
 
-  # The predicate and its range checks ride the stage once a statement
-  # is lowered, so a closure walk here would be the second of two. Only
-  # a raw target still has to compile. Together they are the judgement
-  # deliver holds every witness to.
-  @spec target_pred(Statement.t() | [Rel.t()]) :: {:ok, judgement()} | {:error, Refusal.t()}
+  # The predicate rides the stage once a statement is lowered, so a
+  # closure walk here would be the second of two. Only a raw target
+  # still has to compile.
+  @spec target_pred(Statement.t() | [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
   defp target_pred(%Statement{stage: :raw, rels: [root | _rest] = rels}),
-    do:
-      with(
-        {:ok, %{pred: pred, ranges: ranges}} <- Lang.compile(root, rels),
-        do: {:ok, {pred, ranges}}
-      )
+    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
 
-  defp target_pred(%Statement{} = statement),
-    do: {:ok, {Statement.pred(statement), statement.ranges}}
+  defp target_pred(%Statement{} = statement), do: {:ok, Statement.pred(statement)}
 
   defp target_pred([root | _rest] = rels),
-    do:
-      with(
-        {:ok, %{pred: pred, ranges: ranges}} <- Lang.compile(root, rels),
-        do: {:ok, {pred, ranges}}
-      )
+    do: with({:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred})
 
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
@@ -311,13 +299,6 @@ defmodule Zkfol.Al do
   end
 
   # The pred the stage already carries; compiled only when none does.
-  @spec statement_pred(Statement.t()) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
-  defp statement_pred(%Statement{stage: :raw, rels: [root | _rest] = rels}) do
-    with {:ok, %{pred: pred}} <- Lang.compile(root, rels), do: {:ok, pred}
-  end
-
-  defp statement_pred(statement), do: {:ok, Statement.pred(statement)}
-
   # A free pointer left unbound by everything else enumerates the
   # columns below.
   @spec enumerations(plan()) :: [Macro.t()]
@@ -1022,7 +1003,7 @@ defmodule Zkfol.Al do
 
   @spec run_installed(
           program(),
-          judgement(),
+          Ast.pred(),
           plan(),
           [pos_integer()],
           bind(),
@@ -1125,12 +1106,12 @@ defmodule Zkfol.Al do
   # unread rows are padding, and the oracle judges every column.
   @spec deliver(
           {:atomic, {AL.Var.bindings(), AL.t()}},
-          judgement(),
+          Ast.pred(),
           pos_integer() | :derive,
           plan()
         ) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp deliver({:atomic, {bindings, _state}}, {pred, ranges}, asked, plan) do
+  defp deliver({:atomic, {bindings, _state}}, pred, asked, plan) do
     trace = bindings |> AL.Var.deref(:"$t") |> AL.Var.subst(bindings) |> Enum.reverse()
     count = if is_integer(asked), do: asked, else: length(trace)
 
@@ -1159,7 +1140,7 @@ defmodule Zkfol.Al do
            Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}}) do
       witness = Interpretation.new(matrix)
 
-      if Semantics.valid?(pred, ranges, witness),
+      if Semantics.valid?(pred, witness),
         do: {:ok, witness},
         else: {:error, {:witness_invalid, %{}}}
     end

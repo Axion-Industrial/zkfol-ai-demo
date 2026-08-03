@@ -21,7 +21,6 @@ defmodule Zkfol.Lang do
   @behaviour Zkfol.Pipeline
 
   alias Zkfol.Ast
-  alias Zkfol.Range
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
@@ -158,6 +157,8 @@ defmodule Zkfol.Lang do
   defp term({name, _meta, ctx}) when is_atom(name) and is_atom(ctx), do: {:var, name}
   defp term({:+, _meta, [a, b]}), do: {:add, term(a), term(b)}
   defp term({:*, _meta, [a, b]}), do: {:mul, term(a), term(b)}
+  defp term({:-, _meta, [q]}) when is_integer(q), do: -q
+  defp term({:-, _meta, [a]}), do: {:mul, term(a), -1}
   defp term({:-, _meta, [a, b]}) when is_integer(b), do: {:add, term(a), -b}
   defp term({:-, _meta, [a, b]}), do: {:add, term(a), {:mul, term(b), -1}}
 
@@ -180,8 +181,8 @@ defmodule Zkfol.Lang do
   def run(%Statement{rels: []} = statement, _opts), do: {:ok, statement}
 
   def run(%Statement{rels: [root | _rest] = rels} = statement, _opts) do
-    with {:ok, %{pred: pred, ranges: ranges}} <- compile(root, rels),
-         do: {:ok, Statement.lowered(%{statement | ranges: ranges}, pred)}
+    with {:ok, %{pred: pred}} <- compile(root, rels),
+         do: {:ok, Statement.lowered(statement, pred)}
   end
 
   @impl Zkfol.Pipeline
@@ -200,7 +201,6 @@ defmodule Zkfol.Lang do
            %{
              pred: Ast.pred(),
              rows: %{atom() => [pos_integer()]},
-             ranges: [Range.check()],
              pointers: %{Ast.term_t() => pos_integer()},
              calls: %{atom() => [[pos_integer()]]},
              width: pos_integer(),
@@ -222,13 +222,10 @@ defmodule Zkfol.Lang do
 
       with {:ok, branches, calls, {pointers, next}} <-
              branches(order, scope, values, tag, {%{}, next}) do
-        ranges = pointers |> Map.values() |> Enum.sort() |> Enum.flat_map(&Range.pointer/1)
-
         {:ok,
          %{
            pred: Ast.disj(branches),
            rows: values,
-           ranges: ranges,
            pointers: pointers,
            calls: calls,
            width: next - 1,

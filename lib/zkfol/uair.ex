@@ -20,12 +20,11 @@ defmodule Zkfol.Uair do
   alias Zkfol.Refusal
   alias Zkfol.Semantics
   alias Zkfol.Uair.Composed
-  alias Zkfol.Uair.Lookup
   alias Zkfol.Uair.Plain
   alias Zkfol.ZincPlus
 
-  @typedoc "A UAIR is plain, carries BitPoly lookups, or is a Section 4 lowering."
-  @type mode :: Plain.t() | Lookup.t() | Composed.t()
+  @typedoc "A UAIR is plain, or is a Section 4 lowering."
+  @type mode :: Plain.t() | Composed.t()
 
   @typedoc "One composed read: where the address bits live and where the dereference lands."
   @type read :: %{
@@ -34,10 +33,8 @@ defmodule Zkfol.Uair do
           result_row: non_neg_integer()
         }
 
-  @typedoc "A lookup: a Word table on a pointer row, or a BitPoly table on a shadow column."
-  @type lookup ::
-          %{row: non_neg_integer(), table: {:word, pos_integer()}}
-          | %{col: non_neg_integer(), table: {:bit_poly, pos_integer(), pos_integer()}}
+  @typedoc "A lookup: a Word table on a pointer row."
+  @type lookup :: %{row: non_neg_integer(), table: {:word, pos_integer()}}
 
   typedstruct enforce: true do
     field(:num_public, non_neg_integer())

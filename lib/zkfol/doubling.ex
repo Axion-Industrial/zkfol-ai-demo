@@ -32,7 +32,6 @@ defmodule Zkfol.Doubling do
   alias Zkfol.Facts
   require Zkfol.Lang
   alias Zkfol.Lang.Rel
-  alias Zkfol.Range
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
@@ -133,7 +132,6 @@ defmodule Zkfol.Doubling do
              {:ok,
               %Statement{
                 rels: [krel],
-                ranges: Range.pointer(result + 1),
                 claims: claims,
                 stage: %Statement.Solved{pred: pred, witness: witness}
               }}

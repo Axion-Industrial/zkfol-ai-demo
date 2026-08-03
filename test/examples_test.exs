@@ -41,7 +41,3 @@ end
 defmodule Examples.EAlTest do
   use ExExample.ExUnit, for: Examples.EAl
 end
-
-defmodule Examples.ELookupTest do
-  use ExExample.ExUnit, for: Examples.ELookup
-end

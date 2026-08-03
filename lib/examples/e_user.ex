@@ -2,7 +2,7 @@ defmodule Examples.EUser do
   @moduledoc """
   I am the book of user relations: every statement of the corpus as
   defrel or rel writes it, each carried by the pipeline to the solved
-  statement holding its predicate, ranges, and witness, and the whole
+  statement holding its predicate and witness, and the whole
   act through the front door. Inspecting `compiled/1` is the pipeline
   view.
   """
@@ -82,36 +82,14 @@ defmodule Examples.EUser do
     ran
   end
 
-  @spec failures_give_structure() :: Log.Ran.t()
-  example failures_give_structure() do
-    fact = Examples.EFacts.factorial()
-    ran = Zkfol.compile(%Statement{rels: [fact], args: [:_, 6]}, pipeline: Pipeline.default())
-
-    assert %Log.Ran{intended: nil} = ran
-
-    assert [%Log.Event{body: {:piped, verdicts}}] =
-             Log.snapshot() |> Log.trail(ran) |> Enum.filter(&(&1.id == ran.piped))
-
-    assert [
-             {Lang, :lowers},
-             {Zkfol.Doubling, :declines},
-             {Witness, {:errors, {:one_bound_input_only, _detail}}}
-           ] = verdicts
-
-    ran
-  end
-
-
   # The plain route carries a source to the solved statement: the
-  # predicate, the ranges guarding its pointers, and the witness, all
-  # derived off the relation alone.
+  # predicate and the witness, derived off the relation alone.
   @spec fibonacci(pos_integer()) :: Statement.t()
   example fibonacci(n \\ 8) do
     {:ok, statement, _trace} = Pipeline.run(plain(), %Statement{rels: [fib()], args: [n]})
 
     witness = Statement.witness(statement)
     assert witness |> Interpretation.rows() |> Enum.at(1) == Enum.map(1..n, &fib/1)
-    assert Enum.all?(statement.ranges, &Zkfol.Range.holds?(&1, witness))
     assert Enum.all?(1..n, &Semantics.holds?(Statement.pred(statement), witness, &1))
     statement
   end

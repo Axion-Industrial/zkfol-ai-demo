@@ -2,7 +2,7 @@ defmodule Examples.EAst do
   @moduledoc """
   I am the algebra's evidence: the arithmetized polynomial (Figure 2)
   agrees with the oracle at every column, in both directions, and the
-  oracle's judgements reject a witness that lies, guarded by ranges or
+  oracle's judgements reject a witness that lies, guarded by
   meeting the out-of-range dereference itself.
   """
 
@@ -13,7 +13,6 @@ defmodule Examples.EAst do
   alias Examples.EUser
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Range
   alias Zkfol.Statement
   alias Zkfol.Semantics
 
@@ -34,7 +33,7 @@ defmodule Examples.EAst do
   example wrong_value_is_rejected do
     tampered = tamper(Statement.witness(EUser.power()), 3, 4, 9)
 
-    refute valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    refute valid?(Statement.pred(EUser.power()), tampered)
     tampered
   end
 
@@ -42,18 +41,8 @@ defmodule Examples.EAst do
   example out_of_range_pointer_is_rejected do
     tampered = tamper(Statement.witness(EUser.power()), 4, 4, 7)
 
-    refute valid?(Statement.pred(EUser.power()), EUser.power().ranges, tampered)
+    refute valid?(Statement.pred(EUser.power()), tampered)
     tampered
-  end
-
-  @spec unguarded_out_of_range_is_false() :: boolean()
-  example unguarded_out_of_range_is_false do
-    # With no range guarding the pointer, the oracle meets the out-of-range
-    # dereference itself, and answers false rather than raising.
-    result = valid?(Statement.pred(EUser.power()), [], out_of_range_pointer_is_rejected())
-
-    refute result
-    result
   end
 
   @spec figure_two_rejects_what_the_oracle_rejects() :: Interpretation.t()
@@ -74,12 +63,10 @@ defmodule Examples.EAst do
     tampered
   end
 
-  # The judgement, derived: every range holds and phi is 0 at every column.
-  @spec valid?(Ast.pred(), [Range.check()], Interpretation.t()) :: boolean()
-  defp valid?(phi, ranges, itp) do
-    Enum.all?(ranges, &Range.holds?(&1, itp)) and
-      Enum.all?(1..Interpretation.len(itp), &Semantics.holds?(phi, itp, &1))
-  end
+  # The judgement, derived: phi is 0 at every column.
+  @spec valid?(Ast.pred(), Interpretation.t()) :: boolean()
+  defp valid?(phi, itp),
+    do: Enum.all?(1..Interpretation.len(itp), &Semantics.holds?(phi, itp, &1))
 
   @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), non_neg_integer()) ::
           Interpretation.t()
