@@ -22,6 +22,43 @@ defmodule Examples.EAl do
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
 
+  defrel pick(x, v) do
+    tab(3, w)
+    v = w + 1
+  end
+
+  defrel tab(1, 10)
+  defrel tab(2, 20)
+  defrel tab(3, 40)
+  defrel tab(4, 40)
+
+  @spec registers_program() :: Al.program()
+  example registers_program do
+    {:ok, program} = Al.translate(Examples.EUser.regs())
+
+    # The class row, the retraction, one clause per clause: facts first.
+    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
+    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, [_ | _]]} = step
+    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, []]} = base
+    program
+  end
+
+  defrel odd(1, 1)
+
+  defrel odd(x, v) do
+    x > 1
+    even(x - 1, w)
+    v = w
+  end
+
+  defrel even(1, 0)
+
+  defrel even(x, v) do
+    x > 1
+    odd(x - 1, w)
+    v = w
+  end
+
   @doc "I ask the emitted relation for its count rather than telling it."
   @spec the_program_runs_backward() :: pos_integer()
   example the_program_runs_backward do
@@ -340,6 +377,86 @@ defmodule Examples.EAl do
 
     assert {:error, _past_the_top} = Al.solve(band, [9])
     band
+  end
+
+  # A call between relations derives on one trace: pick reads tab
+  # through the pointer row, the fact it reaches takes a column of its
+  # own, and the three facts nothing reached never materialize.
+  @spec a_call_between_relations_derives() :: Interpretation.t()
+  example a_call_between_relations_derives do
+    {:ok, %{rows: rows, pointers: pointers, tag: 5, width: 6}} =
+      Zkfol.Lang.compile(pick(), [pick(), tab()])
+
+    assert %{pick: [1, 2], tab: [3, 4]} = rows
+    assert [6] = Map.values(pointers)
+
+    # The list reads root then scope, and the arguments are pick's own
+    # two: its index free, its value asked for.
+    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41])
+
+    assert Interpretation.len(witness) == 2
+    assert Interpretation.at(witness, 2, 2) == 41
+    assert Interpretation.at(witness, 3, 1) == 3
+    assert Interpretation.at(witness, 4, 1) == 40
+
+    # Each column wears its relation: tab below, pick above.
+    assert Interpretation.at(witness, 5, 1) == 2
+    assert Interpretation.at(witness, 5, 2) == 1
+    witness
+  end
+
+  # The tag anchors the read. A column is what it wears: wearing tab, a
+  # forged (3, 99) satisfies no tab fact; wearing pick, the self-read
+  # demands the pointed column wear tab. The math objects either way.
+  @spec a_forged_fact_is_rejected() :: Interpretation.t()
+  example a_forged_fact_is_rejected do
+    {:ok, %{pred: pred, ranges: ranges}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+
+    honest = Interpretation.new([[0, 2], [0, 41], [3, 0], [40, 0], [2, 1], [1, 1]])
+    assert Zkfol.Semantics.valid?(pred, ranges, honest)
+
+    for tag <- [1, 2] do
+      forged = Interpretation.new([[0], [100], [3], [99], [tag], [1]])
+      refute Zkfol.Semantics.valid?(pred, ranges, forged)
+    end
+
+    honest
+  end
+
+  # Recursion across members derives on one chain: odd and even
+  # alternate columns, each read binding the next index down to the
+  # fact that anchors the parity, and the tag row oscillates with it.
+  @spec recursion_between_relations_derives() :: Interpretation.t()
+  example recursion_between_relations_derives do
+    {:ok, odd5} = Al.solve([odd(), even()], [5, :_])
+
+    assert Interpretation.len(odd5) == 5
+    assert Interpretation.at(odd5, 2, 5) == 1
+    assert for(x <- 1..5, do: Interpretation.at(odd5, 5, x)) == [1, 2, 1, 2, 1]
+
+    {:ok, odd4} = Al.solve([odd(), even()], [4, :_])
+    assert Interpretation.at(odd4, 2, 4) == 0
+    odd5
+  end
+
+  @doc "I resolve the counter by unification before any deepening."
+  @spec the_counter_resolves_before_deepening() :: Interpretation.t()
+  example the_counter_resolves_before_deepening do
+    # depth: 1 starves the deepening loop outright; the answer needs
+    # two columns, and unification names them without being told.
+    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41], depth: 1)
+
+    assert Interpretation.len(witness) == 2
+    witness
+  end
+
+  @doc "I ignore scope the closure never calls, so a module rides whole."
+  @spec extra_scope_rides_along() :: Interpretation.t()
+  example extra_scope_rides_along do
+    {:ok, witness} = Al.solve([pick(), tab(), odd(), even()], [:_, 41])
+
+    assert Interpretation.at(witness, 2, 2) == 41
+    witness
   end
 
   # A row nothing determines is the prover's knowledge, not the witness's:

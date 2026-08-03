@@ -29,10 +29,12 @@ defmodule Zkfol.Al do
   @typep plan :: %{
            rows: [pos_integer()],
            schedules: %{pos_integer() => pos_integer()},
-           window: pos_integer(),
+           window: non_neg_integer(),
            dynamic: [pos_integer()],
            len?: boolean(),
-           arity: pos_integer()
+           arity: pos_integer(),
+           asked: [pos_integer()],
+           counter: :row | :argument
          }
 
   @typep bind :: %{optional(pos_integer()) => integer()}
@@ -171,9 +173,11 @@ defmodule Zkfol.Al do
       solve(kernel_statement, [:_, n - 2])
       solve(Examples.EFacts.factorial(), [6], branch: :head)
 
-  `arguments` address the relation's own rows in order, whatever claims
-  a pass may have hung on the statement; `:_` leaves a row free, and
-  `:bind` names a row directly when counting to it is unpleasant. The recursion count is always row one: bound, it runs
+  `arguments` address the relation's own rows in order -- for a closure
+  the root's, the list reading root-first-then-scope as a statement's
+  rels do -- whatever claims a pass may have hung on the statement; `:_`
+  leaves a row free, and `:bind` names a row directly when counting to
+  it is unpleasant. The recursion count is always row one: bound, it runs
   once at that count; free, depth deepens until a count satisfies
   every other bound row. `:bind` fixes rows directly, merged over
   whatever `arguments` bound. `:branch` keeps the install, `:depth`
@@ -209,7 +213,7 @@ defmodule Zkfol.Al do
 
     with {:ok, program, plan} <- clauses_program(rels, Keyword.fetch!(opts, :name)),
          {:ok, pred} <- target_pred(target) do
-      with {:ok, bind} <- bind(plan.rows, args, opts),
+      with {:ok, bind} <- bind(plan.asked, args, opts),
            do: run_installed(program, pred, plan, counts(bind, opts), bind, opts)
     end
   end
@@ -345,16 +349,17 @@ defmodule Zkfol.Al do
 
   # --- clauses, directly: a relation is nearly the program ---
 
-  # One self-recursive relation; everything else still derives through
-  # the core path, and says so.
+  # One self-recursive relation as before; a closure takes its own path.
   @spec clauses_program([Rel.t()], atom()) ::
           {:ok, program(), plan()} | {:error, Refusal.t()}
-  defp clauses_program([%Rel{} = rel | rest], name) do
-    with :ok <- lone(rest, rel),
+  defp clauses_program([%Rel{} = rel], name) do
+    with :ok <- lone([], rel),
          {:ok, plan, computed} <- rel_plan(rel),
          {:ok, clauses} <- rel_clauses(rel, name, plan, computed),
          do: {:ok, installed(name, clauses), plan}
   end
+
+  defp clauses_program([%Rel{} | _rest] = rels, name), do: closure_program(rels, name)
 
   @spec lone([Rel.t()], Rel.t()) :: :ok | {:error, Refusal.t()}
   defp lone([], %Rel{name: name, clauses: clauses}) do
@@ -369,6 +374,250 @@ defmodule Zkfol.Al do
 
   defp lone(_rest, _rel),
     do: {:error, {:calls_between_relations, %{}}}
+
+  # A closure runs as one chain over one trace, every element the
+  # closure's full width, each column filled by whichever member's
+  # clause fires: a fact grounds its own slice and pads the rest, the
+  # root's rule reads its callees through Lang's pointer rows. This
+  # far: member rules whose call targets the head determines, over one
+  # another and over ground facts; a member calling itself, and targets
+  # a body value computes, still await by name.
+  @spec closure_program([Rel.t()], atom()) ::
+          {:ok, program(), plan()} | {:error, Refusal.t()}
+  defp closure_program([root | _rest] = rels, name) do
+    with {:ok, table} <- Lang.compile(root, rels) do
+      case Enum.filter(rels, &is_map_key(table.rows, &1.name)) do
+        [lone] ->
+          clauses_program([lone], name)
+
+        members ->
+          with :ok <- closed(members),
+               {:ok, clauses} <-
+                 closure_clauses(members, name, closure_plan(members, table), table),
+               do: {:ok, installed(name, clauses), closure_plan(members, table)}
+      end
+    end
+  end
+
+  @spec closed([Rel.t()]) :: :ok | {:error, Refusal.t()}
+  defp closed(rels) do
+    names = MapSet.new(rels, & &1.name)
+
+    ok? =
+      Enum.all?(rels, fn rel ->
+        Enum.all?(rel.clauses, fn
+          {head, []} ->
+            Enum.all?(head, &is_integer/1)
+
+          {head, body} ->
+            Enum.all?(head, &match?({:var, _}, &1)) and
+              Enum.all?(body, fn
+                {:call, n, [at | outs]} ->
+                  n != rel.name and n in names and headed?(at, head) and
+                    Enum.all?(outs, &match?({:var, _}, &1))
+
+                _goal ->
+                  true
+              end)
+        end)
+      end)
+
+    if ok?, do: :ok, else: {:error, {:calls_between_relations, %{}}}
+  end
+
+  # A target the head alone determines is resolvable before the body
+  # runs, so its pointer keys into Lang's table.
+  @spec headed?(term(), [term()]) :: boolean()
+  defp headed?(q, _head) when is_integer(q), do: true
+  defp headed?({:var, _nm} = var, head), do: var in head
+
+  defp headed?({op, t, u}, head) when op in [:add, :mul],
+    do: headed?(t, head) and headed?(u, head)
+
+  defp headed?(_term, _head), do: false
+
+  # Lang's allocation, taken whole: the trace is the closure's width,
+  # the pointer rows ride in it, and no row is the count.
+  @spec closure_plan([Rel.t()], map()) :: plan()
+  defp closure_plan(rels, table) do
+    %{
+      rows: Enum.to_list(1..table.width),
+      schedules: %{},
+      window: 0,
+      dynamic: table.pointers |> Map.values() |> Enum.sort(),
+      len?: Enum.any?(rels, &mentions_len?(&1.clauses)),
+      arity: table.width,
+      asked: Map.fetch!(table.rows, hd(rels).name),
+      counter: :argument
+    }
+  end
+
+  @spec closure_clauses([Rel.t()], atom(), plan(), map()) ::
+          {:ok, [Macro.t()]} | {:error, Refusal.t()}
+  defp closure_clauses([root | _rest] = rels, name, plan, table) do
+    {terminals, mids} =
+      Enum.unzip(
+        for rel <- rels, {head, []} <- rel.clauses do
+          fact_clauses(name, rel.name, head, plan, table)
+        end
+      )
+
+    rules = for rel <- rels, {_head, [_ | _]} = clause <- rel.clauses, do: {rel.name, clause}
+
+    rules
+    |> Enum.with_index()
+    |> Refusal.map(fn {{rname, clause}, i} ->
+      member_rule(clause, i, name, plan, table, rname, rname == root.name)
+    end)
+    |> case do
+      # Every terminal before any mid: a free counter descends
+      # depth-first, and each level must see every bottom before it
+      # deepens, or the first mid-chain swallows the search whole.
+      {:ok, rules} -> {:ok, terminals ++ mids ++ rules}
+      refusal -> refusal
+    end
+  end
+
+  # A fact holds at any column: terminal at one, mid-chain above it.
+  # Its own slice is the fact, other slices pad zero, and a pointer
+  # cell pads one to stay a column.
+  @spec fact_clauses(atom(), atom(), [term()], plan(), map()) :: {Macro.t(), Macro.t()}
+  defp fact_clauses(name, rel_name, head, plan, table) do
+    filled = table.rows |> Map.fetch!(rel_name) |> Enum.zip(head) |> Map.new()
+
+    cells =
+      Enum.map(plan.rows, fn r ->
+        cond do
+          is_map_key(filled, r) -> Map.fetch!(filled, r)
+          r == table.tag -> Map.fetch!(table.tags, rel_name)
+          r in plan.dynamic -> 1
+          true -> 0
+        end
+      end)
+
+    len = if plan.len?, do: [v(:len)], else: []
+
+    mid =
+      quote do
+        freeze(x, [x > 1])
+        unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
+        unquote({name, [], [v(:self), v(:x1)] ++ len ++ [v(:t)]})
+      end
+
+    {defmethod(name, [v(:self), 1 | len] ++ [[cells]], {:__block__, [], []}),
+     defmethod(name, [v(:self), v(:x) | len] ++ [[{:|, [], [cells, v(:t)]}]], mid)}
+  end
+
+  # A member's rule: its own rows as cells, its calls as frozen reads
+  # through the pointer rows, its equations and guards as everywhere.
+  # The root's index chains to the column; any other member's floats,
+  # bound top-down by whoever reads it.
+  @spec member_rule(
+          {[term()], [term()]},
+          non_neg_integer(),
+          atom(),
+          plan(),
+          map(),
+          atom(),
+          boolean()
+        ) ::
+          {:ok, Macro.t()} | {:error, Refusal.t()}
+  defp member_rule({head, body}, i, name, plan, table, rname, root?) do
+    block = Map.fetch!(table.rows, rname)
+    [{:var, index} | outs_h] = head
+    carrier = if root?, do: :x, else: row(hd(block), "c")
+
+    env =
+      [
+        {index, carrier}
+        | for({{:var, nm}, r} <- Enum.zip(outs_h, tl(block)), do: {nm, row(r, "c")})
+      ]
+      |> Map.new()
+
+    keys = Map.new(Enum.zip(head, block), fn {{:var, nm}, r} -> {nm, Ast.cell(r)} end)
+    calls = for {:call, n, [at | outs]} <- body, do: {n, at, outs}
+    {env, derefs, used} = closure_derefs(calls, env, keys, plan, table)
+
+    cells =
+      Enum.map(plan.rows, fn r ->
+        cond do
+          r == hd(block) and root? -> v(:x)
+          r in block or r in used -> v(row(r, "c"))
+          r == table.tag -> Map.fetch!(table.tags, rname)
+          r in plan.dynamic -> 1
+          true -> 0
+        end
+      end)
+
+    len = if plan.len?, do: [v(:len)], else: []
+    enums = for ptr <- used, do: quote(do: between(self, 1, x1, unquote(v(row(ptr, "c")))))
+
+    with {:ok, guards} <- rel_guards(body, env),
+         {:ok, equations} <- rel_equations(body, i, env) do
+      goals =
+        quote do
+          freeze(x, [x > 1])
+          unquote_splicing(AL.Equations.equation(:x1, [:add, :x, -1], "ix"))
+          unquote_splicing(guards ++ equations)
+          unquote({name, [], [v(:self), v(:x1)] ++ len ++ [v(:t)]})
+          unquote_splicing(enums ++ derefs)
+        end
+
+      {:ok, defmethod(name, [v(:self), v(:x) | len] ++ [[{:|, [], [cells, v(:t)]}]], goals)}
+    end
+  end
+
+  # A call reads the pointed column off the trace: the pointed column
+  # must wear the callee's tag, its index cell must be the target --
+  # an equation, so a bound cell can also name the target -- and each
+  # output is the callee's row there.
+  @spec closure_derefs(list(), map(), map(), plan(), map()) ::
+          {map(), [Macro.t()], [pos_integer()]}
+  defp closure_derefs(calls, env, keys, plan, table) do
+    calls
+    |> Enum.with_index()
+    |> Enum.reduce({env, [], []}, fn {{callee, at, outs}, j}, {env, derefs, used} ->
+      ptr = Map.fetch!(table.pointers, target_key(at, keys))
+      cblock = Map.fetch!(table.rows, callee)
+      ipos = Enum.find_index(plan.rows, &(&1 == hd(cblock)))
+      {ix, rw, dt} = {v(:"ix#{j}"), v(:"rw#{j}"), v(:"dt#{j}")}
+
+      tpos = Enum.find_index(plan.rows, &(&1 == table.tag))
+      tg = v(:"tg#{j}")
+
+      pin = [
+        quote(do: vm_is(unquote(ix), x1 - unquote(v(row(ptr, "c"))))),
+        quote(do: at(t, unquote(ix), unquote(rw))),
+        quote(do: at(unquote(rw), unquote(tpos), unquote(tg))),
+        quote(do: unify(unquote(tg), unquote(Map.fetch!(table.tags, callee)))),
+        quote(do: at(unquote(rw), unquote(ipos), unquote(dt)))
+      ]
+
+      {:ok, pexpr} = rel_prefix(at, env)
+      pin = pin ++ AL.Equations.equation(:"dt#{j}", pexpr, "pt#{j}", free: [:x, :len])
+
+      {env, reads} =
+        outs
+        |> Enum.with_index(2)
+        |> Enum.reduce({env, []}, fn {{:var, nm}, k}, {env, reads} ->
+          r = Enum.at(cblock, k - 1)
+          pos = Enum.find_index(plan.rows, &(&1 == r))
+          d = :"d#{ptr}v#{r}"
+
+          {Map.put(env, nm, d),
+           reads ++ [quote(do: at(unquote(rw), unquote(pos), unquote(v(d))))]}
+        end)
+
+      {env, derefs ++ AL.Equations.frozen([:t, row(ptr, "c")], pin ++ reads), used ++ [ptr]}
+    end)
+  end
+
+  # The target as Lang keyed it: cells for the head's own rows.
+  @spec target_key(term(), %{atom() => Ast.term_t()}) :: Ast.term_t()
+  defp target_key(q, _keys) when is_integer(q), do: q
+  defp target_key({:var, nm}, keys), do: Map.fetch!(keys, nm)
+  defp target_key({:add, t, u}, keys), do: Ast.add(target_key(t, keys), target_key(u, keys))
+  defp target_key({:mul, t, u}, keys), do: Ast.mul(target_key(t, keys), target_key(u, keys))
 
   # Rows are the head; affine offsets schedule their pointers, computed
   # targets carry theirs on the trace and enumerate when nothing binds.
@@ -396,7 +645,9 @@ defmodule Zkfol.Al do
       window: ks |> Enum.map(&(-&1)) |> Enum.max(fn -> 0 end),
       dynamic: computed |> Map.values() |> Enum.sort(),
       len?: mentions_len?(clauses),
-      arity: a + map_size(offsets) + map_size(computed)
+      arity: a + map_size(offsets) + map_size(computed),
+      asked: Enum.to_list(1..a) ++ Map.values(computed),
+      counter: :row
     }
 
     {:ok, plan, computed}
@@ -608,6 +859,23 @@ defmodule Zkfol.Al do
     basedon = Keyword.get(opts, :basedon)
 
     on_installed(program, opts, fn branch, heap ->
+      # A closure's chain equations always invert -- the counter is
+      # only ever descended by one -- so a free counter resolves
+      # structurally: the terminal names the bottom and the descent
+      # names every level above it. Ask once that way first; the
+      # deepening below is the fallback for what one budget cannot
+      # reach.
+      resolved =
+        if plan.counter == :argument and match?(%Range{}, counts) do
+          case AL.eval(query(name, v(:zkc), bind, plan), nil, branch, heap: min(heap, 20_000_000)) do
+            {:atomic, _} = derived ->
+              deliver(derived, pred, :derive, plan, branch, name, basedon)
+
+            _unresolved ->
+              nil
+          end
+        end
+
       # One eval per candidate, and that is the point. AL caps a single
       # eval at 200_000 reductions (@max_reductions, a compile-time
       # constant with no per-call override; `:heap` is the process heap
@@ -616,20 +884,21 @@ defmodule Zkfol.Al do
       # time. The same search stated inside AL as one `between` over
       # the range is correct and reads better, and dies around a
       # hundred and fifty columns.
-      Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
-        query = query(name, count, bind, plan)
+      resolved ||
+        Enum.reduce_while(counts, {:error, {:no_derivation, %{}}}, fn count, deepest ->
+          query = query(name, count, bind, plan)
 
-        case AL.eval([query], nil, branch, heap: heap) do
-          {:atomic, _} = derived ->
-            {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
+          case AL.eval(query, nil, branch, heap: heap) do
+            {:atomic, _} = derived ->
+              {:halt, deliver(derived, pred, count, plan, branch, name, basedon)}
 
-          {:aborted, _} = refused ->
-            {:cont, keep_named(refused, deepest, count, name)}
+            {:aborted, _} = refused ->
+              {:cont, keep_named(refused, deepest, count, name)}
 
-          exceeded ->
-            {:halt, Refusal.from_al(exceeded)}
-        end
-      end)
+            exceeded ->
+              {:halt, Refusal.from_al(exceeded)}
+          end
+        end)
     end)
   end
 
@@ -638,10 +907,12 @@ defmodule Zkfol.Al do
   defp landing(:head), do: AL.Branch.head().id
   defp landing(other), do: other
 
-  # Row one is the count, so the goal carries the candidate there
-  # rather than in an argument of its own.
-  @spec query(atom(), integer(), bind(), plan()) :: struct()
-  defp query(name, count, bind, plan) do
+  # For a lone relation row one is the count, so the goal carries the
+  # candidate there. A closure's rows are nobody's count, so the counter
+  # rides as its own argument, and the goal pins the trace's head while
+  # `t` stays whole for deliver to read.
+  @spec query(atom(), integer() | Macro.t(), bind(), plan()) :: [struct()]
+  defp query(name, count, bind, %{counter: :row} = plan) do
     goal =
       Enum.map(plan.rows, fn
         1 -> count
@@ -649,7 +920,19 @@ defmodule Zkfol.Al do
       end)
 
     args = goal ++ if(plan.len?, do: [count], else: []) ++ [v(:t)]
-    AL.ast_to_pattern({name, [], [@class | args]})
+    [AL.ast_to_pattern({name, [], [@class | args]})]
+  end
+
+  defp query(name, count, bind, plan) do
+    goal =
+      Enum.map(plan.rows, fn
+        1 -> count
+        r -> Map.get(bind, r, v(row(r, "c")))
+      end)
+
+    len = if plan.len?, do: [count], else: []
+    pin = quote(do: unify(unquote([{:|, [], [goal, v(:rest)]}]), t))
+    Enum.map([pin, {name, [], [@class, count | len] ++ [v(:t)]}], &AL.ast_to_pattern/1)
   end
 
   # Deepening keeps the deepest refusal for the day none derives.
@@ -666,14 +949,15 @@ defmodule Zkfol.Al do
   @spec deliver(
           {:atomic, {AL.Var.bindings(), AL.t()}},
           Ast.pred(),
-          pos_integer(),
+          pos_integer() | :derive,
           plan(),
           AL.Branch.t(),
           atom(),
           pos_integer() | nil
         ) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  defp deliver({:atomic, {bindings, _state}}, pred, count, plan, branch, name, basedon) do
+  defp deliver({:atomic, {bindings, _state}}, pred, asked, plan, branch, name, basedon) do
     trace = bindings |> AL.Var.deref(:"$t") |> AL.Var.subst(bindings) |> Enum.reverse()
+    count = if is_integer(asked), do: asked, else: length(trace)
 
     columns =
       plan.rows
