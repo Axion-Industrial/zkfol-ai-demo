@@ -26,10 +26,16 @@ Name topics `name/description` (e.g., `mariari/fix-ordering-unchecked-mnesia`).
 2. **Base topics on base**, not on `main` or `next`.  Basing on
    `main` drags in unrelated merges, creates spurious conflict bases,
    and prevents other topics from cleanly reusing your work.
+   `next` is a rebuildable collector: never rebase onto it or build
+   on it; topics enter only by merge.  Cleanup whose target shape
+   exists only in the integrated tree is finalization work — plain
+   commits on the collector's spine — not a topic.
 
-3. **Base bug fixes on the commit that introduced the bug.**  This
-   lets the fix merge cleanly into any `maint` branch.  Use
-   `git blame` to find the introducing commit.
+3. **A fix goes where the bug was born.**  In *unreleased* history,
+   fold the fix into the commit that introduced it (reroll — the
+   mistake never happened).  In *released* history, base the fix
+   topic on the introducing commit, so it merges cleanly into any
+   `maint` branch.  Use `git blame` to find it.
 
 4. **Merge other people's topics into yours** if you need their
    work — don't rebase onto `main`.
@@ -99,3 +105,5 @@ commits need surgery.  Use it to:
 
 - First line: imperative summary of what changed.
 - Body: explain what was wrong and the fix rationale.
+- End with `Co-Authored-By:` only — never a session-URL trailer
+  (dead link).

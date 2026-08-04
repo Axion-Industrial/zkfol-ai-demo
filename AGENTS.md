@@ -27,7 +27,9 @@ them; do not rely on paraphrase (they evolve):
   `Examples.E<Module>` in via `use ExExample.ExUnit`).
 - `mix dialyzer` — type check (config in `.dialyzer_ignore.exs`).
 - `mix format` — 98-char lines; run before finalizing.
-- One-off: `timeout 60 mix run -e 'Examples.EFacts.factorial()'` (never `--no-halt`).
+- One-off: `MIX_ENV=test timeout 60 mix run -e 'Examples.EFacts.factorial()'` (never
+  `--no-halt`; dev's mnesia store belongs to the live GT node). The test env lands
+  every solve on one shared AL branch, so the suite runs in ~2s — run it freely.
 - Examples live in `lib/examples/e_<module>.ex`, module `E<Module>`. They are the
   primary verification — **run them, don't reason from signatures**.
 
@@ -38,11 +40,17 @@ its stage a sum-type — `Raw` → `Lowered` → `Solved`:
 
 - `Zkfol.Lang` — the relational surface: `defrel`/`rel` macros → a predicate (`Ast`).
 - `Zkfol.Al` — the AL backend: runs the statement as clauses, the derivation IS the
-  witness (judged by the oracle). `Zkfol.Facts` reads order-2 descriptors; `Zkfol.Doubling`
-  rewrites recurrences to a log-depth kernel.
+  witness (judged by the oracle). A free count asks the *question* first — the clauses
+  as plain AL (`Al.question/1`), no trace, no size — then the structural ask; refusals
+  are typed (`no_answer` is a finite no, `unresolved_within_budget` outran AL's fixed
+  200k-reduction budget) and nothing searches by witness size. Predicates that call
+  predicates compile to one chain, each column wearing its relation's tag. Surface
+  guards (`x > 2`) steer the derivation but do not reach the emitted predicate.
+  `Zkfol.Facts` reads order-2 descriptors; `Zkfol.Doubling` rewrites recurrences to a
+  log-depth kernel.
 - `Zkfol.Witness` — derives the witness via `Al.solve`.
 - `Zkfol.Uair` — `emit/3` translates a Solved statement to Figure 2 over committed
-  columns; `prove/3` proves it on Zinc+. Mode is a sum: `Uair.Plain | Lookup | Composed`
+  columns; `prove/3` proves it on Zinc+. Mode is a sum: `Uair.Plain | Composed`
   (`Composed` = Section 4 lowering for unscheduled pointers; its reads prove
   natively on Zinc+'s pointer query).
 - `Zkfol` — the front door: `compile/2` / `emit/2`, journalling the whole act.
@@ -50,19 +58,19 @@ its stage a sum-type — `Raw` → `Lowered` → `Solved`:
 Cross-cutting: `Zkfol.Ast` (the algebra, Figure 2), `Zkfol.Refusal` (typed refusals —
 `{reason, detail}`, never string errors), `Zkfol.Log` (the command log = the only durable
 state, mnesia; `application.ex` runs `Log.setup` + the `Prover`), `Zkfol.Interpretation`/
-`Semantics`/`Range` (the witness oracle), `Zkfol.ZincPlus` (the NIF boundary).
+`Semantics` (the witness oracle: an interpretation is Def 2.16's matrix over N, `eval` is
+Figure 3 with `:error` for the undefined cell, `valid?/2` the judgement), `Zkfol.ZincPlus`
+(the NIF boundary). Machinery ships only with a producer: the BitPoly `Lookup` mode and
+`Zkfol.Range` were removed until an emitter exists; their return paths are documented.
 
 `src/` is a **Glamorous Toolkit** Tonel package (live views over a uair, the pipeline as
 a graph) that reads the running node over `gt_bridge` — independent of `lib/`.
 
-## Git workflow — topic-branch DAG (see git-conventions skill)
+## Git workflow
 
-Topics form a DAG off `base`/`main`, not a linear spine. A commit compiles and passes its
-examples; a topic is a unit of concern. Single-prerequisite topics **base on** their
-prereq; multi-prerequisite topics **merge** the minimal set (transitive-reduced — never
-double-merge). `next` is a rebuildable collector: never rebase onto it or build on it;
-topics enter only by merge. Bug fixes fold into the commit that introduced them. Commit
-messages end with `Co-Authored-By:` only — **never a session-URL trailer** (dead link).
+The rules live in the git-conventions skill — read it, don't paraphrase it. The
+shape in one line: topics form a DAG off `base`, one concern each; `next` is a
+rebuildable collector that topics enter only by merge.
 
 ## Project-specific notes
 
