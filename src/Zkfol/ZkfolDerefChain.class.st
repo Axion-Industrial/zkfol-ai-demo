@@ -6,6 +6,7 @@ Class {
 		'position',
 		'read',
 		'address',
+		'target',
 		'addressBits',
 		'valueRow',
 		'resultRow',
@@ -27,7 +28,8 @@ ZkfolDerefChain class >> onGrid: aGrid position: aPosition read: aRead index: aO
 
 { #category : 'accessing' }
 ZkfolDerefChain >> address [
-	"The target position the pointer bits spell out."
+	"The number the pointer bits spell, 0-based in the reversed
+	 committed layout."
 	^ address
 ]
 
@@ -71,11 +73,11 @@ ZkfolDerefChain >> threads [
 	self targetCell ifNil: [ ^ #() ].
 	colour := self displayColor.
 	^ (self bitRowIndices collect: [ :bitRow |
-		(bitRow @ position -> (valueRow @ address)) -> colour ]) ,
+		(bitRow @ position -> (valueRow @ target)) -> colour ]) ,
 		(self resultCell
 			ifNil: [ #() ]
 			ifNotNil: [ :ignored |
-				{ (valueRow @ address -> (resultRow @ position)) -> colour } ])
+				{ (valueRow @ target -> (resultRow @ position)) -> colour } ])
 ]
 
 { #category : 'accessing' }
@@ -103,13 +105,13 @@ ZkfolDerefChain >> displayColor [
 
 { #category : 'queries' }
 ZkfolDerefChain >> facts [
-	"My chain spelled out: what my bits say, where that points, what is
-	 actually there, and what my result row claims instead. The address
-	 and the target position were always the same number said twice; it
-	 is said once now."
+	"My chain spelled out: what my bits say, the displayed position that
+	 number names, what is actually there, and what my result row claims
+	 instead."
 	^ {
 		'address bits' -> (', ' join: (addressBits collect: [ :b | b printString ])).
 		'address' -> address.
+		'target position' -> target.
 		'value row' -> valueRow.
 		'value at target' -> self valueAtTarget.
 		'result row' -> resultRow.
@@ -127,6 +129,7 @@ ZkfolDerefChain >> failureSummary [
 		  nextPutAll: ': bits ';
 		  nextPutAll: (', ' join: (addressBits collect: [ :b | b printString ]));
 		  nextPutAll: ' spell address '; print: address;
+		  nextPutAll: ', position '; print: target;
 		  nextPutAll: '  ->  row '; print: valueRow;
 		  nextPutAll: ' there holds '; print: self valueAtTarget;
 		  nextPutAll: ', but row '; print: resultRow;
@@ -195,7 +198,7 @@ ZkfolDerefChain >> printOn: aStream [
 		nextPutAll: 'deref at ';
 		print: position;
 		nextPutAll: ' -> ';
-		print: address.
+		print: target.
 	self agrees ifFalse: [ aStream nextPutAll: ' (disagrees)' ]
 ]
 
@@ -221,7 +224,8 @@ ZkfolDerefChain >> resultRow [
 ZkfolDerefChain >> setGrid: aGrid position: aPosition read: aRead index: aOneBasedIndex [
 	"The address is spelled little-endian from the read's own bit rows
 	 at this position, so a missing or non-integer bit contributes
-	 nothing rather than raising."
+	 nothing rather than raising; it counts 0-based in the reversed
+	 committed layout."
 	| bitRows |
 	grid := aGrid.
 	position := aPosition.
@@ -232,20 +236,29 @@ ZkfolDerefChain >> setGrid: aGrid position: aPosition read: aRead index: aOneBas
 	address := 0.
 	addressBits doWithIndex: [ :bit :nu |
 		bit isInteger ifTrue: [ address := address + (bit bitShift: nu - 1) ] ].
+	target := aGrid tracesOrder
+		ifTrue: [ aGrid fullWidth - address ]
+		ifFalse: [ address + 1 ].
 	valueRow := aRead at: #value_row ifAbsent: [ nil ].
 	resultRow := aRead at: #result_row ifAbsent: [ nil ]
+]
+
+{ #category : 'accessing' }
+ZkfolDerefChain >> target [
+	"The displayed position my address names."
+	^ target
 ]
 
 { #category : 'queries' }
 ZkfolDerefChain >> targetCell [
 	"The cell my address points at: the far end of the chain."
-	^ valueRow ifNotNil: [ :r | grid cellAtRow: r position: address ]
+	^ valueRow ifNotNil: [ :r | grid cellAtRow: r position: target ]
 ]
 
 { #category : 'queries' }
 ZkfolDerefChain >> valueAtTarget [
 	"What sits in the value row at the position my address names."
-	^ valueRow ifNotNil: [ :r | grid valueAtRow: r position: address ]
+	^ valueRow ifNotNil: [ :r | grid valueAtRow: r position: target ]
 ]
 
 { #category : 'accessing' }
