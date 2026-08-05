@@ -29,8 +29,7 @@ defmodule Zkfol.MixProject do
       {:rustler, "~> 0.38.0", runtime: false},
       {:gt_bridge, "~> 0.19.2", override: true},
       {:al,
-       git: "https://github.com/anoma/AL-Ex.git",
-       branch: "mariari/shed-keeps-the-domino-trace"},
+       git: "https://github.com/anoma/AL-Ex.git", branch: "mariari/shed-keeps-the-domino-trace"},
       {:typed_struct, "~> 0.3"},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]

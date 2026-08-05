@@ -25,10 +25,10 @@ defmodule Examples.EUair do
   alias Zkfol.ZincPlus
 
   @spec big_values_prove(pos_integer()) :: Log.Ran.t()
-  example big_values_prove(n \\ 99) do
+  example big_values_prove(n \\ 98) do
     # The plain route on purpose: the trace's own values need int768.
     route = EUser.plain()
-    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [n]}, pipeline: route)
+    ran = Zkfol.compile(%Statement{rels: [EFacts.factorial()], args: [n]}, pipeline: route)
 
     assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
     assert report.backend =~ "int768"
@@ -108,7 +108,7 @@ defmodule Examples.EUair do
     {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
 
     {:ok, generic} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(32)))
+      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(20)))
 
     assert Uair.num_cols(kernel) == 8
     assert Uair.num_cols(generic) == 6

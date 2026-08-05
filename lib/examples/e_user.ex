@@ -127,7 +127,7 @@ defmodule Examples.EUser do
       end
 
     {:error, reason} = Al.solve(unseeded, [4])
-    assert elem(reason, 0) in [:no_derivation, :no_derivation_at_count, :witness_value_negative]
+    assert elem(reason, 0) == :no_answer
     reason
   end
 
