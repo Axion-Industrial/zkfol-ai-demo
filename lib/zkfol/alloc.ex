@@ -86,6 +86,44 @@ defmodule Zkfol.Alloc do
     {:refused, reason} -> {:error, reason}
   end
 
+  @doc """
+  I plan a statement's regions: the root's trace rows first, then one
+  region per layout-bearing relation in scope order, publicity read
+  off the layouts. `:trace` names the root's region, so no object may
+  wear it.
+  """
+  @spec plan([Zkfol.Lang.Rel.t()], pos_integer()) :: {:ok, t()} | {:error, Refusal.t()}
+  def plan(rels, root_width) do
+    objects = Enum.filter(rels, & &1.layout)
+
+    case Enum.find(objects, &(&1.name == :trace)) do
+      nil ->
+        {:ok,
+         new(
+           [trace: root_width] ++ for(rel <- objects, do: {rel.name, rel.layout.rows}),
+           public: for(rel <- objects, rel.layout.public, do: rel.name)
+         )}
+
+      _trace ->
+        {:error, {:reserved_symbol, %{symbol: :trace}}}
+    end
+  end
+
+  @doc """
+  I read the family off the statement: the root's derivation as
+  `:trace` plus each object's data. An object without facts is an
+  existential nothing filled, and refuses.
+  """
+  @spec family([Zkfol.Lang.Rel.t()], Interpretation.t()) ::
+          {:ok, %{atom() => Interpretation.t()}} | {:error, Refusal.t()}
+  def family(rels, root_itp) do
+    objects = Enum.filter(rels, & &1.layout)
+
+    with {:ok, datas} <- Refusal.map(objects, &object_data/1) do
+      {:ok, Map.new([{:trace, root_itp} | Enum.zip(Enum.map(objects, & &1.name), datas)])}
+    end
+  end
+
   ############################################################
   #                   Private Implementation                 #
   ############################################################
@@ -139,4 +177,11 @@ defmodule Zkfol.Alloc do
 
   @spec pad([non_neg_integer()], pos_integer()) :: [non_neg_integer()]
   defp pad([base | _rest] = row, len), do: row ++ List.duplicate(base, len - length(row))
+
+  @spec object_data(Zkfol.Lang.Rel.t()) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp object_data(rel) do
+    if Zkfol.Matrix.extensional?(rel),
+      do: {:ok, Zkfol.Matrix.data(rel)},
+      else: {:error, {:existential_unfilled, %{symbol: rel.name}}}
+  end
 end

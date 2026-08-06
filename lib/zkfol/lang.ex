@@ -37,6 +37,7 @@ defmodule Zkfol.Lang do
       field(:name, atom())
       field(:arity, pos_integer())
       field(:clauses, [{[term()], [term()]}])
+      field(:layout, Zkfol.Matrix.t() | nil, default: nil, enforce: false)
     end
   end
 

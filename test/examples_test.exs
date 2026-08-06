@@ -45,3 +45,7 @@ end
 defmodule Examples.EAllocTest do
   use ExExample.ExUnit, for: Examples.EAlloc
 end
+
+defmodule Examples.EMatrixTest do
+  use ExExample.ExUnit, for: Examples.EMatrix
+end
