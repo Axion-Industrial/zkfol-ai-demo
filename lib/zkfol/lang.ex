@@ -298,6 +298,21 @@ defmodule Zkfol.Lang do
   @spec branch({[term()], [term()]}, [pos_integer()], rows(), tag(), pointers()) ::
           {:ok, {Ast.pred(), [pos_integer()]}, pointers()} | {:error, Refusal.t()}
   defp branch({params, body}, rows, values, tag, pointers) do
+    with :ok <- columns(params), do: branch_goals({params, body}, rows, values, tag, pointers)
+  end
+
+  # A head names columns: variables and pinned integers, nothing computed.
+  @spec columns([term()]) :: :ok | {:error, Refusal.t()}
+  defp columns(params) do
+    case Enum.find(params, &(not (match?({:var, _}, &1) or is_integer(&1)))) do
+      nil -> :ok
+      bad -> {:error, {:head_not_a_column, %{head: bad}}}
+    end
+  end
+
+  @spec branch_goals({[term()], [term()]}, [pos_integer()], rows(), tag(), pointers()) ::
+          {:ok, {Ast.pred(), [pos_integer()]}, pointers()} | {:error, Refusal.t()}
+  defp branch_goals({params, body}, rows, values, tag, pointers) do
     bound = Enum.zip(params, Enum.map(rows, &Ast.cell/1))
 
     env =
