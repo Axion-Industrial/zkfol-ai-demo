@@ -87,41 +87,50 @@ defmodule Zkfol.Alloc do
   end
 
   @doc """
-  I plan a statement's regions: the root's trace rows first, then one
-  region per layout-bearing relation in scope order, publicity read
-  off the layouts. `:trace` names the root's region, so no object may
-  wear it.
+  I am the rows a statement stands on: each member's arguments in
+  closure order, the tag row behind them, the pointer bank, then the
+  objects it declares, publicity read off their layouts.
+  `Zkfol.Lang` names the derivation's rows; the numbering is mine,
+  and an object's bank is as much mine as a member's.
   """
-  @spec plan([Zkfol.Lang.Rel.t()], pos_integer()) :: {:ok, t()} | {:error, Refusal.t()}
-  def plan(rels, root_width) do
-    objects = Enum.filter(rels, & &1.layout)
+  @spec assign(Zkfol.Lang.shape(), [Zkfol.Lang.Rel.t()]) :: t()
+  def assign(shape, objects \\ []) do
+    new(
+      for(name <- shape.members, do: {name, shape.arities[name]}) ++
+        if(shape.tags == %{}, do: [], else: [{:tag, 1}]) ++
+        if(shape.pointers == [], do: [], else: [{:ptr, length(shape.pointers)}]) ++
+        for(rel <- objects, do: {rel.name, rel.layout.rows}),
+      public: for(rel <- objects, rel.layout.public, do: rel.name)
+    )
+  end
 
-    case Enum.find(objects, &(&1.name == :trace)) do
-      nil ->
-        {:ok,
-         new(
-           [trace: root_width] ++ for(rel <- objects, do: {rel.name, rel.layout.rows}),
-           public: for(rel <- objects, rel.layout.public, do: rel.name)
-         )}
+  @doc "I am how many rows I assign in all."
+  @spec width(t()) :: non_neg_integer()
+  def width(%__MODULE__{regions: regions}), do: regions |> Enum.map(&elem(&1, 1)) |> Enum.sum()
 
-      _trace ->
-        {:error, {:reserved_symbol, %{symbol: :trace}}}
-    end
+  @doc """
+  I read a symbol's bank back out of a laid witness: `interpret/2`
+  then me is the identity on every region that needed no padding.
+  """
+  @spec region(Interpretation.t(), t(), atom()) :: Interpretation.t()
+  def region(%Interpretation{} = witness, %__MODULE__{} = alloc, sym) do
+    Interpretation.new(
+      for i <- rows(alloc, sym) do
+        for x <- 1..Interpretation.len(witness), do: Interpretation.at(witness, i, x)
+      end
+    )
   end
 
   @doc """
-  I read the family off the statement: the root's derivation as
-  `:trace` plus each object's data. An object without facts is an
-  existential nothing filled, and refuses.
+  I am the banks a statement's objects declare, each read off its own
+  facts. An object without facts is an existential nothing filled,
+  and refuses.
   """
-  @spec family([Zkfol.Lang.Rel.t()], Interpretation.t()) ::
+  @spec declared([Zkfol.Lang.Rel.t()]) ::
           {:ok, %{atom() => Interpretation.t()}} | {:error, Refusal.t()}
-  def family(rels, root_itp) do
-    objects = Enum.filter(rels, & &1.layout)
-
-    with {:ok, datas} <- Refusal.map(objects, &object_data/1) do
-      {:ok, Map.new([{:trace, root_itp} | Enum.zip(Enum.map(objects, & &1.name), datas)])}
-    end
+  def declared(objects) do
+    with {:ok, datas} <- Refusal.map(objects, &object_data/1),
+         do: {:ok, Map.new(Enum.zip(Enum.map(objects, & &1.name), datas))}
   end
 
   ############################################################

@@ -2,13 +2,14 @@ defmodule Examples.EMatrix do
   @moduledoc """
   I am the object level's evidence: declared data carries its layout,
   builds from runtime rows, reads back dense with the absent-cell
-  sentinel, and plans its own region beside the trace.
+  sentinel, and takes its bank behind the derivation.
   """
 
   use ExExample
 
   import ExUnit.Assertions
 
+  alias Examples.EUser
   alias Zkfol.Alloc
   alias Zkfol.Interpretation
   alias Zkfol.Matrix
@@ -58,54 +59,33 @@ defmodule Examples.EMatrix do
     g
   end
 
-  @spec plan_regions_root_then_objects() :: Alloc.t()
-  example plan_regions_root_then_objects do
-    {:ok, alloc} = Alloc.plan([clue_corner()], 3)
+  @spec an_object_takes_its_bank_behind_the_derivation() :: Alloc.t()
+  example an_object_takes_its_bank_behind_the_derivation do
+    {:ok, shape} = Zkfol.Lang.compile(EUser.fib(), [EUser.fib()])
+    alloc = Alloc.assign(shape, [clue_corner()])
 
-    assert alloc.regions == [trace: 3, puzzle: 2]
+    derivation = Alloc.assign(shape)
+
+    assert Alloc.rows(alloc, :fib) == Alloc.rows(derivation, :fib)
+    assert Alloc.rows(alloc, :puzzle) == (Alloc.width(derivation) + 1)..Alloc.width(alloc)
     assert alloc.public == [:puzzle]
-    assert Alloc.rows(alloc, :puzzle) == 4..5
     alloc
   end
 
-  @spec an_object_may_not_wear_trace() :: Zkfol.Refusal.t()
-  example an_object_may_not_wear_trace do
-    {:error, reason} = Alloc.plan([Matrix.new(:trace, {1, 1})], 1)
+  @spec declared_banks_read_their_facts() :: %{atom() => Interpretation.t()}
+  example declared_banks_read_their_facts do
+    {:ok, banks} = Alloc.declared([clue_corner()])
 
-    assert {:reserved_symbol, %{symbol: :trace}} = reason
-    reason
-  end
-
-  @spec family_reads_extensional_objects() :: %{atom() => Interpretation.t()}
-  example family_reads_extensional_objects do
-    root = Interpretation.new([[1, 2], [2, 3], [3, 4]])
-    {:ok, family} = Alloc.family([clue_corner()], root)
-
-    assert %{trace: ^root, puzzle: %Interpretation{}} = family
-    family
+    assert %{puzzle: itp} = banks
+    assert Interpretation.rows(itp) == [[5, 0], [0, 3]]
+    banks
   end
 
   @spec an_unfilled_existential_refuses() :: Zkfol.Refusal.t()
   example an_unfilled_existential_refuses do
-    {:error, reason} =
-      Alloc.family([an_existential_declares_without_facts()], Interpretation.new([[1]]))
+    {:error, reason} = Alloc.declared([an_existential_declares_without_facts()])
 
     assert {:existential_unfilled, %{symbol: :g}} = reason
     reason
-  end
-
-  @spec a_planned_object_statement_holds() :: Interpretation.t()
-  example a_planned_object_statement_holds do
-    puzzle = clue_corner()
-    {:ok, alloc} = Alloc.plan([puzzle], 1)
-
-    phi = Zkfol.Ast.eq(Zkfol.Ast.cell({:trace, 1}), Zkfol.Ast.cell({:puzzle, 1}))
-    {:ok, linked} = Alloc.link(phi, alloc)
-
-    {:ok, family} = Alloc.family([puzzle], Interpretation.new([[5, 0]]))
-    {:ok, witness} = Alloc.interpret(alloc, family)
-
-    assert Zkfol.Semantics.valid?(linked, witness)
-    witness
   end
 end

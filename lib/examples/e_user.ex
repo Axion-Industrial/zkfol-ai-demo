@@ -189,8 +189,8 @@ defmodule Examples.EUser do
     assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs]
 
     # The closure walk takes what it calls and ignores the rest.
-    {:ok, %{rows: rows}} = Lang.compile(root, program)
-    assert Map.keys(rows) == [:fib]
+    {:ok, shape} = Lang.compile(root, program)
+    assert shape.members == [:fib]
     program
   end
 

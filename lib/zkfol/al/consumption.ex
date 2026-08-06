@@ -14,8 +14,8 @@ defmodule Zkfol.Al.Consumption do
 
   @doc "I am each fact's consumption: its call sites' pointer rows beside the facts they used."
   @spec of([fact()], [Rel.t()], map()) :: %{fact() => [{pos_integer(), fact()}]}
-  def of(facts, members, table) do
-    sites = clause_sites(members, table)
+  def of(facts, members, shape) do
+    sites = clause_sites(members, shape)
     by_name = Enum.group_by(facts, &elem(&1, 0))
     Map.new(facts, &{&1, consumed(&1, sites, by_name)})
   end
@@ -100,11 +100,11 @@ defmodule Zkfol.Al.Consumption do
   # order, as Lang allocated them.
   @spec clause_sites([Rel.t()], map()) ::
           %{atom() => [{[term()], [{atom(), [term()], pos_integer()}]}]}
-  defp clause_sites(members, table) do
+  defp clause_sites(members, shape) do
     Map.new(members, fn rel ->
       per_clause =
         rel.clauses
-        |> Enum.zip(Map.fetch!(table.calls, rel.name))
+        |> Enum.zip(Map.fetch!(shape.calls, rel.name))
         |> Enum.map(fn {{head, body}, rows} ->
           calls = for {:call, callee, cargs} <- body, do: {callee, cargs}
           {head, Enum.zip_with(calls, rows, fn {callee, cargs}, row -> {callee, cargs, row} end)}

@@ -483,20 +483,33 @@ defmodule Zkfol.Face do
   @spec row_labels([Lang.Rel.t()], map() | nil) :: [String.t()]
   defp row_labels(_rels, nil), do: []
 
-  defp row_labels(rels, table) do
+  defp row_labels(rels, shape) do
     scope = Map.new(rels, &{&1.name, &1})
+    alloc = Zkfol.Alloc.assign(shape)
 
     named =
-      for {name, rows} <- table.rows, {r, i} <- Enum.with_index(rows, 1), into: %{} do
-        {r, member_row(scope[name], name, i)}
-      end
-
-    named = if table.tag, do: Map.put(named, table.tag, "tag"), else: named
+      for name <- shape.members,
+          {r, i} <- Enum.with_index(Zkfol.Alloc.rows(alloc, name), 1),
+          into: %{},
+          do: {r, member_row(scope[name], name, i)}
 
     named =
-      Map.merge(named, Map.new(table.pointers, fn {at, r} -> {r, "ptr " <> term_text(at)} end))
+      if shape.tags == %{},
+        do: named,
+        else: Map.put(named, Zkfol.Alloc.offset(alloc, :tag) + 1, "tag")
 
-    for r <- 1..table.width, do: Map.get(named, r, "C#{r}")
+    named =
+      if shape.pointers == [],
+        do: named,
+        else:
+          Map.merge(
+            named,
+            Map.new(Enum.zip(Zkfol.Alloc.rows(alloc, :ptr), shape.pointers), fn {r, at} ->
+              {r, "ptr " <> term_text(at)}
+            end)
+          )
+
+    for r <- 1..Zkfol.Alloc.width(alloc), do: Map.get(named, r, "C#{r}")
   end
 
   @spec member_row(Lang.Rel.t(), atom(), pos_integer()) :: String.t()

@@ -82,7 +82,7 @@ defmodule Examples.EUair do
   @spec concurrent_proves_hold() :: [{:ok, Prover.Report.t(), pos_integer()}]
   example concurrent_proves_hold do
     factorial = EFacts.factorial()
-    {:ok, %{pred: factorial_pred}} = Lang.compile(factorial, [factorial])
+    {:ok, factorial_pred} = Lang.lower(factorial, [factorial])
     {:ok, factorial_witness} = Al.solve(factorial, [6])
 
     reports =

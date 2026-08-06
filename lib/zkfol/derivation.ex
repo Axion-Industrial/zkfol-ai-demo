@@ -1,29 +1,45 @@
-defmodule Zkfol.Al.Lay do
+defmodule Zkfol.Derivation do
   @moduledoc """
-  I lay the derivation's facts as the witness: one column per fact,
-  a member's rows carrying its tuple, the tag row wearing its
-  relation, each call site's pointer row holding the consumed fact's
-  position, unread cells padding. Position is identity; no argument
-  is the count. The oracle judges every column.
+  I am the extension a run established, laid as a region: one column
+  per fact, a member's rows carrying its tuple, the tag row wearing
+  its relation, each call site's pointer row holding the consumed
+  fact's position, unread cells padding. Position is identity; no
+  argument is the count. The oracle judges every column.
 
-  I am the linker's work done here: when `Zkfol.Alloc` receives the
-  layout, I cross the boundary.
+  I am `Zkfol.Matrix`'s mirror: a relation plus its extension becomes
+  an interpretation either way, mine derived by a run and its
+  declared. `Zkfol.Alloc` stacks what we each produce.
+
+  I lay on the rows `Zkfol.Alloc` assigned the names `Zkfol.Lang`
+  compiled; neither of us counts rows on its own.
   """
 
   alias Zkfol.Al.Consumption
+  alias Zkfol.Alloc
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
   alias Zkfol.Refusal
-  alias Zkfol.Semantics
 
   @typep fact :: {atom(), [term()]}
 
-  @doc "I am the witness of `facts` under `table`'s layout, judged against `pred`."
-  @spec lay([fact()], map(), [Rel.t()], Ast.pred()) ::
-          {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  def lay(facts, table, members, pred) do
-    consumption = Consumption.of(facts, members, table)
+  @doc """
+  I am the banks `facts` fill, one per region `alloc` assigned
+  `shape`'s names: a member's own extension, the tag's column, the
+  pointers' positions. `Zkfol.Alloc` stacks me beside whatever else
+  the statement declares, and the oracle judges the stack.
+  """
+  @spec lay([fact()], Alloc.t(), Zkfol.Lang.shape(), [Rel.t()], Ast.pred()) ::
+          {:ok, %{atom() => Interpretation.t()}} | {:error, Refusal.t()}
+  def lay(facts, alloc, shape, members, pred) do
+    row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
+
+    # Consumption speaks in the names Lang gave; everything below me
+    # is rows, so the pointers land on theirs first.
+    consumption =
+      facts
+      |> Consumption.of(members, shape)
+      |> Map.new(fn {fact, used} -> {fact, for({p, c} <- used, do: {row.(p), c})} end)
 
     schedules =
       case Ast.schedules(pred) do
@@ -33,19 +49,19 @@ defmodule Zkfol.Al.Lay do
 
     order = arrange(facts, consumption, schedules)
     position = order |> Enum.with_index(1) |> Map.new()
-    pointer_rows = table.pointers |> Map.values() |> MapSet.new()
+    pointer_rows = pointer_rows(alloc, shape)
 
     columns =
       Enum.map(order, fn {name, tuple} = fact ->
-        cells = table.rows |> Map.fetch!(name) |> Enum.zip(tuple) |> Map.new()
+        cells = alloc |> Alloc.rows(name) |> Enum.zip(tuple) |> Map.new()
 
         cells =
-          if table.tag,
-            do: Map.put(cells, table.tag, Map.fetch!(table.tags, name)),
-            else: cells
+          if shape.tags == %{},
+            do: cells,
+            else: Map.put(cells, row.({:tag, 1}), Map.fetch!(shape.tags, name))
 
         pointers =
-          Map.new(consumption[fact], fn {row, callee} -> {row, Map.fetch!(position, callee)} end)
+          Map.new(consumption[fact], fn {ptr, callee} -> {ptr, Map.fetch!(position, callee)} end)
 
         Map.merge(cells, pointers)
       end)
@@ -53,7 +69,7 @@ defmodule Zkfol.Al.Lay do
     # A cell still a variable is a row the relation holds at any value:
     # unification left it free, so the witness fills it arbitrarily.
     matrix =
-      for row <- 1..table.width do
+      for row <- 1..Alloc.width(alloc) do
         for cells <- columns do
           cells
           |> Map.get(row, if(MapSet.member?(pointer_rows, row), do: 1, else: 0))
@@ -66,14 +82,24 @@ defmodule Zkfol.Al.Lay do
              List.flatten(matrix),
              &(&1 < 0),
              &{:witness_value_negative, %{value: &1}}
-           ) do
-      witness = Interpretation.new(matrix)
-
-      if Semantics.valid?(pred, witness),
-        do: {:ok, witness},
-        else: {:error, {:witness_invalid, %{}}}
-    end
+           ),
+         do: {:ok, banks(matrix, alloc)}
   end
+
+  # The matrix cut along the regions it was laid on, so what I made
+  # reads back as banks by name.
+  @spec banks([[non_neg_integer()]], Alloc.t()) :: %{atom() => Interpretation.t()}
+  defp banks(matrix, %Alloc{regions: regions} = alloc) do
+    Map.new(regions, fn {name, width} ->
+      {name, matrix |> Enum.slice(Alloc.offset(alloc, name), width) |> Interpretation.new()}
+    end)
+  end
+
+  # An unread cell on a pointer row still names a column, so it pads
+  # with one rather than zero.
+  @spec pointer_rows(Alloc.t(), Zkfol.Lang.shape()) :: MapSet.t()
+  defp pointer_rows(_alloc, %{pointers: []}), do: MapSet.new()
+  defp pointer_rows(alloc, _shape), do: alloc |> Alloc.rows(:ptr) |> MapSet.new()
 
   # A scheduled read welds its consumer exactly k above its callee;
   # the rest keeps callees below their callers.

@@ -105,7 +105,8 @@ defmodule Zkfol.Doubling do
         one(1, ^value)
       end
 
-    with {:ok, %{pred: pred}} <- Zkfol.Lang.compile(one, [one]),
+    with {:ok, shape} <- Zkfol.Lang.compile(one, [one]),
+         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, Zkfol.Alloc.assign(shape)),
          {:ok, witness} <- Al.solve(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
          do:
            {:ok,
@@ -122,8 +123,10 @@ defmodule Zkfol.Doubling do
     count = count(m)
     krel = kernel(descriptor)
 
-    with {:ok, %{pred: pred, rows: %{kernel: [_x, _u, _w, walked, result]}}} <-
-           Zkfol.Lang.compile(krel, [krel]) do
+    with {:ok, shape} <- Zkfol.Lang.compile(krel, [krel]),
+         alloc = Zkfol.Alloc.assign(shape),
+         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, alloc),
+         [_x, _u, _w, walked, result] = Enum.to_list(Zkfol.Alloc.rows(alloc, :kernel)) do
       claims =
         [{@claim, result, count}] ++
           if(private, do: [], else: [{@position, walked, count}])

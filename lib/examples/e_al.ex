@@ -278,7 +278,7 @@ defmodule Examples.EAl do
   # read, and the Word lookup, all judged by the oracle inside emit.
   @spec composed_hop_emits() :: Uair.t()
   example composed_hop_emits do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(hop_rel(), [hop_rel()])
+    {:ok, pred} = Zkfol.Lang.lower(hop_rel(), [hop_rel()])
     witness = value_targets_go_straight_down()
     {:ok, uair} = Uair.emit(pred, witness)
     len = Interpretation.len(witness)
@@ -323,7 +323,7 @@ defmodule Examples.EAl do
   # columns only: the overlap refuses by name at the prover's door.
   @spec claimed_read_row_is_refused() :: Refusal.t()
   example claimed_read_row_is_refused do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(hop_rel(), [hop_rel()])
+    {:ok, pred} = Zkfol.Lang.lower(hop_rel(), [hop_rel()])
     witness = value_targets_go_straight_down()
     {:ok, uair} = Uair.emit(pred, witness, [{"out", 2, 2}])
 
@@ -371,11 +371,14 @@ defmodule Examples.EAl do
   # own, and the three facts nothing reached never materialize.
   @spec a_call_between_relations_derives() :: Interpretation.t()
   example a_call_between_relations_derives do
-    {:ok, %{rows: rows, pointers: pointers, tag: 5, width: 6}} =
-      Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, shape} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    alloc = Zkfol.Alloc.assign(shape)
 
-    assert %{pick: [1, 2], tab: [3, 4]} = rows
-    assert [6] = Map.values(pointers)
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :pick)) == [1, 2]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :tab)) == [3, 4]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :tag)) == [5]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :ptr)) == [6]
+    assert Zkfol.Alloc.width(alloc) == 6
 
     # The list reads root then scope, and the arguments are pick's own
     # two: its index free, its value asked for. Nothing determines the
@@ -399,7 +402,7 @@ defmodule Examples.EAl do
   # demands the pointed column wear tab. The math objects either way.
   @spec a_forged_fact_is_rejected() :: Interpretation.t()
   example a_forged_fact_is_rejected do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, pred} = Zkfol.Lang.lower(pick(), [pick(), tab()])
 
     honest = Interpretation.new([[0, 2], [0, 41], [3, 0], [40, 0], [2, 1], [1, 1]])
     assert Zkfol.Semantics.valid?(pred, honest)
@@ -475,7 +478,7 @@ defmodule Examples.EAl do
     k = Interpretation.at(witness, 4, Interpretation.at(witness, 6, 3))
     assert Interpretation.at(witness, 3, Interpretation.at(witness, 7, 3)) == k
 
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(leap(), [leap(), step()])
+    {:ok, pred} = Zkfol.Lang.lower(leap(), [leap(), step()])
     assert Zkfol.Semantics.valid?(pred, witness)
     witness
   end

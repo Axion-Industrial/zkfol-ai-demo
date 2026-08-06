@@ -3,20 +3,22 @@ defmodule Zkfol.Al do
   I am the AL backend: a statement becomes clauses and runs as
   written, so the derivation is the witness. The clauses go down as
   plain AL, AL's journal of the committed derivation comes back, and
-  the witness is its facts, laid by `Zkfol.Al.Lay` and judged by the
-  oracle. The flow: prepare, ask, extract, lay, judge, journal.
+  the witness is its facts, laid by `Zkfol.Derivation` and judged by
+  the oracle. The flow: prepare, ask, extract, lay, judge, journal.
 
   My satellites are the distance from the ideal: `Zkfol.Al.Freeze`
   dies when CLPFD lands, `Zkfol.Al.Consumption` dies when the journal
-  names the fired clause, `Zkfol.Al.Lay` crosses to `Zkfol.Alloc`.
+  names the fired clause. Laying has already left me: it is the
+  allocator's, and `Zkfol.Derivation` holds it under `Zkfol.Alloc`.
   """
 
   import Kernel, except: [apply: 3]
 
   alias Zkfol.Al.Freeze
-  alias Zkfol.Al.Lay
+  alias Zkfol.Derivation
   alias Zkfol.Lang
   alias Zkfol.Lang.Rel
+  alias Zkfol.Alloc
   alias Zkfol.Ast
   alias Zkfol.Refusal
   alias Zkfol.Interpretation
@@ -35,7 +37,9 @@ defmodule Zkfol.Al do
   @typep prep :: %{
            root: Rel.t(),
            name: atom(),
-           table: map(),
+           shape: Lang.shape(),
+           alloc: Alloc.t(),
+           linked: Ast.pred(),
            members: [Rel.t()],
            names: MapSet.t(),
            program: program(),
@@ -113,10 +117,13 @@ defmodule Zkfol.Al do
   defp solve_rels(rels, target, args, opts) do
     with {:ok, prep} <- prepared(rels, args, opts) do
       on_question(prep, 256_000_000, fn branch, heap ->
+        pred = target_pred(target, prep)
+
         with {:ok, tree} <- derive(prep, branch, heap),
              facts = extract(tree, prep.names, prep.len?),
-             {:ok, witness} <-
-               Lay.lay(facts, prep.table, prep.members, target_pred(target, prep.table)) do
+             {:ok, banks} <- Derivation.lay(facts, prep.alloc, prep.shape, prep.members, pred),
+             {:ok, witness} <- Alloc.interpret(prep.alloc, banks),
+             :ok <- judged(pred, witness) do
           count = Interpretation.len(witness)
           event = {:al_solved, %{name: prep.name, count: count, branch: branch.id}}
           Log.push(event, prep.basedon)
@@ -126,12 +133,22 @@ defmodule Zkfol.Al do
     end
   end
 
+  # The oracle on the whole witness: banks stacked, every region in it.
+  @spec judged(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}
+  defp judged(pred, witness) do
+    if Zkfol.Semantics.valid?(pred, witness),
+      do: :ok,
+      else: {:error, {:witness_invalid, %{}}}
+  end
+
   # Everything both asks share, prepared once.
   @spec prepared([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, prep()} | {:error, Refusal.t()}
   defp prepared([root | _rest] = rels, args, opts) do
-    with {:ok, table} <- Lang.compile(root, rels),
-         members = Enum.filter(rels, &is_map_key(table.rows, &1.name)),
+    with {:ok, shape} <- Lang.compile(root, rels),
+         alloc = Alloc.assign(shape),
+         {:ok, linked} <- Alloc.link(shape.pred, alloc),
+         members = Enum.filter(rels, &(&1.name in shape.members)),
          {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
          len? = Enum.any?(members, &mentions_len?(&1.clauses)),
@@ -140,7 +157,9 @@ defmodule Zkfol.Al do
        %{
          root: root,
          name: Keyword.get(opts, :name, root.name),
-         table: table,
+         shape: shape,
+         alloc: alloc,
+         linked: linked,
          members: members,
          names: MapSet.new(members, & &1.name),
          program: program,
@@ -241,11 +260,12 @@ defmodule Zkfol.Al do
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
-  # The pred the stage already carries; the table's otherwise.
-  @spec target_pred(Statement.t() | [Rel.t()], map()) :: Ast.pred()
-  defp target_pred(%Statement{stage: :raw}, table), do: table.pred
-  defp target_pred(%Statement{} = statement, _table), do: Statement.pred(statement)
-  defp target_pred(_rels, table), do: table.pred
+  # The pred the stage already carries, linked; the compiled one linked
+  # otherwise. The witness stands on rows, so what judges it must too.
+  @spec target_pred(Statement.t() | [Rel.t()], prep()) :: Ast.pred()
+  defp target_pred(%Statement{stage: :raw}, prep), do: prep.linked
+  defp target_pred(%Statement{} = statement, _prep), do: Statement.pred(statement)
+  defp target_pred(_rels, prep), do: prep.linked
 
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
@@ -328,7 +348,7 @@ defmodule Zkfol.Al do
            for row <- rows do
              names
              |> Enum.zip(row)
-             |> Map.new(fn {key, cell} -> {key, Lay.free_to_zero(cell)} end)
+             |> Map.new(fn {key, cell} -> {key, Derivation.free_to_zero(cell)} end)
            end}
         end
       end)

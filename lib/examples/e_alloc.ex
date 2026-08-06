@@ -80,6 +80,10 @@ defmodule Examples.EAlloc do
     {:ok, itp} = Alloc.interpret(successor_alloc(), family)
 
     assert Interpretation.rows(itp) == [[1, 2, 3], [2, 3, 4]]
+
+    for {sym, bank} <- family,
+        do: assert(Alloc.region(itp, successor_alloc(), sym) == bank)
+
     itp
   end
 
