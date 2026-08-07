@@ -397,6 +397,30 @@ defmodule Examples.EAl do
     witness
   end
 
+  defrel five(1, 5)
+  defrel seven(1, 7)
+
+  defrel sums(x, v) do
+    five(x, a)
+    seven(x, b)
+    v = a + b
+  end
+
+  @doc "I pin the pointer's identity: two callees at one address are two pointers."
+  @spec two_callees_take_two_pointers() :: Interpretation.t()
+  example two_callees_take_two_pointers do
+    {:ok, shape} = Zkfol.Lang.compile(sums(), [sums(), five(), seven()])
+
+    assert [{:five, _at}, {:seven, _same}] = shape.pointers
+
+    {:ok, witness} = Al.solve([sums(), five(), seven()], [1, :_])
+
+    assert Interpretation.len(witness) == 3
+    assert Interpretation.at(witness, 1, 3) == 1
+    assert Interpretation.at(witness, 2, 3) == 12
+    witness
+  end
+
   # The tag anchors the read. A column is what it wears: wearing tab, a
   # forged (3, 99) satisfies no tab fact; wearing pick, the self-read
   # demands the pointed column wear tab. The math objects either way.

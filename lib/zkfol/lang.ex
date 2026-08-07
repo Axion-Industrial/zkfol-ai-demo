@@ -43,7 +43,7 @@ defmodule Zkfol.Lang do
           members: [atom()],
           arities: %{atom() => pos_integer()},
           calls: %{atom() => [[Ast.row_ref()]]},
-          pointers: [Ast.term_t()],
+          pointers: [{atom(), Ast.term_t()}],
           tags: %{atom() => pos_integer()}
         }
 
@@ -249,10 +249,10 @@ defmodule Zkfol.Lang do
     end
   end
 
-  # The pointers in naming order, each saying what it aims at.
-  @spec aimed(%{Ast.term_t() => Ast.row_ref()}) :: [Ast.term_t()]
+  # The pointers in naming order, each saying its callee and address.
+  @spec aimed(%{{atom(), Ast.term_t()} => Ast.row_ref()}) :: [{atom(), Ast.term_t()}]
   defp aimed(targets),
-    do: targets |> Enum.sort_by(fn {_at, {:ptr, i}} -> i end) |> Enum.map(&elem(&1, 0))
+    do: targets |> Enum.sort_by(fn {_aim, {:ptr, i}} -> i end) |> Enum.map(&elem(&1, 0))
 
   # A lone relation is anchored by its own descent; a closure's columns
   # wear their relation, so a read can insist on whose column it reads.

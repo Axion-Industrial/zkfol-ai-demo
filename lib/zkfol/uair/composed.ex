@@ -193,6 +193,7 @@ defmodule Zkfol.Uair.Composed do
   defp reads(lowering, cols) do
     for {i, a} <- lowering.pairs do
       %{
+        row: Map.fetch!(cols, a),
         value_row: Map.fetch!(cols, i),
         bit_rows: Enum.map(Map.fetch!(lowering.bits, a), &Map.fetch!(cols, &1)),
         result_row: Map.fetch!(cols, Map.fetch!(lowering.results, {i, a}))
