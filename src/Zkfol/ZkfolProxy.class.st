@@ -27,14 +27,19 @@ ZkfolProxy class >> fetch: anElixirSource through: anApplication [
 
 { #category : 'boundary' }
 ZkfolProxy class >> on: aProxy fetch: anElixirSource [
-	"The answer as ordinary Smalltalk, in one round trip. A refusal
-	 rather than nil when the node cannot answer, so a view can say why."
+	"The answer as ordinary Smalltalk, in one round trip. The node's
+	 answer is the JSON string; anything else speaking #isError is the
+	 eval's own banner, and a refusal carries what the node actually
+	 said -- never a substitute string."
 	| json |
 	json := self on: aProxy evaluateOrNil: anElixirSource , ' |> GtBridge.Serializer.to_json() |> elem(1)'.
-	json isString ifFalse: [ ^ ZkfolRefusal because: 'the node did not answer' ].
-	^ [ self plainlyDecoded: json ]
-		on: Error
-		do: [ :anError | ZkfolRefusal because: anError messageText asString ]
+	json isString ifTrue: [
+		^ [ self plainlyDecoded: json ]
+			on: Error
+			do: [ :anError | ZkfolRefusal because: anError messageText asString ] ].
+	(json notNil and: [ json isError ]) ifTrue: [
+		^ ZkfolRefusal because: json messageText ].
+	^ ZkfolRefusal because: 'the node did not answer'
 ]
 
 { #category : 'boundary' }
@@ -45,12 +50,15 @@ ZkfolProxy class >> plainlyDecoded: aJsonString [
 
 { #category : 'boundary' }
 ZkfolProxy class >> plainly: aValue [
-	"Decoded wire data as the grid reads it: an atom key arrives
-	 unprefixed but still a String, the struct tag goes, and an atom
-	 value -- which alone among wire values answers #symbol -- becomes
-	 that Symbol, so tag matches like `= #define` hold. Asked by the
-	 message it answers, not the bridge class it is, so nothing here needs
-	 a bridge class in scope."
+	"Decoded wire data as the views read it: the struct tag goes, and
+	 every map key becomes a Symbol. The symbolizing is a policy, not a
+	 decode: the deserializer strips the atom marker, so an atom key
+	 and a genuine String key arrive alike, and turning both into
+	 Symbols is correct only because zkfol owns both ends of its feeds.
+	 An atom value -- which alone among wire values answers #symbol --
+	 becomes that Symbol, so tag matches like `= #define` hold. Asked
+	 by the message it answers, not the bridge class it is, so nothing
+	 here needs a bridge class in scope."
 	(aValue isKindOf: Dictionary) ifTrue: [
 		^ Dictionary new in: [ :out |
 			aValue keysAndValuesDo: [ :key :each |
