@@ -42,25 +42,13 @@ ZkfolUairPicture >> asElement [
 	cellElements := Dictionary new.
 	hovered := nil.
 	decorated := nil.
-	container := BlElement new
-		id: #zkfolUairGrid;
-		layout: BlLinearLayout vertical;
-		padding: (BlInsets all: 10);
-		clipChildren: false;
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
-		yourself.
+	container := ZkfolElements gridContainer: #zkfolUairGrid.
 	grid tracesOrder ifFalse: [ container addChild: self orientationMarkerElement ].
 	self truncated ifTrue: [ container addChild: self truncationMarkerElement ].
 	container addChild: self headerRowElement.
 	grid displayColumns doWithIndex: [ :each :oneBased |
 		container addChild: (self rowElementFor: each at: oneBased - 1) ].
-	hoverLayer := BlElement new
-		id: #zkfolUairHoverLayer;
-		clipChildren: false;
-		constraintsDo: [ :c | c ignoreByLayout ];
-		yourself.
+	hoverLayer := ZkfolElements overlay: #zkfolUairHoverLayer.
 	container addChild: hoverLayer.
 	self refreshHover.
 	^ container
@@ -84,7 +72,7 @@ ZkfolUairPicture >> cellElementFor: aValue row: aRowIndex position: aPosition ki
 	 and connector follows from that. A value too big for the cell
 	 compacts to its magnitude and carries its full self as a tooltip."
 	| cell text |
-	text := grid compactValue: aValue.
+	text := ZkfolElements compactValue: aValue upTo: 5.
 	cell := (ZkfolElements
 		box: 24 @ 20
 		color: (self colorOfKind: aKind)
@@ -112,13 +100,9 @@ ZkfolUairPicture >> colorOfKind: aKind [
 
 { #category : 'hover' }
 ZkfolUairPicture >> connectorFrom: aSource to: aTarget color: aColor [
-	"One hover connector, anchored to both cells so the layout places it."
-	^ BlLineElement new
+	"One hover connector between the very cells, wearing the layer's id."
+	^ (ZkfolElements connectorFrom: aSource to: aTarget color: aColor)
 		id: #zkfolUairHoverLine;
-		fromAnchor: (BlElementCenterAnchor element: aSource);
-		toAnchor: (BlElementCenterAnchor element: aTarget);
-		border: (BlBorder paint: aColor width: 2);
-		constraintsDo: [ :c | c ignoreByLayout ];
 		yourself
 ]
 
@@ -167,14 +151,10 @@ ZkfolUairPicture >> headerElementFor: aPosition [
 	"One position header: the trace position, clickable, spawning the
 	 whole column at that position, deref chain included."
 	| header |
-	header := (ZkfolElements
-		box: 24 @ 16
-		color: nil
-		text: (aPosition printString asRopedText foreground: ZkfolPalette mutedTextColor; yourself)
-		fontSize: 9)
+	header := (ZkfolElements headerBox: aPosition)
 		id: #zkfolUairHeader;
 		yourself.
-		header aptitude: (BrStyleCommonAptitude new
+	header aptitude: (BrStyleCommonAptitude new
 			default: [ :w | w border: BlBorder empty ];
 			hovered: [ :w | w border: (BlBorder paint: ZkfolPalette hoverColor width: 1) ];
 			yourself).
@@ -187,12 +167,7 @@ ZkfolUairPicture >> headerRowElement [
 	"The position ruler over the grid: a spacer the width of the row
 	 labels, then one clickable header per shown position."
 	| row width |
-	row := BlElement new
-		layout: BlLinearLayout horizontal;
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
-		yourself.
+	row := ZkfolElements gridRow.
 	row addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
 	width := grid displayColumns
 		inject: 0
@@ -237,18 +212,11 @@ ZkfolUairPicture >> hovered: aCoordOrNil [
 ZkfolUairPicture >> labelElementFor: aKind at: aZeroBasedIndex column: aColumn [
 	"A row introduces itself: its index, kind or schedule, and claim.
 	 Clicking it spawns the whole row in the next pane."
-	| layout label |
-	layout := BlLinearLayout horizontal.
-	layout alignCenterLeft.
-	label := BlElement new
+	| label |
+	label := (ZkfolElements
+		rowLabel: (grid labelTextFor: aKind at: aZeroBasedIndex)
+		width: self labelWidth)
 		id: #zkfolUairRowLabel;
-		size: self labelWidth @ 20;
-		margin: (BlInsets all: 1);
-		padding: (BlInsets left: 4);
-		layout: layout;
-		addChild: (BlTextElement new
-			text: ((grid labelTextFor: aKind at: aZeroBasedIndex) asRopedText fontSize: 10);
-			yourself);
 		yourself.
 	^ self make: label spawn: [ ZkfolUairRow
 		index: aZeroBasedIndex
@@ -260,12 +228,9 @@ ZkfolUairPicture >> labelElementFor: aKind at: aZeroBasedIndex column: aColumn [
 
 { #category : 'rendering' }
 ZkfolUairPicture >> labelWidth [
-	"One width for every row label, sized to the longest tag so the
-	 grid's cells align whatever the labels say."
-	^ 74 max: 16 + (((0 to: grid displayColumns size - 1)
-		inject: 0
-		into: [ :max :each |
-			max max: (grid labelTextFor: (grid kindOfRow: each) at: each) size ]) * 6)
+	"The grid's one label width, off every row's introduction."
+	^ ZkfolElements labelWidthFor: ((0 to: grid displayColumns size - 1)
+		collect: [ :each | grid labelTextFor: (grid kindOfRow: each) at: each ])
 ]
 
 { #category : 'rendering' }
@@ -361,12 +326,7 @@ ZkfolUairPicture >> rowElementFor: aColumn at: aZeroBasedIndex [
 	 mid-render."
 	| row kind shown |
 	kind := grid kindOfRow: aZeroBasedIndex.
-	row := BlElement new
-		layout: BlLinearLayout horizontal;
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
-		yourself.
+	row := ZkfolElements gridRow.
 	aZeroBasedIndex < grid numPublic
 		ifTrue: [ row border: (BlBorder paint: ZkfolPalette outlineColor width: 2) ].
 	aColumn isCollection

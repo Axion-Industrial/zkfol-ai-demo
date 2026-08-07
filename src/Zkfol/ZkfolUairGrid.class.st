@@ -55,24 +55,11 @@ ZkfolUairGrid >> columns [
 ]
 
 
-{ #category : 'rendering' }
-ZkfolUairGrid >> compactValue: aNumber [
-	"A cell is 24 points wide; a value that cannot say itself in five
-	 characters says its two leading digits and its magnitude, honest
-	 and terse: 1.2e20 is a 21 digit number. The full value stays one
-	 hover or one click away."
-	| s |
-	s := aNumber printString.
-	s size <= 5 ifTrue: [ ^ s ].
-	aNumber isInteger ifFalse: [ ^ (s first: 4) , '…' ].
-	^ s first asString , '.' , s second asString , 'e' , (s size - 1) printString
-]
 
 { #category : 'accessing' }
 ZkfolUairGrid >> composedReads [
 	^ payload at: #reads ifAbsent: [ #() ]
 ]
-
 
 { #category : 'rows' }
 ZkfolUairGrid >> derefChainsAt: aPosition [
@@ -83,7 +70,6 @@ ZkfolUairGrid >> derefChainsAt: aPosition [
 		ifAbsentPut: [ self composedReads withIndexCollect: [ :read :oneBased |
 			ZkfolDerefChain onGrid: self position: aPosition read: read index: oneBased ] ]
 ]
-
 
 { #category : 'rows' }
 ZkfolUairGrid >> displayColumns [
@@ -121,7 +107,6 @@ ZkfolUairGrid >> failingChains [
 				and: [ c address between: 1 and: self displayedPositions ] ] ] ]) ].
 	^ chains
 ]
-
 
 { #category : 'views' }
 ZkfolUairGrid >> gtFailuresFor: aView [
@@ -174,17 +159,19 @@ ZkfolUairGrid >> gtPointerGridFor: aView [
 { #category : 'rows' }
 ZkfolUairGrid >> hoverPairsOf: aRowIndex position: aPosition value: aValue [
 	"What a hovered cell relates, each entry a colour paired with the
-	 coordinates to light. Any cell a composed read touches lights that
-	 whole read in the read's own colour, red where it contradicts
-	 itself, so the relation can be entered from either end. A scheduled
-	 row relates itself at each offset it carries; committed order flips
-	 the shift the way trace order does not."
+	 coordinates to light. Any cell one composed read touches -- its
+	 own pointer row, its bits, its result -- lights that read alone in
+	 the read's own colour, red where it contradicts itself, so the
+	 relation can be entered from either end and neighbouring reads
+	 stay dark. A scheduled row relates itself at each offset it
+	 carries; committed order flips the shift the way trace order does
+	 not."
 	^ (hoverCache ifNil: [ hoverCache := Dictionary new ])
 		at: aRowIndex @ aPosition
 		ifAbsentPut: [
 			| touching |
 			touching := (self derefChainsAt: aPosition) select: [ :chain |
-				(self pointerRows includes: aRowIndex)
+				chain addressRow = aRowIndex
 					or: [ (chain bitRowIndices includes: aRowIndex)
 					or: [ chain resultRow = aRowIndex ] ] ].
 			touching
@@ -195,7 +182,6 @@ ZkfolUairGrid >> hoverPairsOf: aRowIndex position: aPosition value: aValue [
 							ifTrue: [ aPosition - offset ]
 							ifFalse: [ aPosition + offset ]) } ] ] ]
 ]
-
 
 { #category : 'rows' }
 ZkfolUairGrid >> kindOfRow: aZeroBasedIndex [
@@ -241,7 +227,6 @@ ZkfolUairGrid >> numVars [
 	"The cube's width, as the face read it off the padded columns."
 	^ payload at: #num_vars ifAbsent: [ 0 ]
 ]
-
 
 { #category : 'views' }
 ZkfolUairGrid >> picture [

@@ -29,3 +29,37 @@ ZkfolRefusal >> reason [
 ZkfolRefusal >> setReason: aString [
 	reason := aString
 ]
+
+{ #category : 'views' }
+ZkfolRefusal >> gtDerivationGraphFor: aView [
+	"A refusal has no derivation; the forwarded tab hides."
+	<gtView>
+	^ aView empty
+]
+
+{ #category : 'views' }
+ZkfolRefusal >> gtJudgementFor: aView [
+	"A refusal has no judgement; the forwarded tab hides."
+	<gtView>
+	^ aView empty
+]
+
+{ #category : 'views' }
+ZkfolRefusal >> gtLayFor: aView [
+	"A refusal has no lay; the forwarded tab hides."
+	<gtView>
+	^ aView empty
+]
+
+{ #category : 'views' }
+ZkfolRefusal >> gtGridFor: aView [
+	"A refusal has no grid; the forwarded tab hides."
+	<gtView>
+	^ aView empty
+]
+
+{ #category : 'accessing' }
+ZkfolRefusal >> interestingObjects [
+	"A refusal holds nothing to conjure."
+	^ #()
+]

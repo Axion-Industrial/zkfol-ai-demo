@@ -10,7 +10,8 @@ Class {
 		'sources',
 		'rowLabels',
 		'witness',
-		'refusal'
+		'refusal',
+		'labelWidth'
 	],
 	#category : 'Zkfol',
 	#package : 'Zkfol'
@@ -19,6 +20,22 @@ Class {
 { #category : 'instance creation' }
 ZkfolJudgement class >> labels: someLabels evals: aMatrix [
 	^ self new setLabels: someLabels evals: aMatrix; yourself
+]
+
+{ #category : 'instance creation' }
+ZkfolJudgement class >> onFeed: aDictionary [
+	"The judgement feed whole, wherever it was fetched from: the act's
+	 final stage or a statement in hand."
+	^ self new
+		setLabels: (aDictionary at: #labels)
+			evals: (aDictionary at: #evals)
+			terms: (aDictionary at: #terms ifAbsent: [ nil ])
+			termEvals: (aDictionary at: #term_evals ifAbsent: [ nil ])
+			trees: (aDictionary at: #trees ifAbsent: [ nil ])
+			sources: (aDictionary at: #sources ifAbsent: [ nil ])
+			rows: (aDictionary at: #rows ifAbsent: [ nil ])
+			witness: (aDictionary at: #witness ifAbsent: [ nil ]);
+		yourself
 ]
 
 { #category : 'instance creation' }
@@ -92,27 +109,29 @@ ZkfolJudgement >> cellFor: aValue satisfied: columnHolds [
 
 { #category : 'elements' }
 ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
-	"One package square, constrained the bloc way. Green answers, gray
+	"One grid square in the shared vocabulary. Green answers, white
 	 declines beside an answer, red only where nobody answers. A click
 	 opens the branch's own clause as the root, unfolding into the
 	 equations it lowered to, whose cells hop onward."
 	| shown rope cell |
-	shown := aValue = 0 ifTrue: [ '0' ] ifFalse: [ self compactValue: aValue ].
+	shown := aValue = 0
+		ifTrue: [ '0' ]
+		ifFalse: [ ZkfolElements compactValue: aValue upTo: 5 ].
 	rope := aValue = 0
 		ifTrue: [ shown asRopedText foreground: Color darkGray ]
 		ifFalse: [ columnHolds
 			ifTrue: [ shown asRopedText foreground: Color gray ]
 			ifFalse: [ shown asRopedText foreground: Color red darker; bold ] ].
-	cell := (ZkfolElements box: 64 @ 26 color: (aValue = 0
+	cell := (ZkfolElements
+		box: 24 @ 20
+		color: (aValue = 0
 			ifTrue: [ Color green muchLighter muchLighter ]
 			ifFalse: [ columnHolds
 				ifTrue: [ Color white ]
 				ifFalse: [ Color red muchLighter muchLighter ] ])
 		text: rope
-		fontSize: 11)
+		fontSize: 9)
 		border: (BlBorder paint: Color veryLightGray width: 1);
-		padding: (BlInsets all: 3);
-		constraintsDo: [ :c | c horizontal exact: 64. c vertical fitContent ];
 		yourself.
 	shown = aValue printString
 		ifFalse: [ cell aptitude: (BrWithExplicitTooltipAptitude text: aValue printString) ].
@@ -135,34 +154,13 @@ ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 ]
 
 { #category : 'elements' }
-ZkfolJudgement >> compactValue: aNumber [
-	"A cell is 64 points wide; a value that cannot say itself in seven
-	 characters says its two leading digits and its magnitude, honest
-	 and terse: 1.2e20 is a 21 digit number. The exact value stays one
-	 click away, in the cell's own equations."
-	| s |
-	s := aNumber printString.
-	s size <= 7 ifTrue: [ ^ s ].
-	aNumber isInteger ifFalse: [ ^ (s first: 6) , '…' ].
-	^ s first asString , '.' , s second asString , 'e' , (s size - 1) printString
-]
-
-{ #category : 'elements' }
 ZkfolJudgement >> elementOrError [
 	"The stencil stays total: a refusal or an error draws itself rather
-	 than raising on the async build path. The judgement above, the
-	 named witness below it, columns aligned."
+	 than raising on the async build path. The heatmap alone: the laid
+	 witness is the Lay's to show, beside me."
 	refusal ifNotNil: [ :why |
 		^ BlTextElement new text: why asString asRopedText ].
-	^ [ | stack |
-		stack := BlElement new
-			layout: BlLinearLayout vertical;
-			constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-			addChild: self heatmapElement;
-			yourself.
-		(witness notNil and: [ rowLabels notNil and: [ rowLabels notEmpty ] ])
-			ifTrue: [ stack addChild: self witnessElement ].
-		stack ]
+	^ [ self heatmapElement ]
 		on: Error
 		do: [ :anError |
 			BlTextElement new text: anError messageText asString asRopedText ]
@@ -218,48 +216,37 @@ ZkfolJudgement >> headerCellOn: aString [
 
 { #category : 'elements' }
 ZkfolJudgement >> heatmapElement [
-	"Branches down, trace columns across, one verdict per column.
-	 Disjunction is a product: a column holds when some branch zeroes
-	 it. Green answers, gray declines, red only where nobody answers.
-	 A branch label carries its formula as a tooltip; a cell unfolds
-	 its equations; a column header or verdict judges its column."
+	"Branches down, trace columns across, one verdict per column, in
+	 the one grid vocabulary the Lay beneath me speaks. Disjunction is
+	 a product: a column holds when some branch zeroes it. Green
+	 answers, white declines beside an answer, red only where nobody
+	 answers. A branch label carries its formula as a tooltip; a cell
+	 unfolds its equations; a header or verdict judges its column."
 	| numCols holds rows header footer |
 	numCols := evals first size.
 	holds := (1 to: numCols) collect: [ :x |
 		evals anySatisfy: [ :branchEvals | (branchEvals at: x) = 0 ] ].
-	header := BlElement new
-		layout: BlLinearLayout horizontal;
-		constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-		addChild: (self labelCellOn: '');
-		yourself.
+	header := ZkfolElements gridRow.
+	header addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
 	1 to: numCols do: [ :x |
 		header addChild: (self
-			make: (self headerCellOn: 'x=', x asString)
+			make: (ZkfolElements headerBox: x)
 			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
-	rows := BlElement new
-		layout: BlLinearLayout vertical;
-		constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-		addChild: header;
-		yourself.
+	rows := ZkfolElements gridContainer: #zkfolJudgement.
+	rows addChild: header.
 	labels doWithIndex: [ :aLabel :b |
 		| line labelCell |
 		labelCell := self labelCellOn: aLabel.
 		(terms notNil and: [ (terms at: b) notEmpty ]) ifTrue: [
 			labelCell aptitude: (BrWithExplicitTooltipAptitude
 				text: (' and ' join: (terms at: b))) ].
-		line := BlElement new
-			layout: BlLinearLayout horizontal;
-			constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-			addChild: labelCell;
-			yourself.
+		line := ZkfolElements gridRow.
+		line addChild: labelCell.
 		(evals at: b) doWithIndex: [ :aValue :x |
 			line addChild: (self cellFor: aValue satisfied: (holds at: x) branch: b column: x) ].
 		rows addChild: line ].
-	footer := BlElement new
-		layout: BlLinearLayout horizontal;
-		constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-		addChild: (self labelCellOn: 'column holds');
-		yourself.
+	footer := ZkfolElements gridRow.
+	footer addChild: (self labelCellOn: 'column holds').
 	holds doWithIndex: [ :columnHolds :x |
 		footer addChild: (self
 			make: (self verdictCellOn: columnHolds)
@@ -270,16 +257,20 @@ ZkfolJudgement >> heatmapElement [
 
 { #category : 'elements' }
 ZkfolJudgement >> labelCellOn: aString [
-	| text |
-	text := BlTextElement new
-		text: (aString asRopedText fontSize: 11; foreground: Color darkGray).
-	^ BlElement new
-		layout: BlLinearLayout horizontal alignCenterLeft;
-		padding: (BlInsets all: 3);
-		margin: (BlInsets all: 1);
-		constraintsDo: [ :c | c horizontal exact: 110. c vertical fitContent ];
-		addChild: text;
-		yourself
+	"A branch's introduction at the grid's one label width."
+	^ ZkfolElements rowLabel: aString width: self labelWidth
+]
+
+{ #category : 'elements' }
+ZkfolJudgement >> labelWidth [
+	"One width for every branch label; a composer may hand both
+	 stacked grids one width so their columns align."
+	^ labelWidth ifNil: [ ZkfolElements labelWidthFor: (labels copyWith: 'column holds') ]
+]
+
+{ #category : 'elements' }
+ZkfolJudgement >> labelWidth: aNumber [
+	labelWidth := aNumber
 ]
 
 { #category : 'accessing' }
@@ -371,18 +362,18 @@ ZkfolJudgement >> trees [
 
 { #category : 'elements' }
 ZkfolJudgement >> verdictCellOn: columnHolds [
-	"The column's verdict as an icon: it holds, or the judge refuses."
-	^ BlElement new
-		layout: BlLinearLayout horizontal alignCenter;
-		padding: (BlInsets all: 3);
-		margin: (BlInsets all: 1);
-		constraintsDo: [ :c | c horizontal exact: 64. c vertical fitContent ];
-		addChild: (columnHolds
-			ifTrue: [ BrGlamorousVectorIcons accept asElement ]
-			ifFalse: [ BrGlamorousVectorIcons cancel asElement
-				background: Color red muchLighter;
-				yourself ]);
-		yourself
+	"The column's verdict as an icon at the grid's cell size: it
+	 holds, or the judge refuses."
+	| cell |
+	cell := ZkfolElements
+		box: 24 @ 20
+		color: (columnHolds ifTrue: [ nil ] ifFalse: [ Color red muchLighter ])
+		text: nil
+		fontSize: 9.
+	cell addChild: (columnHolds
+		ifTrue: [ BrGlamorousVectorIcons accept asElement ]
+		ifFalse: [ BrGlamorousVectorIcons cancel asElement ]).
+	^ cell
 ]
 
 { #category : 'accessing' }
@@ -390,40 +381,3 @@ ZkfolJudgement >> witness [
 	^ witness
 ]
 
-{ #category : 'elements' }
-ZkfolJudgement >> witnessElement [
-	"The interpretation whole, every row wearing its meaning, columns
-	 aligned under the judgement's. Clicking a cell judges its column."
-	| rows |
-	rows := BlElement new
-		layout: BlLinearLayout vertical;
-		constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-		margin: (BlInsets top: 14);
-		yourself.
-	1 to: rowLabels size do: [ :i |
-		| line |
-		line := BlElement new
-			layout: BlLinearLayout horizontal;
-			constraintsDo: [ :c | c horizontal fitContent. c vertical fitContent ];
-			addChild: (self labelCellOn: (rowLabels at: i));
-			yourself.
-		1 to: witness size do: [ :x |
-			| v shown cell |
-			v := (witness at: x) at: i.
-			shown := self compactValue: v.
-			cell := (ZkfolElements
-				box: 64 @ 26
-				color: Color white
-				text: (shown asRopedText foreground: Color darkGray)
-				fontSize: 11)
-				border: (BlBorder paint: Color veryLightGray width: 1);
-				padding: (BlInsets all: 3);
-				constraintsDo: [ :c | c horizontal exact: 64. c vertical fitContent ];
-				yourself.
-			shown = v printString
-				ifFalse: [ cell aptitude: (BrWithExplicitTooltipAptitude text: v printString) ].
-			line addChild: (self make: cell spawn: [
-				ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
-		rows addChild: line ].
-	^ rows
-]
