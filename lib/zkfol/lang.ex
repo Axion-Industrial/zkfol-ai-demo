@@ -42,6 +42,7 @@ defmodule Zkfol.Lang do
           pred: Ast.pred(),
           members: [atom()],
           arities: %{atom() => pos_integer()},
+          slots: %{atom() => [atom()]},
           calls: %{atom() => [[Ast.row_ref()]]},
           pointers: [{atom(), Ast.term_t()}],
           tags: %{atom() => pos_integer()}
@@ -242,11 +243,25 @@ defmodule Zkfol.Lang do
          pred: Ast.disj(branches),
          members: order,
          arities: Map.new(order, &{&1, scope[&1].arity}),
+         slots: Map.new(order, &{&1, slots(scope[&1])}),
          calls: calls,
          pointers: aimed(targets),
          tags: tags || %{}
        }}
     end
+  end
+
+  # A member's slots by name: its head variables where a clause binds
+  # them all, positional names otherwise. Freshened locals join here
+  # when a clause's existential earns a row.
+  @spec slots(Rel.t()) :: [atom()]
+  defp slots(%Rel{arity: arity, clauses: clauses}) do
+    named =
+      Enum.find_value(clauses, fn {head, _body} ->
+        if Enum.all?(head, &match?({:var, _}, &1)), do: for({:var, nm} <- head, do: nm)
+      end)
+
+    named || Enum.map(1..arity, &:"a#{&1}")
   end
 
   # The pointers in naming order, each saying its callee and address.

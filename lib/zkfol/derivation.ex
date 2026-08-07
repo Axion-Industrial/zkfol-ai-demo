@@ -1,26 +1,15 @@
 defmodule Zkfol.Derivation do
   @moduledoc """
-  I am the extension a run established, laid as a region: one column
-  per fact, a member's rows carrying its tuple, the tag row wearing
-  its relation, each call site's pointer row holding the consumed
-  fact's position, unread cells padding. Position is identity; no
-  argument is the count. The oracle judges every column.
+  I am the extension a run established: the facts in callees-first
+  order and the consumption between them, position as identity; no
+  argument is the count.
 
   I am `Zkfol.Matrix`'s mirror: a relation plus its extension becomes
   an interpretation either way, mine derived by a run and its
-  declared. `Zkfol.Alloc` stacks what we each produce.
-
-  I lay on the rows `Zkfol.Alloc` assigned the names `Zkfol.Lang`
-  compiled; neither of us counts rows on its own.
+  declared. `Zkfol.Lay` places me on the rows `Zkfol.Alloc` assigned.
   """
 
   use TypedStruct
-
-  alias Zkfol.Al.Consumption
-  alias Zkfol.Alloc
-  alias Zkfol.Interpretation
-  alias Zkfol.Lang.Rel
-  alias Zkfol.Refusal
 
   @typedoc "One established fact: the relation and its ground tuple."
   @type fact :: {atom(), [term()]}
@@ -97,181 +86,34 @@ defmodule Zkfol.Derivation do
   end
 
   @doc """
-  I am the banks `facts` fill, one per region `alloc` assigned
-  `shape`'s names: a member's own extension, the tag's column, the
-  pointers' positions. `Zkfol.Alloc` stacks me beside whatever else
-  the statement declares, and the oracle judges the stack.
+  I am the derivation beneath one fact: it and everything it consumed,
+  transitively, in my order. Consumption is closed under me, so laying
+  me yields a witness every column of which still holds.
   """
-  @spec lay(t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) ::
-          {:ok, %{atom() => Interpretation.t()}} | {:error, Refusal.t()}
-  def lay(%__MODULE__{} = derivation, alloc, shape, members) do
-    row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
-    {consumption, order, _schedules} = welded(derivation, alloc, shape, members)
-    position = order |> Enum.with_index(1) |> Map.new()
-    pointer_rows = pointer_rows(alloc, shape)
+  @spec under(t(), fact()) :: t()
+  def under(%__MODULE__{facts: facts, edges: edges}, fact) do
+    index = facts |> Enum.with_index() |> Map.new()
+    kept = reach([Map.fetch!(index, fact)], edges, MapSet.new())
 
-    columns =
-      Enum.map(order, fn {name, tuple} = fact ->
-        cells = alloc |> Alloc.rows(name) |> Enum.zip(tuple) |> Map.new()
+    renumber =
+      0..(length(facts) - 1) |> Enum.filter(&(&1 in kept)) |> Enum.with_index() |> Map.new()
 
-        cells =
-          if shape.tags == %{},
-            do: cells,
-            else: Map.put(cells, row.({:tag, 1}), Map.fetch!(shape.tags, name))
-
-        pointers =
-          Map.new(consumption[fact], fn {ptr, callee} -> {ptr, Map.fetch!(position, callee)} end)
-
-        Map.merge(cells, pointers)
-      end)
-
-    # A cell still a variable is a row the relation holds at any value:
-    # unification left it free, so the witness fills it arbitrarily.
-    matrix =
-      for row <- 1..Alloc.width(alloc) do
-        for cells <- columns do
-          cells
-          |> Map.get(row, if(MapSet.member?(pointer_rows, row), do: 1, else: 0))
-          |> free_to_zero()
+    %__MODULE__{
+      facts: for({f, i} <- Enum.with_index(facts), i in kept, do: f),
+      edges:
+        for {callees, i} <- Enum.with_index(edges), i in kept do
+          for c <- callees, do: Map.fetch!(renumber, c)
         end
-      end
-
-    with :ok <-
-           Refusal.refute(
-             List.flatten(matrix),
-             &(&1 < 0),
-             &{:witness_value_negative, %{value: &1}}
-           ),
-         do: {:ok, banks(matrix, alloc)}
+    }
   end
 
-  @doc """
-  I am each consumption edge as an arrow between laid columns: from
-  the consumer's column to the consumed fact's, named by the pointer
-  row it went through, wearing the weld k when the pointer welds.
-  A viewer draws me over the witness the same lay produced.
-  """
-  @spec arrows(t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) :: [
-          %{
-            ptr: pos_integer(),
-            from: pos_integer(),
-            to: pos_integer(),
-            to_row: pos_integer(),
-            weld: pos_integer() | nil
-          }
-        ]
-  def arrows(%__MODULE__{facts: facts} = derivation, alloc, shape, members) do
-    {consumption, order, schedules} = welded(derivation, alloc, shape, members)
-    position = order |> Enum.with_index(1) |> Map.new()
+  @spec reach([non_neg_integer()], [[non_neg_integer()]], MapSet.t()) :: MapSet.t()
+  defp reach([], _edges, seen), do: seen
 
-    for fact <- facts, {ptr, callee} <- Map.fetch!(consumption, fact) do
-      %{
-        ptr: ptr,
-        from: Map.fetch!(position, fact),
-        to: Map.fetch!(position, callee),
-        to_row: Alloc.offset(alloc, elem(callee, 0)) + 1,
-        weld: Map.get(schedules, ptr)
-      }
-    end
-  end
-
-  # Consumption on its rows, the measured schedules, and the laid
-  # order: what lay and arrows share, computed once each.
-  @spec welded(t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) ::
-          {%{fact() => [{pos_integer(), fact()}]}, [fact()], %{pos_integer() => pos_integer()}}
-  defp welded(%__MODULE__{facts: facts} = derivation, alloc, shape, members) do
-    row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
-
-    # Consumption names the pointer each edge went through; everything
-    # below me is rows, so they land on theirs first.
-    consumption =
-      derivation
-      |> Consumption.of(members, shape)
-      |> Map.new(fn {fact, used} -> {fact, for({p, c} <- used, do: {row.(p), c})} end)
-
-    schedules = measured(consumption)
-    {consumption, arrange(facts, consumption, schedules), schedules}
-  end
-
-  # The matrix cut along the regions it was laid on, so what I made
-  # reads back as banks by name.
-  @spec banks([[non_neg_integer()]], Alloc.t()) :: %{atom() => Interpretation.t()}
-  defp banks(matrix, %Alloc{regions: regions} = alloc) do
-    Map.new(regions, fn {name, width} ->
-      {name, matrix |> Enum.slice(Alloc.offset(alloc, name), width) |> Interpretation.new()}
-    end)
-  end
-
-  # An unread cell on a pointer row still names a column, so it pads
-  # with one rather than zero.
-  @spec pointer_rows(Alloc.t(), Zkfol.Lang.shape()) :: MapSet.t()
-  defp pointer_rows(_alloc, %{pointers: []}), do: MapSet.new()
-  defp pointer_rows(alloc, _shape), do: alloc |> Alloc.rows(:ptr) |> MapSet.new()
-
-  # A pointer welds when every consumption through it is the same
-  # relation descending its first argument by one constant: measured
-  # off the edges, where the old encoding inferred it from the
-  # predicate's syntax.
-  @spec measured(%{fact() => [{pos_integer(), fact()}]}) :: %{pos_integer() => pos_integer()}
-  defp measured(consumption) do
-    consumption
-    |> Enum.flat_map(fn {consumer, used} ->
-      for {ptr, callee} <- used, do: {ptr, consumer, callee}
-    end)
-    |> Enum.group_by(&elem(&1, 0), fn {_ptr, consumer, callee} -> delta(consumer, callee) end)
-    |> Enum.flat_map(fn {ptr, deltas} ->
-      case Enum.uniq(deltas) do
-        [k] when is_integer(k) and k > 0 -> [{ptr, k}]
-        _varying -> []
-      end
-    end)
-    |> Map.new()
-  end
-
-  @spec delta(fact(), fact()) :: integer() | nil
-  defp delta({name, [ci | _]}, {name, [ui | _]}) when is_integer(ci) and is_integer(ui),
-    do: ci - ui
-
-  defp delta(_consumer, _callee), do: nil
-
-  # A scheduled read welds its consumer exactly k above its callee;
-  # the rest keeps callees below their callers.
-  @spec arrange([fact()], %{fact() => [{pos_integer(), fact()}]}, %{
-          pos_integer() => pos_integer()
-        }) :: [fact()]
-  defp arrange(facts, consumption, schedules) do
-    welds =
-      for fact <- facts,
-          {row, callee} <- Map.fetch!(consumption, fact),
-          k = Map.get(schedules, row),
-          is_integer(k),
-          do: {fact, callee, k}
-
-    forest = Map.new(welds, fn {consumer, callee, k} -> {callee, {consumer, -k}} end)
-
-    walked = Enum.map(facts, &{walk(forest, &1), &1})
-    roots = for {{root, _delta}, _fact} <- walked, uniq: true, do: root
-    grouped = Enum.group_by(walked, fn {{root, _delta}, _fact} -> root end)
-
-    Enum.flat_map(roots, fn root ->
-      grouped
-      |> Map.fetch!(root)
-      |> Enum.sort_by(fn {{_root, delta}, _fact} -> delta end)
-      |> Enum.map(fn {_walked, fact} -> fact end)
-    end)
-  end
-
-  # pos(fact) = pos(root) + delta, the forest carrying the deltas.
-  @spec walk(map(), fact()) :: {fact(), integer()}
-  defp walk(forest, fact) do
-    case forest do
-      %{^fact => {parent, delta}} ->
-        {root, above} = walk(forest, parent)
-        {root, delta + above}
-
-      _forest ->
-        {fact, 0}
-    end
+  defp reach([i | rest], edges, seen) do
+    if MapSet.member?(seen, i),
+      do: reach(rest, edges, seen),
+      else: reach(Enum.at(edges, i) ++ rest, edges, MapSet.put(seen, i))
   end
 
   @doc "I fill a cell unification left free: a variable reads zero."
@@ -279,4 +121,22 @@ defmodule Zkfol.Derivation do
   def free_to_zero({:"$fresh", _name, _scope}), do: 0
   def free_to_zero(a) when is_atom(a), do: if(AL.Var.var?(a), do: 0, else: a)
   def free_to_zero(cell), do: cell
+end
+
+defimpl Inspect, for: Zkfol.Derivation do
+  import Inspect.Algebra
+
+  # fib(3, 2)<-{0,1} reads: this fact's calls consumed facts 0 and 1,
+  # in body order -- indices into my own facts, position as identity.
+  def inspect(%Zkfol.Derivation{facts: facts, edges: edges}, _opts) do
+    lines =
+      facts
+      |> Enum.zip(edges)
+      |> Enum.map(fn
+        {{name, tuple}, []} -> "#{name}(#{Enum.join(tuple, ", ")})"
+        {{name, tuple}, used} -> "#{name}(#{Enum.join(tuple, ", ")})<-{#{Enum.join(used, ",")}}"
+      end)
+
+    concat(["#Zkfol.Derivation<", Enum.join(lines, " "), ">"])
+  end
 end

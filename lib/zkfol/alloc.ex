@@ -24,6 +24,7 @@ defmodule Zkfol.Alloc do
 
   typedstruct enforce: true do
     field(:regions, [{atom(), pos_integer()}])
+    field(:slots, %{atom() => [atom()]}, default: %{})
     field(:public, [atom()], default: [])
   end
 
@@ -95,13 +96,16 @@ defmodule Zkfol.Alloc do
   """
   @spec assign(Zkfol.Lang.shape(), [Zkfol.Lang.Rel.t()]) :: t()
   def assign(shape, objects \\ []) do
-    new(
-      for(name <- shape.members, do: {name, shape.arities[name]}) ++
-        if(shape.tags == %{}, do: [], else: [{:tag, 1}]) ++
-        if(shape.pointers == [], do: [], else: [{:ptr, length(shape.pointers)}]) ++
-        for(rel <- objects, do: {rel.name, rel.layout.rows}),
-      public: for(rel <- objects, rel.layout.public, do: rel.name)
-    )
+    alloc =
+      new(
+        for(name <- shape.members, do: {name, shape.arities[name]}) ++
+          if(shape.tags == %{}, do: [], else: [{:tag, 1}]) ++
+          if(shape.pointers == [], do: [], else: [{:ptr, length(shape.pointers)}]) ++
+          for(rel <- objects, do: {rel.name, rel.layout.rows}),
+        public: for(rel <- objects, rel.layout.public, do: rel.name)
+      )
+
+    %{alloc | slots: Map.get(shape, :slots, %{})}
   end
 
   @doc "I am how many rows I assign in all."

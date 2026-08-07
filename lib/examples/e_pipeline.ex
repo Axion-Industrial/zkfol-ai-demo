@@ -41,8 +41,10 @@ defmodule Examples.EPipeline do
     assert [{Zkfol.Lang, %Statement{stage: %Statement.Lowered{shape: shape}}} | _rest] = trace
     assert shape.members == [:regs]
 
-    assert %Statement.Solved{alloc: alloc, pred: linked} = statement.stage
+    assert %Statement.Solved{lay: %Zkfol.Lay{alloc: alloc}, pred: linked} = statement.stage
+    assert Statement.alloc(statement) == alloc
     assert Enum.to_list(Zkfol.Alloc.rows(alloc, :regs)) == [1, 2, 3]
+    assert alloc.slots == %{regs: [:x, :a, :b]}
     assert {:ok, ^linked} = Zkfol.Alloc.link(shape.pred, alloc)
     statement
   end

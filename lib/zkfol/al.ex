@@ -17,6 +17,7 @@ defmodule Zkfol.Al do
   alias Zkfol.Al.Freeze
   alias Zkfol.Derivation
   alias Zkfol.Lang
+  alias Zkfol.Lay
   alias Zkfol.Lang.Rel
   alias Zkfol.Alloc
   alias Zkfol.Ast
@@ -100,6 +101,25 @@ defmodule Zkfol.Al do
   def solved([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   @doc """
+  I lay `derivation` as the statement's witness: the shape compiled
+  from its relations, the allocation assigned, the predicate linked,
+  the banks laid and judged -- link and lay as one pure act, no run.
+  A subderivation or a candidate layout lays through me.
+  """
+  @spec relaid(Statement.t(), Derivation.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  def relaid(%Statement{rels: [root | _rest] = rels} = statement, %Derivation{} = derivation) do
+    with {:ok, shape} <- Lang.compile(root, rels),
+         alloc = Alloc.assign(shape),
+         {:ok, linked} <- Alloc.link(shape.pred, alloc),
+         members = Enum.filter(rels, &(&1.name in shape.members)),
+         lay = Lay.of(derivation, alloc, shape, members),
+         {:ok, witness} <- Lay.witness(lay),
+         :ok <- judged(linked, witness) do
+      {:ok, %{statement | stage: %Statement.Solved{pred: linked, witness: witness, lay: lay}}}
+    end
+  end
+
+  @doc """
   I derive every answer at `arguments`, naming the ones I report:
   the ask before `solve/3` proves.
 
@@ -129,21 +149,14 @@ defmodule Zkfol.Al do
       on_question(prep, 256_000_000, fn branch, heap ->
         with {:ok, tree} <- derive(prep, branch, heap),
              derivation = Derivation.of(tree, prep.names, prep.len?),
-             {:ok, banks} <-
-               Derivation.lay(derivation, prep.alloc, prep.shape, prep.members),
-             {:ok, witness} <- Alloc.interpret(prep.alloc, banks),
+             lay = Lay.of(derivation, prep.alloc, prep.shape, prep.members),
+             {:ok, witness} <- Lay.witness(lay),
              :ok <- judged(prep.linked, witness) do
           count = Interpretation.len(witness)
           event = {:al_solved, %{name: prep.name, count: count, branch: branch.id}}
           Log.push(event, prep.basedon)
 
-          {:ok,
-           %Statement.Solved{
-             pred: prep.linked,
-             witness: witness,
-             derivation: derivation,
-             alloc: prep.alloc
-           }}
+          {:ok, %Statement.Solved{pred: prep.linked, witness: witness, lay: lay}}
         end
       end)
     end

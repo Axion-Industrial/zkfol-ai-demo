@@ -118,8 +118,8 @@ defmodule Examples.EFace do
     feed = Face.judgement(EUser.fibonacci())
 
     assert length(feed.rows) == 4
-    assert Enum.take(feed.rows, 2) == ["fib x", "fib v"]
-    assert Enum.all?(Enum.drop(feed.rows, 2), &String.starts_with?(&1, "ptr "))
+    assert Enum.take(feed.rows, 2) == ["C1 · fib x", "C2 · fib v"]
+    assert Enum.all?(Enum.drop(feed.rows, 2), &(&1 =~ ~r/^C\d+ · ptr /))
     feed
   end
 
@@ -135,6 +135,16 @@ defmodule Examples.EFace do
     feed
   end
 
+  @spec the_derivation_reads_off_the_log() :: %{atom() => term()}
+  example the_derivation_reads_off_the_log do
+    ran = Zkfol.emit(%Statement{rels: [EUser.regs()], args: [5]})
+    feed = ran |> Face.final_stage() |> Face.derivation()
+
+    assert length(feed.rows) == 5
+    assert %{fact: [:regs, 5, _a, _b], consumes: [[:regs, 4, _, _]]} = List.last(feed.rows)
+    feed
+  end
+
   @spec the_judgement_draws_the_weld_arrows() :: %{atom() => term()}
   example the_judgement_draws_the_weld_arrows do
     feed = Face.judgement(EUser.fibonacci())
@@ -147,7 +157,31 @@ defmodule Examples.EFace do
     assert length(feed.arrows) == 12
     assert %{ptr: 3, from: 8, to: 7, to_row: 1, weld: 1} in feed.arrows
     assert %{ptr: 4, from: 8, to: 6, to_row: 1, weld: 2} in feed.arrows
+
+    assert feed.aims == [%{ptr: 3, member: :fib}, %{ptr: 4, member: :fib}]
     feed
+  end
+
+  @spec a_fact_carries_its_own_lay() :: Statement.t()
+  example a_fact_carries_its_own_lay do
+    sub = Face.under(EUser.fibonacci(), 4)
+
+    assert %Statement{stage: %Zkfol.Statement.Solved{}} = sub
+    assert length(Statement.derivation(sub).facts) == 4
+    assert Zkfol.Interpretation.len(Statement.witness(sub)) == 4
+    assert Zkfol.Semantics.valid?(Statement.pred(sub), Statement.witness(sub))
+
+    assert Face.under(EUser.fibonacci(), 99) == nil
+
+    {:ok, picked, _trace} =
+      Zkfol.Pipeline.run(EUser.plain(), %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]})
+
+    leaf = Face.under(picked, 1)
+
+    assert hd(leaf.rels).name == :tab
+    assert Zkfol.Alloc.width(Statement.alloc(leaf)) == 2
+    assert Zkfol.Interpretation.rows(Statement.witness(leaf)) == [[3], [40]]
+    sub
   end
 
   @doc "I label every branch off the relations and judge every column."
@@ -194,7 +228,15 @@ defmodule Examples.EFace do
 
     # And every witness row wears its meaning: the members' head
     # variables, the tag, the pointer by its target.
-    assert feed.rows == ["pick x", "pick v", "tab 1", "tab 2", "tag", "ptr 3"]
+    assert feed.rows ==
+             [
+               "C1 · pick x",
+               "C2 · pick v",
+               "C3 · tab 1",
+               "C4 · tab 2",
+               "C5 · tag",
+               "C6 · ptr tab 3"
+             ]
 
     feed
   end
