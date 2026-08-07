@@ -105,17 +105,8 @@ defmodule Zkfol.Doubling do
         one(1, ^value)
       end
 
-    with {:ok, shape} <- Zkfol.Lang.compile(one, [one]),
-         alloc = Zkfol.Alloc.assign(shape),
-         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, alloc),
-         {:ok, witness} <- Al.solve(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
-         do:
-           {:ok,
-            %Statement{
-              rels: [one],
-              claims: [{@claim, 2, 1}],
-              stage: %Statement.Solved{pred: pred, witness: witness, alloc: alloc}
-            }}
+    with {:ok, solved} <- Al.solved(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
+         do: {:ok, %Statement{rels: [one], claims: [{@claim, 2, 1}], stage: solved}}
   end
 
   @spec build(Facts.t(), pos_integer(), boolean(), keyword()) ::
@@ -126,20 +117,13 @@ defmodule Zkfol.Doubling do
 
     with {:ok, shape} <- Zkfol.Lang.compile(krel, [krel]),
          alloc = Zkfol.Alloc.assign(shape),
-         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, alloc),
          [_x, _u, _w, walked, result] = Enum.to_list(Zkfol.Alloc.rows(alloc, :kernel)) do
       claims =
         [{@claim, result, count}] ++
           if(private, do: [], else: [{@position, walked, count}])
 
-      with {:ok, witness} <- Al.solve(krel, [count], [bind: %{walked => m - 2}] ++ solve_opts),
-           do:
-             {:ok,
-              %Statement{
-                rels: [krel],
-                claims: claims,
-                stage: %Statement.Solved{pred: pred, witness: witness, alloc: alloc}
-              }}
+      with {:ok, solved} <- Al.solved(krel, [count], [bind: %{walked => m - 2}] ++ solve_opts),
+           do: {:ok, %Statement{rels: [krel], claims: claims, stage: solved}}
     end
   end
 
