@@ -44,10 +44,40 @@ defmodule Zkfol.Face do
   @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
   @spec text(Statement.t()) :: String.t()
   def text(%Statement{stage: %Solved{} = solved} = statement) do
-    inspected(%{statement | stage: %{solved | witness: :"…elided…"}})
+    elided = %{solved | witness: :"…elided…", derivation: :"…elided…"}
+    inspected(%{statement | stage: elided})
   end
 
   def text(%Statement{} = statement), do: inspected(statement)
+
+  @doc """
+  I am the derivation the solved stage carries, shaped for its view:
+  one row per fact in laying order, what it consumed, and its fan-in.
+  A fact rides as `[relation | tuple]`.
+  """
+  @spec derivation(Statement.t()) :: %{atom() => term()}
+  def derivation(%Statement{stage: %Solved{derivation: %Zkfol.Derivation{} = d}}) do
+    consumption = Zkfol.Derivation.consumption(d)
+    fans = consumption |> Enum.flat_map(&elem(&1, 1)) |> Enum.frequencies()
+
+    %{
+      rows:
+        for {fact, used} <- consumption do
+          %{
+            fact: fact_row(fact),
+            consumes: Enum.map(used, &fact_row/1),
+            fan_in: Map.get(fans, fact, 0)
+          }
+        end,
+      extents: d.facts |> Enum.frequencies_by(&elem(&1, 0)),
+      edges: d.edges |> List.flatten() |> length()
+    }
+  end
+
+  def derivation(%Statement{}), do: %{rows: [], extents: %{}, edges: 0}
+
+  @spec fact_row(Zkfol.Derivation.fact()) :: [term()]
+  defp fact_row({name, tuple}), do: [name | tuple]
 
   @doc """
   I am the judgement as a table: one row per branch of the predicate,
@@ -82,12 +112,43 @@ defmodule Zkfol.Face do
         end,
       sources: sources(statement.rels, table, length(branches)),
       rows: row_labels(statement.rels, table),
+      regions: regions(statement),
+      arrows: arrows(statement, table),
       witness:
         for x <- 1..len do
           for i <- 1..length(Interpretation.rows(witness)), do: Interpretation.at(witness, i, x)
         end
     }
   end
+
+  # The banks the allocation assigned, by name and absolute rows; a
+  # hand-attached witness carries no alloc and shows none.
+  @spec regions(Statement.t()) :: [%{atom() => term()}]
+  defp regions(%Statement{stage: %Solved{alloc: %Zkfol.Alloc{regions: regions} = alloc}}) do
+    for {name, _width} <- regions do
+      rows = Zkfol.Alloc.rows(alloc, name)
+      %{name: name, first: rows.first, last: rows.last}
+    end
+  end
+
+  defp regions(%Statement{}), do: []
+
+  # Each consumption edge between laid columns, for the arrow views;
+  # nothing without a derivation, an alloc, and a compiled table.
+  @spec arrows(Statement.t(), map() | nil) :: [%{atom() => term()}]
+  defp arrows(
+         %Statement{
+           stage: %Solved{alloc: %Zkfol.Alloc{} = alloc, derivation: %Zkfol.Derivation{} = d},
+           rels: rels
+         },
+         table
+       )
+       when table != nil do
+    members = Enum.filter(rels, &(&1.name in table.members))
+    Zkfol.Derivation.arrows(d, alloc, table, members)
+  end
+
+  defp arrows(%Statement{}, _table), do: []
 
   def judgement(%Statement{}), do: %{labels: [], evals: []}
 
@@ -221,6 +282,24 @@ defmodule Zkfol.Face do
   # The route's views, declared on the structure itself: the flow as
   # a graph of its passes, and the passes as rows. A node and a row
   # both reach the module itself on click, not a picture of it.
+  defview derivation_view(%Statement{} = statement, builder) do
+    feed = derivation(statement)
+
+    builder
+    |> ColumnedList.title("Derivation")
+    |> ColumnedList.priority(6)
+    |> ColumnedList.items(feed.rows)
+    |> ColumnedList.column("Fact", &fact_label(&1.fact))
+    |> ColumnedList.column(
+      "Consumes",
+      &Enum.map_join(&1.consumes, "   ", fn f -> fact_label(f) end)
+    )
+    |> ColumnedList.column("Fan-in", &to_string(&1.fan_in))
+  end
+
+  @spec fact_label([term()]) :: String.t()
+  defp fact_label([name | tuple]), do: "#{name}(#{Enum.join(tuple, ", ")})"
+
   defview route_view(%Zkfol.Pipeline{passes: passes}, builder) do
     modules = Enum.map(passes, fn {pass, _opts} -> pass end)
     edges = modules |> Enum.zip(Enum.drop(modules, 1)) |> Map.new(fn {a, b} -> {a, [b]} end)
@@ -539,8 +618,13 @@ defmodule Zkfol.Face do
   defp term_text(q) when is_integer(q), do: Integer.to_string(q)
   defp term_text(:x), do: "X"
   defp term_text(:len), do: "len"
-  defp term_text({:cell, i}), do: "C#{i}(X)"
-  defp term_text({:cell, i, j}), do: "C#{i}(C#{j}(X))"
+  defp term_text({:len, sym}), do: "len(#{sym})"
+  defp term_text({:cell, i}), do: "#{ref_text(i)}(X)"
+  defp term_text({:cell, i, j}), do: "#{ref_text(i)}(#{ref_text(j)}(X))"
+
+  @spec ref_text(Ast.row_ref()) :: String.t()
+  defp ref_text({sym, i}), do: "#{sym}.#{i}"
+  defp ref_text(i), do: "C#{i}"
 
   defp term_text({:add, t, q}) when is_integer(q) and q < 0,
     do: term_text(t) <> " - " <> Integer.to_string(-q)

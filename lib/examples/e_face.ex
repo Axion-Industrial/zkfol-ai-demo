@@ -105,6 +105,51 @@ defmodule Examples.EFace do
     text
   end
 
+  @spec the_statement_rides_the_bridge_whole() :: Statement.t()
+  example the_statement_rides_the_bridge_whole do
+    statement = EUser.fibonacci()
+
+    assert {:ok, _json} = Jexon.to_json(statement)
+    statement
+  end
+
+  @spec judgement_labels_named_pointers() :: %{atom() => term()}
+  example judgement_labels_named_pointers do
+    feed = Face.judgement(EUser.fibonacci())
+
+    assert length(feed.rows) == 4
+    assert Enum.take(feed.rows, 2) == ["fib x", "fib v"]
+    assert Enum.all?(Enum.drop(feed.rows, 2), &String.starts_with?(&1, "ptr "))
+    feed
+  end
+
+  @spec the_stage_carries_its_derivation() :: %{atom() => term()}
+  example the_stage_carries_its_derivation do
+    feed = Face.derivation(EUser.fibonacci())
+
+    assert %{fact: [:fib, 8, 21], consumes: [[:fib, 7, 13], [:fib, 6, 8]], fan_in: 0} =
+             List.last(feed.rows)
+
+    assert feed.extents == %{fib: 8}
+    assert feed.edges == 12
+    feed
+  end
+
+  @spec the_judgement_draws_the_weld_arrows() :: %{atom() => term()}
+  example the_judgement_draws_the_weld_arrows do
+    feed = Face.judgement(EUser.fibonacci())
+
+    assert feed.regions == [
+             %{name: :fib, first: 1, last: 2},
+             %{name: :ptr, first: 3, last: 4}
+           ]
+
+    assert length(feed.arrows) == 12
+    assert %{ptr: 3, from: 8, to: 7, to_row: 1, weld: 1} in feed.arrows
+    assert %{ptr: 4, from: 8, to: 6, to_row: 1, weld: 2} in feed.arrows
+    feed
+  end
+
   @doc "I label every branch off the relations and judge every column."
   @spec the_judgement_is_derived() :: %{atom() => term()}
   example the_judgement_is_derived do

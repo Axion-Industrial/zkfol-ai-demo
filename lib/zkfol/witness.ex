@@ -20,8 +20,10 @@ defmodule Zkfol.Witness do
   def run(%Statement{stage: %Statement.Lowered{} = lowered} = statement, opts) do
     args = Keyword.get(opts, :args, statement.args)
 
-    with {:ok, witness} <- Al.solve(statement, args, opts),
-         do: {:ok, %{statement | stage: Statement.Lowered.solved(lowered, witness)}}
+    with {:ok, witness, derivation} <- Al.solved(statement, args, opts) do
+      stage = %{Statement.Lowered.solved(lowered, witness) | derivation: derivation}
+      {:ok, %{statement | stage: stage}}
+    end
   end
 
   def run(statement, _opts), do: {:ok, statement}

@@ -31,7 +31,6 @@ defmodule Zkfol.Al do
   @type program :: [struct()]
 
   @typep bind :: %{optional(pos_integer()) => integer()}
-  @typep fact :: {atom(), [term()]}
 
   # Everything an ask needs, prepared once: see `prepared/3`.
   @typep prep :: %{
@@ -78,16 +77,23 @@ defmodule Zkfol.Al do
   """
   @spec solve(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  def solve(target, arguments, opts \\ [])
+  def solve(target, arguments, opts \\ []) do
+    with {:ok, witness, _derivation} <- solved(target, arguments, opts), do: {:ok, witness}
+  end
 
-  def solve(%Statement{rels: [_ | _] = rels} = statement, args, opts),
+  @doc "I am `solve/3` keeping the derivation the witness was laid from."
+  @spec solved(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
+          {:ok, Interpretation.t(), Derivation.t()} | {:error, Refusal.t()}
+  def solved(target, arguments, opts \\ [])
+
+  def solved(%Statement{rels: [_ | _] = rels} = statement, args, opts),
     do: solve_rels(rels, statement, args, opts)
 
-  def solve(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
+  def solved(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
 
-  def solve(%Rel{} = root, args, opts), do: solve_rels([root], [root], args, opts)
-  def solve([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, rels, args, opts)
-  def solve([], _args, _opts), do: {:error, {:no_relations, %{}}}
+  def solved(%Rel{} = root, args, opts), do: solve_rels([root], [root], args, opts)
+  def solved([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, rels, args, opts)
+  def solved([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   @doc """
   I derive every answer at `arguments`, naming the ones I report:
@@ -113,21 +119,22 @@ defmodule Zkfol.Al do
   # --- the flow: prepare, ask, extract, lay, judge, journal ---
 
   @spec solve_rels([Rel.t()], Statement.t() | [Rel.t()], [integer() | :_], keyword()) ::
-          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+          {:ok, Interpretation.t(), Derivation.t()} | {:error, Refusal.t()}
   defp solve_rels(rels, target, args, opts) do
     with {:ok, prep} <- prepared(rels, args, opts) do
       on_question(prep, 256_000_000, fn branch, heap ->
         pred = target_pred(target, prep)
 
         with {:ok, tree} <- derive(prep, branch, heap),
-             facts = extract(tree, prep.names, prep.len?),
-             {:ok, banks} <- Derivation.lay(facts, prep.alloc, prep.shape, prep.members, pred),
+             derivation = Derivation.of(tree, prep.names, prep.len?),
+             {:ok, banks} <-
+               Derivation.lay(derivation, prep.alloc, prep.shape, prep.members),
              {:ok, witness} <- Alloc.interpret(prep.alloc, banks),
              :ok <- judged(pred, witness) do
           count = Interpretation.len(witness)
           event = {:al_solved, %{name: prep.name, count: count, branch: branch.id}}
           Log.push(event, prep.basedon)
-          {:ok, witness}
+          {:ok, witness, derivation}
         end
       end)
     end
@@ -289,41 +296,6 @@ defmodule Zkfol.Al do
 
       outside ->
         {:error, {:arguments_exceed_rows, %{bind: outside, rows: length(rows)}}}
-    end
-  end
-
-  # --- extraction: the journal's facts, nothing else ---
-
-  # The committed derivation in post-order: one fact per member call,
-  # callees ahead of their callers, duplicates collapsed.
-  @spec extract([map()] | map(), MapSet.t(), boolean()) :: [fact()]
-  defp extract(tree, names, len?) do
-    tree
-    |> List.wrap()
-    |> Enum.reduce([], &fact_nodes(&1, &2, names, len?))
-    |> Enum.reverse()
-    |> Enum.uniq()
-  end
-
-  @spec fact_nodes(map(), [fact()], MapSet.t(), boolean()) :: [fact()]
-  defp fact_nodes(%{label: {_self, m, args}, children: kids, derived: derived}, acc, names, len?) do
-    acc = Enum.reduce(kids, acc, &fact_nodes(&1, &2, names, len?))
-
-    if MapSet.member?(names, m) do
-      values = Enum.map(args, &resolve(&1, derived))
-      [{m, if(len?, do: Enum.drop(values, -1), else: values)} | acc]
-    else
-      acc
-    end
-  end
-
-  defp fact_nodes(_node, acc, _names, _len?), do: acc
-
-  @spec resolve(term(), map() | nil) :: term()
-  defp resolve(term, derived) do
-    case derived && Map.get(derived, term) do
-      {:bound, value} -> value
-      _other -> term
     end
   end
 
