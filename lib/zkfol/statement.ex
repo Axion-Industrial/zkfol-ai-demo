@@ -29,17 +29,20 @@ defmodule Zkfol.Statement do
     field(:stage, stage(), default: :raw)
   end
 
-  @doc "I am the predicate, once the statement has been lowered to one."
+  @doc """
+  I am the predicate, once the statement has been lowered to one:
+  named while lowered, linked once solved.
+  """
   @spec pred(t()) :: Ast.pred()
-  def pred(%__MODULE__{stage: %Lowered{pred: pred}}), do: pred
+  def pred(%__MODULE__{stage: %Lowered{shape: shape}}), do: shape.pred
   def pred(%__MODULE__{stage: %Solved{pred: pred}}), do: pred
 
   @doc "I am the witness, once one models the predicate."
   @spec witness(t()) :: Interpretation.t()
   def witness(%__MODULE__{stage: %Solved{witness: witness}}), do: witness
 
-  @doc "I am the statement lowered to `pred`."
-  @spec lowered(t(), Ast.pred()) :: t()
-  def lowered(%__MODULE__{} = statement, pred),
-    do: %{statement | stage: %Lowered{pred: pred}}
+  @doc "I am the statement lowered to `shape`: the named predicate and what it stands on."
+  @spec lowered(t(), Zkfol.Lang.shape()) :: t()
+  def lowered(%__MODULE__{} = statement, shape),
+    do: %{statement | stage: %Lowered{shape: shape}}
 end

@@ -106,14 +106,15 @@ defmodule Zkfol.Doubling do
       end
 
     with {:ok, shape} <- Zkfol.Lang.compile(one, [one]),
-         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, Zkfol.Alloc.assign(shape)),
+         alloc = Zkfol.Alloc.assign(shape),
+         {:ok, pred} <- Zkfol.Alloc.link(shape.pred, alloc),
          {:ok, witness} <- Al.solve(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
          do:
            {:ok,
             %Statement{
               rels: [one],
               claims: [{@claim, 2, 1}],
-              stage: %Statement.Solved{pred: pred, witness: witness}
+              stage: %Statement.Solved{pred: pred, witness: witness, alloc: alloc}
             }}
   end
 
@@ -137,7 +138,7 @@ defmodule Zkfol.Doubling do
               %Statement{
                 rels: [krel],
                 claims: claims,
-                stage: %Statement.Solved{pred: pred, witness: witness}
+                stage: %Statement.Solved{pred: pred, witness: witness, alloc: alloc}
               }}
     end
   end

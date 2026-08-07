@@ -84,7 +84,7 @@ defmodule Examples.EDoubling do
 
   @spec the_try_leaves_other_statements_alone() :: Statement.t()
   example the_try_leaves_other_statements_alone do
-    source = %Statement{stage: %Statement.Lowered{pred: Statement.pred(EUser.power())}}
+    {:ok, source} = Zkfol.Lang.run(%Statement{rels: EUser.power().rels}, [])
 
     {:ok, statement, trace} = Pipeline.run(%Pipeline{passes: [{Doubling, []}]}, source)
 

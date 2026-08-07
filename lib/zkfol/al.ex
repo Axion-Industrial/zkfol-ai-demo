@@ -78,12 +78,16 @@ defmodule Zkfol.Al do
   @spec solve(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def solve(target, arguments, opts \\ []) do
-    with {:ok, witness, _derivation} <- solved(target, arguments, opts), do: {:ok, witness}
+    with {:ok, solved} <- solved(target, arguments, opts), do: {:ok, solved.witness}
   end
 
-  @doc "I am `solve/3` keeping the derivation the witness was laid from."
+  @doc """
+  I am the solving act whole: the `Zkfol.Statement.Solved` stage, its
+  linked predicate, witness, derivation, and allocation born of one
+  run. A lowered statement lends me its shape; anything else compiles.
+  """
   @spec solved(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
-          {:ok, Interpretation.t(), Derivation.t()} | {:error, Refusal.t()}
+          {:ok, Statement.Solved.t()} | {:error, Refusal.t()}
   def solved(target, arguments, opts \\ [])
 
   def solved(%Statement{rels: [_ | _] = rels} = statement, args, opts),
@@ -119,26 +123,36 @@ defmodule Zkfol.Al do
   # --- the flow: prepare, ask, extract, lay, judge, journal ---
 
   @spec solve_rels([Rel.t()], Statement.t() | [Rel.t()], [integer() | :_], keyword()) ::
-          {:ok, Interpretation.t(), Derivation.t()} | {:error, Refusal.t()}
+          {:ok, Statement.Solved.t()} | {:error, Refusal.t()}
   defp solve_rels(rels, target, args, opts) do
-    with {:ok, prep} <- prepared(rels, args, opts) do
+    with {:ok, prep} <- prepared(rels, shape_of(target), args, opts) do
       on_question(prep, 256_000_000, fn branch, heap ->
-        pred = target_pred(target, prep)
-
         with {:ok, tree} <- derive(prep, branch, heap),
              derivation = Derivation.of(tree, prep.names, prep.len?),
              {:ok, banks} <-
                Derivation.lay(derivation, prep.alloc, prep.shape, prep.members),
              {:ok, witness} <- Alloc.interpret(prep.alloc, banks),
-             :ok <- judged(pred, witness) do
+             :ok <- judged(prep.linked, witness) do
           count = Interpretation.len(witness)
           event = {:al_solved, %{name: prep.name, count: count, branch: branch.id}}
           Log.push(event, prep.basedon)
-          {:ok, witness, derivation}
+
+          {:ok,
+           %Statement.Solved{
+             pred: prep.linked,
+             witness: witness,
+             derivation: derivation,
+             alloc: prep.alloc
+           }}
         end
       end)
     end
   end
+
+  # The shape the stage already carries; nothing, and prepared compiles.
+  @spec shape_of(Statement.t() | [Rel.t()]) :: Lang.shape() | nil
+  defp shape_of(%Statement{stage: %Statement.Lowered{shape: shape}}), do: shape
+  defp shape_of(_target), do: nil
 
   # The oracle on the whole witness: banks stacked, every region in it.
   @spec judged(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}
@@ -148,13 +162,19 @@ defmodule Zkfol.Al do
       else: {:error, {:witness_invalid, %{}}}
   end
 
-  # Everything both asks share, prepared once.
-  @spec prepared([Rel.t()], [integer() | atom()], keyword()) ::
+  # Everything both asks share, prepared once. A shape handed in is
+  # the stage's; compiling again would let the two drift.
+  @spec prepared([Rel.t()], Lang.shape() | nil, [integer() | atom()], keyword()) ::
           {:ok, prep()} | {:error, Refusal.t()}
-  defp prepared([root | _rest] = rels, args, opts) do
+  defp prepared([root | _rest] = rels, nil, args, opts) do
     with {:ok, shape} <- Lang.compile(root, rels),
-         alloc = Alloc.assign(shape),
-         {:ok, linked} <- Alloc.link(shape.pred, alloc),
+         do: prepared(rels, shape, args, opts)
+  end
+
+  defp prepared([root | _rest] = rels, shape, args, opts) do
+    alloc = Alloc.assign(shape)
+
+    with {:ok, linked} <- Alloc.link(shape.pred, alloc),
          members = Enum.filter(rels, &(&1.name in shape.members)),
          {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
@@ -267,13 +287,6 @@ defmodule Zkfol.Al do
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
-  # The pred the stage already carries, linked; the compiled one linked
-  # otherwise. The witness stands on rows, so what judges it must too.
-  @spec target_pred(Statement.t() | [Rel.t()], prep()) :: Ast.pred()
-  defp target_pred(%Statement{stage: :raw}, prep), do: prep.linked
-  defp target_pred(%Statement{} = statement, _prep), do: Statement.pred(statement)
-  defp target_pred(_rels, prep), do: prep.linked
-
   # Rows `args` left bound, skipping `:_`, under any `opts[:bind]` override.
   # An argument past the last row addresses nothing, and zipping it away
   # would answer a question no one asked.
@@ -305,7 +318,7 @@ defmodule Zkfol.Al do
   @spec apply_rels([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
   defp apply_rels([root | _rest] = rels, args, opts) do
-    with {:ok, prep} <- prepared(rels, args, opts) do
+    with {:ok, prep} <- prepared(rels, nil, args, opts) do
       names = for a <- args, is_atom(a) and a != :_, do: a
       lenp = if prep.len?, do: [Map.fetch!(prep.bind, 1)], else: []
       call = {root.name, [], [@class | goal(root.arity, prep.bind, args) ++ lenp]}
