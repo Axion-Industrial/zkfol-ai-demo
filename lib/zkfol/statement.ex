@@ -60,4 +60,24 @@ defmodule Zkfol.Statement do
   @spec lowered(t(), Zkfol.Lang.shape()) :: t()
   def lowered(%__MODULE__{} = statement, shape),
     do: %{statement | stage: %Lowered{shape: shape}}
+
+  @doc """
+  I am the statement beneath one established fact, named by its
+  position in my derivation: the fact's own relation becomes the
+  root, so the shape shrinks to what its closure entails -- a leaf
+  stands on its own bank alone -- and the subderivation lays through
+  a fresh allocation. Nil when there is no such fact or no derivation.
+  """
+  @spec under(t(), pos_integer()) :: t() | nil
+  def under(%__MODULE__{rels: rels} = statement, k) when is_integer(k) do
+    with %Zkfol.Derivation{facts: facts} = d <- derivation(statement),
+         {name, tuple} = fact <- Enum.at(facts, k - 1),
+         root when not is_nil(root) <- Enum.find(rels, &(&1.name == name)),
+         source = %{statement | rels: [root | List.delete(rels, root)], args: tuple, claims: []},
+         {:ok, sub} <- Zkfol.Al.relaid(source, Zkfol.Derivation.under(d, fact)) do
+      sub
+    else
+      _nothing -> nil
+    end
+  end
 end

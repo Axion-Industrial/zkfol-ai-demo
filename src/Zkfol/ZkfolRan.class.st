@@ -18,7 +18,7 @@ ZkfolRan >> finalStage [
 	 views; a run some pass refused answers a refusal that says so and
 	 hides the forwarded tabs."
 	| stage |
-	stage := self evaluateOrNil: 'Zkfol.Face.final_stage(' , self resolve , ')'.
+	stage := self evaluateOrNil: 'Zkfol.Log.Ran.final_stage(' , self resolve , ')'.
 	^ (stage isKindOf: ZkfolStatement)
 		ifTrue: [ stage ]
 		ifFalse: [ ZkfolRefusal because: 'no final stage: a pass refused' ]
@@ -120,7 +120,7 @@ ZkfolRan >> stageAt: aStageIndex [
 	 expression rides into the source at the call site, the index as its
 	 own integer literal, the bridge's own splice."
 	^ self evaluateOrNil:
-		'Zkfol.Log.stage(' , self resolve , ', ' , aStageIndex printString , ') |> elem(1)'
+		'Zkfol.Log.Ran.stage(' , self resolve , ', ' , aStageIndex printString , ') |> elem(1)'
 ]
 
 { #category : 'accessing' }

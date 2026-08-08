@@ -132,33 +132,6 @@ defmodule Zkfol.Face do
   defp on_lay(%Statement{}, _reading), do: []
 
   @doc """
-  I am the statement beneath one established fact, named by its
-  position in the derivation: the fact's own relation becomes the
-  root, so the shape shrinks to what its closure entails -- a leaf
-  stands on its own bank alone -- and the subderivation lays through
-  a fresh allocation. Nil when there is no such fact or no derivation.
-  """
-  @spec under(Statement.t(), pos_integer()) :: Statement.t() | nil
-  def under(
-        %Statement{rels: rels, stage: %Solved{lay: %Zkfol.Lay{derivation: d}}} = statement,
-        k
-      )
-      when is_integer(k) do
-    facts = d.facts
-
-    with {name, tuple} = fact <- Enum.at(facts, k - 1),
-         %Lang.Rel{} = root <- Enum.find(rels, &(&1.name == name)),
-         source = %{statement | rels: [root | List.delete(rels, root)], args: tuple, claims: []},
-         {:ok, sub} <- Zkfol.Al.relaid(source, Zkfol.Derivation.under(d, fact)) do
-      sub
-    else
-      _nothing -> nil
-    end
-  end
-
-  def under(_statement, _k), do: nil
-
-  @doc """
   I am one lay for its grid: the row introductions off its own shape,
   the witness matrix by column, and the regions, arrows, and aims it
   already is. What the Lay views draw of a bridged `Zkfol.Lay`.
@@ -219,19 +192,6 @@ defmodule Zkfol.Face do
         %{^r => label} -> "C#{r} · #{label}"
         _named -> "C#{r}"
       end
-    end
-  end
-
-  @doc """
-  I am the act's final statement, re-run from the source, so a viewer
-  holds the struct itself and every view it wears; nil when a pass
-  refused and there is no final stage to hold.
-  """
-  @spec final_stage(Log.Ran.t()) :: Statement.t() | nil
-  def final_stage(%Log.Ran{pipeline: pipeline} = ran) do
-    case Log.stage(ran, length(pipeline.passes)) do
-      {:ok, statement} -> statement
-      {:error, _reason} -> nil
     end
   end
 
@@ -345,7 +305,7 @@ defmodule Zkfol.Face do
   """
   @spec emitted(Log.Ran.t()) :: Uair.t() | {:refused, String.t()}
   def emitted(ran) do
-    {:ok, final} = Log.stage(ran, length(ran.pipeline.passes))
+    {:ok, final} = Log.Ran.stage(ran, length(ran.pipeline.passes))
 
     case Uair.emit(Statement.pred(final), Statement.witness(final), final.claims) do
       {:ok, uair} -> uair

@@ -15,7 +15,7 @@ defmodule Zkfol.Log do
 
   use TypedStruct
 
-  alias Zkfol.Refusal
+  alias Zkfol.Log.Ran
 
   @table :zkfol_log
 
@@ -25,19 +25,6 @@ defmodule Zkfol.Log do
     field(:id, pos_integer())
     field(:basedon, pos_integer() | nil)
     field(:body, term())
-  end
-
-  typedstruct module: Ran, enforce: true do
-    @moduledoc """
-    I am the receipt of one journaled act: the route and source it
-    ran, and the id of the event defining the route. I remember no
-    history: my trail is a query over the log, and every stage of me
-    is re-run from the source.
-    """
-
-    field(:pipeline, Zkfol.Pipeline.t())
-    field(:source, Zkfol.Statement.t())
-    field(:defined, pos_integer())
   end
 
   typedstruct do
@@ -121,21 +108,6 @@ defmodule Zkfol.Log do
       %Event{body: {:proved, report}} -> report
       _event -> nil
     end)
-  end
-
-  @doc """
-  I am the statement after `ran`'s first `k` passes, re-run from the
-  source: passes are pure, so a stage is recomputed, never stored.
-  Stage 0 is the source itself.
-  """
-  @spec stage(Ran.t(), non_neg_integer()) :: {:ok, Zkfol.Statement.t()} | {:error, Refusal.t()}
-  def stage(%Ran{pipeline: pipeline, source: source}, k) do
-    shortened = %Zkfol.Pipeline{passes: Enum.take(pipeline.passes, k)}
-
-    case Zkfol.Pipeline.run(shortened, source) do
-      {:ok, statement, _trace} -> {:ok, statement}
-      {:error, _pass, reason, _trace} -> {:error, reason}
-    end
   end
 
   # Oldest to newest, an event joins the thread when it is a root or is

@@ -56,7 +56,7 @@ ZkfolStatement >> underAt: aOneBasedIndex [
 	 subderivation re-laid through my allocation, the bridged struct
 	 wearing every view; nil when there is no such fact."
 	^ self evaluateOrNil:
-		'Zkfol.Face.under(' , self resolve , ', ' , aOneBasedIndex printString , ')'
+		'Zkfol.Statement.under(' , self resolve , ', ' , aOneBasedIndex printString , ')'
 ]
 
 { #category : 'views' }
