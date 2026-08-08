@@ -41,6 +41,20 @@ defmodule Examples.EUser do
     b = a1
   end
 
+  # Mod 7919 by existential witness: the quotient rides the head until
+  # fresh body names get columns, and the sign guards are Z-side only.
+  defrel regsm(1, 1, 1, 0)
+
+  defrel regsm(x, a, b, q) do
+    x > 1
+    regsm(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
   # The base rides as a value: prover's knowledge enters at construction.
   @spec power_rel(integer()) :: Lang.Rel.t()
   def power_rel(base) do
@@ -99,6 +113,15 @@ defmodule Examples.EUser do
     {:ok, statement, _trace} = Pipeline.run(plain(), %Statement{rels: [regs()], args: [n]})
 
     assert Interpretation.at(Statement.witness(statement), 3, n) == fib(n)
+    statement
+  end
+
+  @spec registers_mod(pos_integer()) :: Statement.t()
+  example registers_mod(n \\ 1000) do
+    source = %Statement{rels: [regsm()], args: [n, :_, :_, :_]}
+    {:ok, statement, _trace} = Pipeline.run(plain(), source)
+
+    assert Interpretation.at(Statement.witness(statement), 2, n) == rem(fib(n + 1), 7919)
     statement
   end
 
@@ -187,7 +210,7 @@ defmodule Examples.EUser do
     [root | _scope] = program = program(:fib)
 
     assert root.name == :fib
-    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs]
+    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs, :regsm]
 
     # The closure walk takes what it calls and ignores the rest.
     {:ok, shape} = Lang.compile(root, program)
