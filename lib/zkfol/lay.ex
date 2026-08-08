@@ -4,8 +4,9 @@ defmodule Zkfol.Lay do
   The shape names the rows, the alloc numbers them, the derivation
   says what was established, and I add what only the placement knows:
   each fact's column, each pointer's weld, each consumption on its
-  rows. The witness is my matrix; the arrows, aims, and regions are
-  readings of me. Born in the solve's link-and-lay act, I ride
+  rows, each guard's slack. The witness is my matrix; the arrows,
+  aims, and regions are readings of me. Born in the solve's
+  link-and-lay act, I ride
   `Zkfol.Statement.Solved`, so what a viewer draws is what a value
   holds.
 
@@ -14,13 +15,16 @@ defmodule Zkfol.Lay do
   me: `columns` says which trace column the i-th fact was dealt onto;
   `consumption` says, per fact, `{ptr_row, callee_index}` -- it
   consumed the callee-th fact through that committed pointer row;
+  `slack` says, per fact, the room its fired clause's guards left --
+  the k-th entry is what the k-th slack row holds at that fact's
+  column, and a clause with fewer guards says less, so the rest pads;
   `welds` says `{ptr_row, k}` -- every consumption through that row
   lands exactly k columns back, so the pointer becomes a shift. The
   columns are arranged precisely so the welds hold: one is the
-  choice, the other the property it achieves. The shape earns its seat beyond labels: `witness`
-  reads its tags and pointer rows, `aims` its calls; only the named
-  predicate inside it is baggage, kept so I describe the whole
-  linked act.
+  choice, the other the property it achieves. The shape earns its
+  seat beyond labels: `witness` reads its tags, pointer rows, and
+  slack width, `aims` its calls; only the named predicate inside it
+  is baggage, kept so I describe the whole linked act.
 
   ### Public API
 
@@ -47,6 +51,7 @@ defmodule Zkfol.Lay do
     field(:columns, [pos_integer()])
     field(:welds, [{pos_integer(), pos_integer()}])
     field(:consumption, [[{pos_integer(), non_neg_integer()}]])
+    field(:slack, [[integer()]])
   end
 
   @doc """
@@ -58,11 +63,10 @@ defmodule Zkfol.Lay do
   def of(%Derivation{facts: facts} = derivation, alloc, shape, members) do
     row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
     index = facts |> Enum.with_index() |> Map.new()
+    fired = Consumption.fired(derivation, members, shape)
 
     consumption =
-      derivation
-      |> Consumption.of(members, shape)
-      |> Map.new(fn {fact, used} -> {fact, for({p, c} <- used, do: {row.(p), c})} end)
+      Map.new(fired, fn {fact, ran} -> {fact, for({p, c} <- consumed(ran), do: {row.(p), c})} end)
 
     schedules = measured(consumption)
     position = facts |> arrange(consumption, schedules) |> Enum.with_index(1) |> Map.new()
@@ -76,27 +80,30 @@ defmodule Zkfol.Lay do
       consumption:
         for fact <- facts do
           for {ptr, callee} <- Map.fetch!(consumption, fact), do: {ptr, Map.fetch!(index, callee)}
-        end
+        end,
+      slack: for(fact <- facts, do: spare(fact, Map.fetch!(fired, fact)))
     }
   end
 
   @doc """
   I am my matrix: each fact's tuple on its member's rows at its
   column, the tag row wearing its relation, each pointer holding the
-  consumed column, unread cells padding -- zero, or one on a pointer
-  row, since an unread pointer still names a column. A cell
-  unification left free reads zero.
+  consumed column, each slack cell the room its guard left, unread
+  cells padding -- zero, or one on a pointer row, since an unread
+  pointer still names a column. A cell unification left free reads
+  zero.
   """
   @spec witness(t()) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def witness(%__MODULE__{alloc: alloc, shape: shape, derivation: derivation} = lay) do
     row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
     pointer_rows = pointer_rows(alloc, shape)
+    slack_rows = slack_rows(alloc, shape)
 
     columns =
-      derivation.facts
-      |> Enum.zip(lay.consumption)
-      |> Enum.sort_by(fn {fact, _used} -> position_of(lay, fact) end)
-      |> Enum.map(fn {{name, tuple} = _fact, used} ->
+      [derivation.facts, lay.consumption, lay.slack]
+      |> Enum.zip()
+      |> Enum.sort_by(fn {fact, _used, _spare} -> position_of(lay, fact) end)
+      |> Enum.map(fn {{name, tuple} = _fact, used, spare} ->
         cells = alloc |> Alloc.rows(name) |> Enum.zip(tuple) |> Map.new()
 
         cells =
@@ -104,10 +111,9 @@ defmodule Zkfol.Lay do
             do: cells,
             else: Map.put(cells, row.({:tag, 1}), Map.fetch!(shape.tags, name))
 
-        Map.merge(
-          cells,
-          Map.new(used, fn {ptr, callee} -> {ptr, Enum.at(lay.columns, callee)} end)
-        )
+        cells
+        |> Map.merge(Map.new(used, fn {ptr, callee} -> {ptr, Enum.at(lay.columns, callee)} end))
+        |> Map.merge(Map.new(Enum.zip(slack_rows, spare)))
       end)
 
     matrix =
@@ -188,6 +194,51 @@ defmodule Zkfol.Lay do
   #                   Private Implementation                 #
   ############################################################
 
+  # What the fired clause consumed, on the pointers it went through.
+  @spec consumed({Consumption.site(), [Derivation.fact()]} | nil) ::
+          [{Zkfol.Ast.row_ref(), Derivation.fact()}]
+  defp consumed(nil), do: []
+  defp consumed({{_head, _body, ptrs}, used}), do: Enum.zip(ptrs, used)
+
+  # What one fact's guards had to spare: each guard of the clause that
+  # fired, read where the clause bound its names -- the head from the
+  # fact's own tuple, a call's outputs from the fact it consumed --
+  # and the difference the guard leaves is its slack.
+  @spec spare(Derivation.fact(), {Consumption.site(), [Derivation.fact()]} | nil) :: [integer()]
+  defp spare(_fact, nil), do: []
+
+  defp spare({_name, tuple}, {{head, body, _ptrs}, used}) do
+    env = Map.merge(bound(head, tuple), returned(body, used))
+    for {:cmp, op, t, u} <- body, do: gap(op, value(t, env), value(u, env))
+  end
+
+  # A head binds its variables to the fact's own tuple.
+  @spec bound([term()], [term()]) :: %{atom() => integer()}
+  defp bound(head, tuple) do
+    Map.new(for {{:var, nm}, q} <- Enum.zip(head, tuple), do: {nm, Derivation.free_to_zero(q)})
+  end
+
+  # A call binds its outputs to the callee's tuple past the index.
+  @spec returned([term()], [Derivation.fact()]) :: %{atom() => integer()}
+  defp returned(body, used) do
+    for({:call, _name, [_at | outs]} <- body, do: outs)
+    |> Enum.zip(used)
+    |> Enum.flat_map(fn {outs, {_name, tuple}} -> Enum.zip(outs, Enum.drop(tuple, 1)) end)
+    |> Map.new(fn {{:var, nm}, q} -> {nm, Derivation.free_to_zero(q)} end)
+  end
+
+  @spec gap(atom(), integer(), integer()) :: integer()
+  defp gap(:>, a, b), do: a - b - 1
+  defp gap(:>=, a, b), do: a - b
+  defp gap(:<, a, b), do: b - a - 1
+  defp gap(:<=, a, b), do: b - a
+
+  @spec value(term(), %{atom() => integer()}) :: integer()
+  defp value(q, _env) when is_integer(q), do: q
+  defp value({:var, nm}, env), do: Map.fetch!(env, nm)
+  defp value({:add, t, u}, env), do: value(t, env) + value(u, env)
+  defp value({:mul, t, u}, env), do: value(t, env) * value(u, env)
+
   @spec position_of(t(), Derivation.fact()) :: pos_integer()
   defp position_of(%__MODULE__{derivation: derivation} = lay, fact),
     do: Enum.at(lay.columns, Enum.find_index(derivation.facts, &(&1 == fact)))
@@ -204,6 +255,12 @@ defmodule Zkfol.Lay do
   @spec pointer_rows(Alloc.t(), Zkfol.Lang.shape()) :: MapSet.t()
   defp pointer_rows(_alloc, %{pointers: []}), do: MapSet.new()
   defp pointer_rows(alloc, _shape), do: alloc |> Alloc.rows(:ptr) |> MapSet.new()
+
+  # The slack rows in order, a clause's k-th guard reading the k-th.
+  @spec slack_rows(Alloc.t(), Zkfol.Lang.shape()) :: [pos_integer()]
+  defp slack_rows(alloc, shape) do
+    if Map.get(shape, :slack, 0) == 0, do: [], else: Enum.to_list(Alloc.rows(alloc, :slack))
+  end
 
   # A pointer welds when every consumption through it is the same
   # relation descending its first argument by one constant: measured

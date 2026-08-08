@@ -366,6 +366,34 @@ defmodule Examples.EAl do
     band
   end
 
+  defrel capped(x, v) do
+    x < 4
+    v = x + 1
+  end
+
+  @doc """
+  I hold a guard nothing structural implies: `x < 4` reaches the
+  predicate as the room it leaves, and a cell claiming other room is
+  no witness.
+  """
+  @spec a_guard_binds_its_slack() :: Interpretation.t()
+  example a_guard_binds_its_slack do
+    {:ok, shape} = Zkfol.Lang.compile(capped(), [capped()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.slack == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :slack)) == [3]
+
+    {:ok, pred} = Zkfol.Lang.lower(capped(), [capped()])
+    {:ok, witness} = Al.solve(capped(), [2])
+
+    assert Interpretation.rows(witness) == [[2], [3], [1]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+
+    refute Zkfol.Semantics.valid?(pred, Interpretation.new([[2], [3], [0]]))
+    witness
+  end
+
   # A call between relations derives on one trace: pick reads tab
   # through the pointer row, the fact it reaches takes a column of its
   # own, and the three facts nothing reached never materialize.
