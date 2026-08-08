@@ -28,7 +28,7 @@ defmodule Zkfol.Lang do
   alias Zkfol.Statement
 
   @typep env :: %{atom() => Ast.term_t()}
-  @typep pointers :: {%{Ast.term_t() => Ast.row_ref()}, pos_integer()}
+  @typep pointers :: {%{{atom(), Ast.term_t()} => Ast.row_ref()}, pos_integer()}
   @typep tags :: %{atom() => pos_integer()} | nil
 
   @typedoc """
@@ -372,7 +372,7 @@ defmodule Zkfol.Lang do
       [index | value_rows] = cells(scope[name])
 
       with {:ok, target} <- resolve(at, env),
-           {row, pointers} = point(pointers, target),
+           {row, pointers} = point(pointers, name, target),
            {:ok, env} <- outputs(outs, value_rows, row, env),
            do:
              {:ok, {[schedule(index, row, target) | check(tags, name, row)], row},
@@ -396,12 +396,13 @@ defmodule Zkfol.Lang do
     do: [Ast.eq(Ast.cell({:tag, 1}, pointer), Map.fetch!(tags, name))]
 
   # Calls resolving to one target share their pointer: a pointer is a
-  # position, whoever reads through it.
-  @spec point(pointers(), Ast.term_t()) :: {Ast.row_ref(), pointers()}
-  defp point({named, next} = pointers, target) do
+  # position in one callee's extension, so its identity is the callee
+  # beside the address -- two callees at one address are two pointers.
+  @spec point(pointers(), atom(), Ast.term_t()) :: {Ast.row_ref(), pointers()}
+  defp point({named, next} = pointers, callee, target) do
     case named do
-      %{^target => name} -> {name, pointers}
-      _named -> {{:ptr, next}, {Map.put(named, target, {:ptr, next}), next + 1}}
+      %{{^callee, ^target} => name} -> {name, pointers}
+      _named -> {{:ptr, next}, {Map.put(named, {callee, target}, {:ptr, next}), next + 1}}
     end
   end
 
