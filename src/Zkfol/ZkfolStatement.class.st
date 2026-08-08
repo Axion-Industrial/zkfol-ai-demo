@@ -1,6 +1,6 @@
 Class {
 	#name : 'ZkfolStatement',
-	#superclass : 'ZkfolProxy',
+	#superclass : 'BeamProxyObject',
 	#category : 'Zkfol-Proxies',
 	#package : 'Zkfol',
 	#tag : 'Proxies'
@@ -92,7 +92,7 @@ ZkfolStatement >> gtDerivationGraphFor: aView [
 	<gtView>
 	<gtBeamView>
 	| feed |
-	feed := ZkfolProxy on: self fetch: 'Zkfol.Face.derivation(' , self resolve , ')'.
+	feed := self plainFetch: 'Zkfol.Face.derivation(' , self resolve , ')'.
 	((feed isKindOf: Dictionary)
 		and: [ (feed at: #rows ifAbsent: [ #() ]) notEmpty ])
 			ifFalse: [ ^ aView empty ].
@@ -113,7 +113,7 @@ ZkfolStatement >> gtJudgementFor: aView [
 	<gtView>
 	<gtBeamView>
 	| feed |
-	feed := ZkfolProxy on: self fetch: 'Zkfol.Face.judgement(' , self resolve , ')'.
+	feed := self plainFetch: 'Zkfol.Face.judgement(' , self resolve , ')'.
 	((feed isKindOf: Dictionary)
 		and: [ (feed at: #evals ifAbsent: [ #() ]) notEmpty ])
 			ifFalse: [ ^ aView empty ].

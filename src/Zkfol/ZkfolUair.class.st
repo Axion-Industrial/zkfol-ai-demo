@@ -1,6 +1,6 @@
 Class {
 	#name : 'ZkfolUair',
-	#superclass : 'ZkfolProxy',
+	#superclass : 'BeamProxyObject',
 	#category : 'Zkfol-Proxies',
 	#package : 'Zkfol',
 	#tag : 'Proxies'

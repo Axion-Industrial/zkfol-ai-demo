@@ -65,7 +65,7 @@ ZkfolStageTransform >> factsOf: aState [
 	(aState isKindOf: Dictionary) ifTrue: [ ^ aState ].
 	(aState isKindOf: BeamProxyObject) ifTrue: [
 		| fetched |
-		fetched := ZkfolProxy on: aState fetch: 'Zkfol.Face.summary(' , aState resolve , ')'.
+		fetched := aState plainFetch: 'Zkfol.Face.summary(' , aState resolve , ')'.
 		^ (fetched isKindOf: Dictionary) ifTrue: [ fetched ] ifFalse: [ Dictionary new ] ].
 	^ Dictionary new
 ]
@@ -153,7 +153,7 @@ ZkfolStageTransform >> textOf: aState [
 						print: (aState at: key); cr ] ] ] ].
 	(aState isKindOf: BeamProxyObject) ifTrue: [
 		| fetched |
-		fetched := ZkfolProxy on: aState fetch: 'Zkfol.Face.text(' , aState resolve , ')'.
+		fetched := aState plainFetch: 'Zkfol.Face.text(' , aState resolve , ')'.
 		^ fetched isString ifTrue: [ fetched ] ifFalse: [ aState printString ] ].
 	^ aState printString
 ]
