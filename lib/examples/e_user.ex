@@ -153,15 +153,16 @@ defmodule Examples.EUser do
     scaled
   end
 
-  # Two recursive clauses put the answer behind an infinite DFS
-  # subtree, and unification cannot invert ee + ee; we fail as AL
-  # fails. CLP reads the same equation as 2*ee = e and inverts it.
-  @spec squaring_backward_awaits_clp() :: Zkfol.Refusal.t()
-  example squaring_backward_awaits_clp do
-    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 200_000)
+  # Two recursive clauses put the answer behind an infinite DFS subtree
+  # for unification, which cannot invert ee + ee. CLP reads the same
+  # equation as 2*ee = e and runs the exponent backward.
+  @spec squaring_runs_backward() :: Interpretation.t()
+  example squaring_runs_backward do
+    {:ok, witness} = Al.solve(epower(), [:_, 10])
 
-    assert kind in [:heap_exhausted, :unresolved_within_budget]
-    reason
+    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
+    assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
+    witness
   end
 
   @spec squaring_solves_at_the_base() :: Interpretation.t()
