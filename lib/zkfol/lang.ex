@@ -25,7 +25,7 @@ defmodule Zkfol.Lang do
 
   @typep rows :: %{atom() => [pos_integer()]}
   @typep env :: %{atom() => Ast.term_t()}
-  @typep pointers :: {%{Ast.term_t() => pos_integer()}, pos_integer()}
+  @typep pointers :: {%{{atom(), Ast.term_t()} => pos_integer()}, pos_integer()}
 
   defmodule Rel do
     @moduledoc "I am a named relation: clauses of one head shape."
@@ -247,7 +247,7 @@ defmodule Zkfol.Lang do
       [index | value_rows] = values[name]
 
       with {:ok, target} <- resolve(at, env),
-           {row, pointers} = point(pointers, target),
+           {row, pointers} = point(pointers, name, target),
            {:ok, env} <- outputs(outs, value_rows, row, env),
            do: {:ok, schedule(index, row, target), {env, pointers}}
     end)
@@ -257,11 +257,14 @@ defmodule Zkfol.Lang do
     end
   end
 
-  @spec point(pointers(), Ast.term_t()) :: {pos_integer(), pointers()}
-  defp point({rows, next} = pointers, target) do
+  # A pointer is a position in one callee's extension, so its identity
+  # is the callee beside the address: two callees at one address are
+  # two pointers, or one column would have to hold both their facts.
+  @spec point(pointers(), atom(), Ast.term_t()) :: {pos_integer(), pointers()}
+  defp point({rows, next} = pointers, callee, target) do
     case rows do
-      %{^target => row} -> {row, pointers}
-      _rows -> {next, {Map.put(rows, target, next), next + 1}}
+      %{{^callee, ^target} => row} -> {row, pointers}
+      _rows -> {next, {Map.put(rows, {callee, target}, next), next + 1}}
     end
   end
 
