@@ -7,12 +7,6 @@ defmodule Zkfol.Al do
   the oracle. The act has two halves: `derived/3` runs -- prepare,
   ask, extract, journal -- and `relaid/2` links and lays what it
   established, no run of its own. `solved/3` is both in one call.
-
-  My satellites are the distance from the ideal: `Zkfol.Al.Consumption`
-  dies when the journal names the fired clause. Two have already closed
-  their distance: laying is the allocator's, held by `Zkfol.Derivation`
-  under `Zkfol.Alloc`, and the frozen expansion of an equation into its
-  directions is one CLP constraint goal.
   """
 
   import Kernel, except: [apply: 3]

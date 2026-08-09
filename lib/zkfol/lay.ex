@@ -39,13 +39,14 @@ defmodule Zkfol.Lay do
 
   use TypedStruct
 
-  alias Zkfol.Al.Consumption
   alias Zkfol.Alloc
   alias Zkfol.Derivation
   alias Zkfol.Interpretation
   alias Zkfol.Lang
   alias Zkfol.Lang.Rel
   alias Zkfol.Refusal
+
+  @typep site :: {[term()], [term()], [Zkfol.Ast.row_ref()]}
 
   typedstruct enforce: true do
     field(:shape, Zkfol.Lang.shape())
@@ -61,21 +62,35 @@ defmodule Zkfol.Lay do
   @doc """
   I compute the placement once: consumption on its rows, the welds
   measured off the edges, the columns arranged so welded consumers
-  sit exactly k above their callees.
+  sit exactly k above their callees. The derivation names the clause
+  each fact fired, so its site is a lookup.
   """
   @spec of(Derivation.t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) :: t()
-  def of(%Derivation{facts: facts} = derivation, alloc, shape, members) do
-    index = facts |> Enum.with_index() |> Map.new()
-    fired = Consumption.fired(derivation, members, shape)
-    fired = Enum.map(facts, &Map.fetch!(fired, &1))
+  def of(
+        %Derivation{facts: facts, edges: edges, clauses: clauses} = derivation,
+        alloc,
+        shape,
+        members
+      ) do
+    arr = List.to_tuple(facts)
+    sites = sites(members, shape)
+
+    fired =
+      Enum.zip_with(facts, clauses, fn {name, _tuple}, clause ->
+        sites |> Map.fetch!(name) |> Enum.at(clause)
+      end)
 
     consumption =
-      for ran <- fired do
-        for {p, callee} <- consumed(ran), do: {row(alloc, p), Map.fetch!(index, callee)}
-      end
+      Enum.zip_with(fired, edges, fn {_head, _body, ptrs}, callees ->
+        for {p, callee} <- Enum.zip(ptrs, callees), do: {row(alloc, p), callee}
+      end)
 
-    schedules = measured(consumption, List.to_tuple(facts))
-    filled = Enum.zip_with(facts, fired, &filled/2)
+    schedules = measured(consumption, arr)
+
+    filled =
+      Enum.zip_with([facts, fired, edges], fn [fact, site, callees] ->
+        filled(fact, site, for(i <- callees, do: elem(arr, i)))
+      end)
 
     %__MODULE__{
       shape: shape,
@@ -202,24 +217,43 @@ defmodule Zkfol.Lay do
   #                   Private Implementation                 #
   ############################################################
 
-  # What the fired clause consumed, on the pointers it went through.
-  @spec consumed({Consumption.site(), [Derivation.fact()]} | nil) ::
-          [{Zkfol.Ast.row_ref(), Derivation.fact()}]
-  defp consumed(nil), do: []
-  defp consumed({{_head, _body, ptrs}, used}), do: Enum.zip(ptrs, used)
+  # Each member's clauses as call sites, its calls' pointer names in
+  # body order, so the clause the derivation names indexes into them.
+  @spec sites([Rel.t()], Zkfol.Lang.shape()) :: %{atom() => [site()]}
+  defp sites(members, shape) do
+    Map.new(members, fn rel ->
+      {rel.name,
+       rel.clauses
+       |> Enum.zip(Map.fetch!(shape.calls, rel.name))
+       |> Enum.map(fn {{head, body}, ptrs} -> {head, body, ptrs} end)}
+    end)
+  end
 
   # What one fact left its committed banks to hold: the room each slack
   # site of the clause that fired leaves, and what each mod site
   # divided out, read where that clause bound its names.
-  @spec filled(Derivation.fact(), {Consumption.site(), [Derivation.fact()]} | nil) ::
-          {[integer()], [integer()]}
-  defp filled(_fact, nil), do: {[], []}
-
-  defp filled({_name, tuple}, {{_head, body, _ptrs} = site, used}) do
-    env = Consumption.env(site, tuple, used)
+  @spec filled(Derivation.fact(), site(), [Derivation.fact()]) :: {[integer()], [integer()]}
+  defp filled({_name, tuple}, {_head, body, _ptrs} = site, used) do
+    env = env(site, tuple, used)
 
     {for({op, t, u} <- Lang.slacks(body), do: gap(op, ground(t, env), ground(u, env))),
      for({_r, e, m} <- Lang.mods(body), do: div(ground(e, env), m))}
+  end
+
+  # Where the fired clause bound its names: the head against the fact's
+  # own tuple, each call's outputs against the tuple it consumed past
+  # the index.
+  @spec env(site(), [term()], [Derivation.fact()]) :: %{atom() => term()}
+  defp env({head, body, _ptrs}, tuple, used) do
+    outputs =
+      for({:call, _name, [_at | outs]} <- body, do: outs)
+      |> Enum.zip(used)
+      |> Enum.flat_map(fn {outs, {_name, consumed}} -> Enum.zip(outs, Enum.drop(consumed, 1)) end)
+
+    Map.merge(
+      Map.new(for {{:var, nm}, q} <- Enum.zip(head, tuple), do: {nm, Derivation.free_to_zero(q)}),
+      Map.new(outputs, fn {{:var, nm}, q} -> {nm, Derivation.free_to_zero(q)} end)
+    )
   end
 
   # A site the placement fills is ground: the clause fired on it.

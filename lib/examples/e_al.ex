@@ -441,12 +441,13 @@ defmodule Examples.EAl do
 
   @doc """
   I differ between my two step clauses only in what their bodies
-  equate: both heads admit the same tuple and both call once, so the
-  room a column carries is the second clause's only if the equations
-  name the clause that ran.
+  equate: both heads admit the same tuple and both call once, so
+  nothing about the fact says which ran. The room the column carries
+  is the second clause's because the journal names the clause the
+  derivation committed to.
   """
-  @spec the_fired_clause_is_named_by_its_equations() :: Interpretation.t()
-  example the_fired_clause_is_named_by_its_equations do
+  @spec the_fired_clause_is_named_by_the_journal() :: Interpretation.t()
+  example the_fired_clause_is_named_by_the_journal do
     {:ok, pred} = Zkfol.Lang.lower(forked(), [forked()])
     {:ok, witness} = Al.solve(forked(), [2, 10])
 
