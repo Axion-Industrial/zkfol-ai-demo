@@ -628,7 +628,7 @@ ZkfolUairExamples >> pipelineModel [
 	self assert: model routeName equals: #composed_hop.
 	self
 		assert: (model passes collect: [ :each | each verdict ]) asArray
-		equals: #(#lowers #rewrites #solves #expands).
+		equals: #(#rewrites #solves #lowers #expands).
 	self assert: model intentName equals: #composed_hop.
 	self assert: (model report at: #backend ifAbsent: [ nil ]) equals: 'zinc+ i64'.
 	self assert: model trail size equals: 4.
@@ -653,7 +653,7 @@ ZkfolUairExamples >> pipelineStageClickSpawnsTransform [
 	self assert: spawned size equals: 1.
 	self assert: (spawned first isKindOf: ZkfolStageTransform).
 	self assert: spawned first printString
-		equals: 'composed_hop stage 1 to 2: Doubling rewrites'.
+		equals: 'composed_hop stage 1 to 2: Witness solves'.
 	delta := spawned first delta.
 	self assert: (delta detect: [ :each | each first = #branches ]) allButFirst
 		equals: #(3 5 true).
@@ -865,7 +865,7 @@ ZkfolUairExamples >> stageDiffView [
 	<return: #ZkfolStageTransform>
 	| model transform view element change styled |
 	model := ZkfolPipelineModel example.
-	transform := model transformFor: (model passes at: 2).
+	transform := model transformFor: (model passes at: 1).
 	view := transform gtDiffFor: GtPhlowView empty.
 	self assert: (view fromLabel includesSubstring: 'before Doubling').
 	self assert: (view toLabel includesSubstring: 'after Doubling rewrites').
