@@ -26,6 +26,7 @@ defmodule Zkfol do
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Query
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -58,6 +59,38 @@ defmodule Zkfol do
   def eval(rels, arguments, opts \\ []) do
     with {:ok, witness} <- Al.solve(rels, arguments, opts),
          do: {:ok, answer(witness, arguments)}
+  end
+
+  @doc """
+  I am every answer at `arguments`, lazily: a `Zkfol.Query` opened when
+  the stream is first taken from, stepped once per element, and closed
+  when it ends. Answers come in the clauses' own order.
+
+      Zkfol.stream(fib, [:_, :_], []) |> Enum.take(2)  #=> [[1, 1], [2, 1]]
+
+  The stream is answers and nothing else, so a refusal ends it as
+  exhaustion does; `Zkfol.Query.next/1` is the door that says which.
+  `opts` ride through to `Zkfol.Query.open/3`.
+  """
+  @spec stream(Lang.Rel.t() | [Lang.Rel.t()], [integer() | :_], keyword()) :: Enumerable.t()
+  def stream(rels, arguments, opts \\ []) do
+    Stream.resource(
+      fn -> Query.open(rels, arguments, opts) end,
+      fn
+        {:ok, query} = opened ->
+          case Query.next(query) do
+            {:ok, answer} -> {[answer], opened}
+            _ended -> {:halt, opened}
+          end
+
+        {:error, _reason} = refusal ->
+          {:halt, refusal}
+      end,
+      fn
+        {:ok, query} -> Query.close(query)
+        {:error, _reason} -> :ok
+      end
+    )
   end
 
   # Argument i is row i at the derivation's last column; the

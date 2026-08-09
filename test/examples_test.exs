@@ -41,3 +41,7 @@ end
 defmodule Examples.EAlTest do
   use ExExample.ExUnit, for: Examples.EAl
 end
+
+defmodule Examples.EQueryTest do
+  use ExExample.ExUnit, for: Examples.EQuery
+end

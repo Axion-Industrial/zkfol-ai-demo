@@ -119,6 +119,7 @@ defmodule Zkfol.Al do
       {:ok,
        %Ask{
          name: root.name,
+         rels: rels,
          goal: [AL.ast_to_pattern({root.name, [], [@class | args]})],
          arguments: arguments,
          branch: branch
