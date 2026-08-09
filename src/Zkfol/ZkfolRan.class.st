@@ -33,11 +33,23 @@ ZkfolRan >> emitted [
 	^ self evaluateOrNil: 'Zkfol.Face.emitted(' , self resolve , ')'
 ]
 
+{ #category : 'accessing' }
+ZkfolRan >> stageCarries: aReaderString [
+	"Whether the act's final stage answers the reader, which says if a
+	 forwarded tab can feed."
+	^ true = (self evaluateOrNil: 'case Zkfol.Log.Ran.final_stage(' , self resolve
+		, ') do %Zkfol.Statement{} = s -> not is_nil(Zkfol.Statement.'
+		, aReaderString , '(s)); _ -> false end')
+]
+
 { #category : 'views' }
 ZkfolRan >> gtLayFor: aView [
-	"The final stage owns its lay; I only forward to it."
+	"The final stage owns its lay; I only forward to it, and a stage
+	 that carries none hides the tab here, since a forward cannot hide
+	 itself."
 	<gtView>
 	<gtBeamView>
+	(self stageCarries: 'lay') ifFalse: [ ^ aView empty ].
 	^ aView forward
 		title: 'Lay';
 		priority: 10;
@@ -67,9 +79,11 @@ ZkfolRan >> gtObjectsFor: aView [
 
 { #category : 'views' }
 ZkfolRan >> gtDerivationFor: aView [
-	"The final stage owns its derivation; I only forward to it."
+	"The final stage owns its derivation; I only forward to it, and a
+	 stage that carries none hides the tab here."
 	<gtView>
 	<gtBeamView>
+	(self stageCarries: 'derivation') ifFalse: [ ^ aView empty ].
 	^ aView forward
 		title: 'Derivation';
 		priority: 11;
@@ -79,9 +93,11 @@ ZkfolRan >> gtDerivationFor: aView [
 
 { #category : 'views' }
 ZkfolRan >> gtJudgementFor: aView [
-	"The final stage owns the judgement; I only forward to it."
+	"The final stage owns the judgement; I only forward to it, and a
+	 stage that carries no lay hides the tab here."
 	<gtView>
 	<gtBeamView>
+	(self stageCarries: 'lay') ifFalse: [ ^ aView empty ].
 	^ aView forward
 		title: 'Judgement';
 		priority: 9;

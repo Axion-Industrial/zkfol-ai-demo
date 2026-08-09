@@ -22,9 +22,12 @@ ZkfolStatement >> alloc [
 
 { #category : 'views' }
 ZkfolStatement >> gtLayFor: aView [
-	"The lay owns its grid; I only forward to the value."
+	"The lay owns its grid; I only forward to the value, and a stage
+	 that carries none hides the tab here."
 	<gtView>
 	<gtBeamView>
+	(true = (self evaluateOrNil: 'is_nil(Zkfol.Statement.lay(' , self resolve , '))'))
+		ifTrue: [ ^ aView empty ].
 	^ aView forward
 		title: 'Lay';
 		priority: 10;
