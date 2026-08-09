@@ -8,7 +8,6 @@ arithmetised to a uniform AIR and proved through Zinc+.
 | Stage                                                | Module                 |
 |------------------------------------------------------|------------------------|
 | Figure 1 syntax + Figure 2 arithmetisation           | `Zkfol.Ast`            |
-| Figure 1 range checks R                              | `Zkfol.Range`          |
 | Definition 2.16 interpretations                      | `Zkfol.Interpretation` |
 | Figure 3 semantics + judgement (the one oracle)      | `Zkfol.Semantics`      |
 | the relational surface: `defrel`/`rel` to predicates | `Zkfol.Lang`           |
@@ -21,15 +20,14 @@ arithmetised to a uniform AIR and proved through Zinc+.
 | the system shaped for a viewer                       | `Zkfol.Face`           |
 
 The only essential state is the command log (`Zkfol.Log`): events are appended,
-never rewritten; every other datum -- witnesses, UAIRs, claims, reports -- is
-derived on demand. Worked examples in `lib/examples/` (`ExExample`) are the
+never rewritten; every other datum, witness to report, is derived on demand. Worked examples in `lib/examples/` (`ExExample`) are the
 documentation, the fixtures, and the tests at once: `Examples.EUser` is the book
 of relations, and every performance claim is an assertion in `Examples.EBench`,
 re-derived on the machine that runs it. Every refusal is a typed value,
 `{reason, detail}`, indexed in `Zkfol.Refusal`.
 
 The Rust prover is `native/zkfol_zinc_plus`, a Rustler NIF binding a pinned
-zinc-plus fork and interpreting the UAIR over three cell widths -- i64, 768-bit,
+zinc-plus fork and interpreting the UAIR over three cell widths: i64, 768-bit,
 and 7040-bit. Proving runs on a dedicated thread and answers to an id. Its field
 is a fixed secp256k1 projecting prime, so proofs on this lineage are
 honest-prover-only. The cell widths and trace limits live in
@@ -49,10 +47,13 @@ mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'   # the benchm
 ## In iex
 
 `iex --sname fol -S mix` opens the live node; its log lives in `.mnesiastore/`.
-The front door is one call, and the benchmark examples double as a smoke test:
+The front door is one call, evaluation needs no proof, and the benchmark
+examples double as a smoke test:
 
 ```elixir
 Examples.EUser.compiled()          # one act: relations to a proof, the receipt on the log
+query = Zkfol.eval!(Examples.EUser.fib(), [:_, :_])   # answers without proving
+Zkfol.Query.next(query)            # the next answer, prolog's ;
 Examples.EBench.measured_fibonacci()
 Examples.EBench.report()
 ```
