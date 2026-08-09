@@ -84,9 +84,9 @@ defmodule Zkfol.Face do
   @doc """
   I am the judgement as a table: one row per branch of the predicate,
   one column per witness column, each cell the branch's Figure 2 value
-  there -- zero the branch answering for the column, anything else the
-  size of its objection. The labels come off the relations themselves,
-  in the order Lang emits their branches.
+  there: zero is the branch answering for the column, anything else
+  the size of its objection. The labels come off the relations
+  themselves, in the order Lang emits their branches.
   """
   @spec judgement(Statement.t()) :: %{atom() => term()}
   def judgement(%Statement{stage: %Solved{witness: witness}} = statement) do

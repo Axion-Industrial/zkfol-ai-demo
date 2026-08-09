@@ -2,8 +2,8 @@ defmodule Examples.EDoubling do
   @moduledoc """
   I am the doubling rewrite's evidence: one predicate for every n, the
   oracle validating it, claims agreeing with the generic route, the
-  walk over Z_m agreeing with the loop that reduces at every step --
-  the modulus read off the relation that reduces -- the try leaving
+  walk over Z_m agreeing with the loop that reduces at every step
+  under the modulus read off the relation, the try leaving
   other statements alone, the position claim's absence keeping n
   private, and refusal of the walk that leaves N.
   """

@@ -1,14 +1,9 @@
 defmodule Zkfol.Log.Ran do
   @moduledoc """
-  I am the receipt of one journaled act: the route and source it ran,
-  and the id of the event defining the route. I remember no history:
-  my trail is a query over the log, and every stage of me is re-run
-  from the source.
-
-  So the readings that need only me live here -- `stage/2` and
-  `final_stage/1` recompute a statement from the route and the source
-  I carry, touching no log at all. The readings that do need the log
-  stay on `Zkfol.Log`: `trail/2` and `report/2` are queries over it.
+  I am the receipt of one journaled act: the route, the source, and
+  the defining event's id. I keep no history: `stage/2` and
+  `final_stage/1` re-run from the source, and the readings that need
+  the log stay on `Zkfol.Log`.
   """
 
   use TypedStruct

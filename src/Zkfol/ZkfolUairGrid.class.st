@@ -159,9 +159,9 @@ ZkfolUairGrid >> gtPointerGridFor: aView [
 { #category : 'rows' }
 ZkfolUairGrid >> hoverPairsOf: aRowIndex position: aPosition value: aValue [
 	"What a hovered cell relates, each entry a colour paired with the
-	 coordinates to light. Any cell one composed read touches -- its
-	 own pointer row, its bits, its result -- lights that read alone in
-	 the read's own colour, red where it contradicts itself, so the
+	 coordinates to light. A composed read touches its own pointer row,
+	 its bits and its result; any of those cells lights that read alone
+	 in the read's own colour, red where it contradicts itself, so the
 	 relation can be entered from either end and neighbouring reads
 	 stay dark. A scheduled row relates itself at each offset it
 	 carries; committed order flips the shift the way trace order does

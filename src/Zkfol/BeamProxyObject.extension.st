@@ -22,8 +22,8 @@ BeamProxyObject class >> plainly: aValue [
 	 decode: the deserializer strips the atom marker, so an atom key
 	 and a genuine String key arrive alike, and turning both into
 	 Symbols is correct only because zkfol owns both ends of its feeds.
-	 An atom value -- which alone among wire values answers #symbol --
-	 becomes that Symbol, so tag matches like `= #define` hold. Asked
+	 An atom value alone among wire values answers #symbol, so it
+	 becomes that Symbol and tag matches like `= #define` hold. Asked
 	 by the message it answers, not the bridge class it is, so nothing
 	 here needs a bridge class in scope."
 	(aValue isKindOf: Dictionary) ifTrue: [

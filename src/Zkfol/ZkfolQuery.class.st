@@ -36,8 +36,8 @@ ZkfolQuery >> findall [
 
 { #category : 'views' }
 ZkfolQuery >> gtAnswersFor: aView [
-	"The answers the node has handed out; plus asks for one more -- the
-	 semicolon -- play takes the rest boundedly, and a click opens the
+	"The answers the node has handed out. Plus is the semicolon, one
+	 more answer; play takes the rest boundedly; and a click opens the
 	 answer as the statement it satisfies."
 	<gtView>
 	<gtBeamView>

@@ -3,9 +3,8 @@ defmodule Zkfol.Statement.Solved do
   I am the stage of a statement that has both a predicate and a witness
   modelling it, the predicate linked: every row numbered. Only I can be
   emitted and proved: `Zkfol.compile/2` reads its predicate and witness
-  here. A run-produced witness carries its lay -- the one value saying
-  how the allocation placed the derivation; a hand-attached witness
-  carries none.
+  here. A run-produced witness carries its lay; a hand-attached
+  witness carries none.
   """
 
   use TypedStruct

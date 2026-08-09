@@ -3,8 +3,7 @@ defmodule Zkfol.Facts do
   I am the order-2 descriptor read off a relation's clauses: the base
   values from its facts, the coefficients from its step equation, and
   the modulus when the step reduces. What the rows only imply, the
-  clauses declare -- a reader takes the modulus off the structure
-  rather than being told it.
+  clauses declare.
 
       Facts.recurrence(Examples.EUser.fib())
   """

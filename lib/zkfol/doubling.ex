@@ -123,7 +123,7 @@ defmodule Zkfol.Doubling do
     count = count(m)
     krel = kernel(descriptor)
 
-    with {:ok, shape} <- Zkfol.Lang.compile(krel),
+    with {:ok, shape} <- Zkfol.Lang.compile(krel, [krel]),
          alloc = Zkfol.Alloc.assign(shape),
          [_x, _u, _w, walked, result] = Enum.to_list(Zkfol.Alloc.rows(alloc, :kernel)) do
       claims =
@@ -151,8 +151,7 @@ defmodule Zkfol.Doubling do
 
   # The walk computed: the bits of the position after its leading one,
   # the kernel pair reduced at every step, each fact consuming the one
-  # below it, which is what the descent is. The bit names the clause it
-  # walked by: the base is clause 0, a step by bit b is clause b + 1.
+  # below it, which is what the descent is.
   @spec walk(Facts.t(), pos_integer()) :: Derivation.t()
   defp walk(descriptor, m) do
     [1 | bits] = Integer.digits(m - 2, 2)
@@ -161,8 +160,7 @@ defmodule Zkfol.Doubling do
 
     %Derivation{
       facts: for(tuple <- [base | walked], do: {:kernel, tuple}),
-      edges: [[] | for(i <- 0..(length(bits) - 1)//1, do: [i])],
-      clauses: [0 | for(bit <- bits, do: bit + 1)]
+      edges: [[] | for(i <- 0..(length(bits) - 1)//1, do: [i])]
     }
   end
 

@@ -281,8 +281,8 @@ ZkfolUairPicture >> orientationMarkerElement [
 { #category : 'hover' }
 ZkfolUairPicture >> refreshHover [
 	"Only the decorations that actually change follow the mouse. The
-	 emphasis dim and the declared thread connectors are static -- a deref
-	 chain's threads do not move as you hover -- so they are drawn once, the
+	 emphasis dim and the declared thread connectors are static: a deref
+	 chain's threads do not move as you hover, so they are drawn once, the
 	 first time through. Every hover after touches only the border delta,
 	 and, absent declared threads, the dynamic hover star. So a hover is
 	 O(the few cells that change), not O(the grid) plus a rebuild of every

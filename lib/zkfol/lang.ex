@@ -221,11 +221,10 @@ defmodule Zkfol.Lang do
     do: raise(ArgumentError, "a goal is an equation or a call, not #{Macro.to_string(form)}")
 
   @doc """
-  As a pass I lower a derived statement's relations to its shape --
-  the first is the root -- and lay the derivation on the allocation
+  As a pass I lower a derived statement's relations to its shape, the
+  first of them the root, and lay the derivation on the allocation
   born of it, which is what `Zkfol.Al.relaid/2` is. Only a proof
-  wants the shape, so nothing before me needs one, and a statement
-  that has not run rides through.
+  wants the shape, so a statement that has not run rides through.
   """
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
@@ -320,9 +319,8 @@ defmodule Zkfol.Lang do
 
   @doc """
   I am a clause body's slack sites in order: a guard as it stands, a
-  mod site as the bound its remainder is under. The k-th takes the
-  k-th slack cell, whoever reads it -- the predicate, or the lay
-  that fills it.
+  mod site as the bound its remainder is under. The k-th takes the k-th
+  slack cell, whether the predicate reads it or the lay fills it.
   """
   @spec slacks([term()]) :: [{atom(), term(), term()}]
   def slacks(body), do: Enum.flat_map(body, &slacked/1)
@@ -537,7 +535,7 @@ defmodule Zkfol.Lang do
 
   # Calls resolving to one target share their pointer: a pointer is a
   # position in one callee's extension, so its identity is the callee
-  # beside the address -- two callees at one address are two pointers.
+  # beside the address: two callees at one address are two pointers.
   @spec point(pointers(), atom(), Ast.term_t()) :: {Ast.row_ref(), pointers()}
   defp point({named, next} = pointers, callee, target) do
     case named do

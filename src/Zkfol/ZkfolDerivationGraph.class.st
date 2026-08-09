@@ -44,8 +44,8 @@ ZkfolDerivationGraph >> paint: aMondrian [
 	 one arc per consumption pointing at what was read, each call
 	 site's arcs wearing its read color, shared subderivations visibly
 	 shared by their fan-in. A node's click answers through the
-	 spawner -- the statement beneath the fact -- or, without one, the
-	 fact's own row."
+	 spawner, the statement beneath the fact; without one, the fact's
+	 own row."
 	aMondrian nodes
 		shape: [ :row |
 			| node |

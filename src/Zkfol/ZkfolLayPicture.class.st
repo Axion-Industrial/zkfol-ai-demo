@@ -49,10 +49,9 @@ ZkfolLayPicture >> arrowLineFor: anArrow [
 { #category : 'rendering' }
 ZkfolLayPicture >> asElement [
 	"The lay: how the allocation placed the derivation. Rows grouped by
-	 what they serve -- a member's bank beside the pointers aiming at
-	 it -- seams between groups, values receding so the placement
-	 speaks, an arrow layer the cells anchor, and a status line the
-	 hover talks through, boxed so speaking never moves the grid."
+	 what they serve, a member's bank beside its pointers, seams
+	 between groups; an arrow layer the cells anchor, and a boxed
+	 status line the hover talks through."
 	| container previous |
 	cellElements := Dictionary new.
 	hovered := nil.
@@ -113,9 +112,8 @@ ZkfolLayPicture >> beInOrder [
 ZkfolLayPicture >> displayGroups [
 	"The rows beside their groups. In order: allocated rows as they
 	 are, grouped by region. Otherwise semantically: a member's bank
-	 with the pointers its clauses entail -- the caller's claim in any
-	 lay, while the C labels keep saying the allocated truth -- then
-	 the tag and whatever remains, in row order."
+	 with the pointers its clauses entail, the caller's claim in any
+	 lay, then the tag and whatever remains, in row order."
 	| used groups |
 	inOrder == true ifTrue: [
 		^ (1 to: self rowCount) collect: [ :r |
@@ -259,8 +257,8 @@ ZkfolLayPicture >> rowCount [
 { #category : 'rendering' }
 ZkfolLayPicture >> rowElementFor: aRow [
 	"One committed row: its introduction off the feed, then a colored
-	 square per trace column, values quiet -- the judgement owns them --
-	 each cell remembered so the arrows anchor and the hover speaks."
+	 square per trace column, values quiet since the judgement owns
+	 them, each cell remembered so the arrows anchor and the hover speaks."
 	| row |
 	row := ZkfolElements gridRow.
 	row addChild: (ZkfolElements rowLabel: (self labelFor: aRow) width: self labelWidth).

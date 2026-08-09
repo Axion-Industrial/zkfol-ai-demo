@@ -110,9 +110,9 @@ ZkfolStatement >> gtDerivationGraphFor: aView [
 
 { #category : 'views' }
 ZkfolStatement >> gtJudgementFor: aView [
-	"My branches judged column by column, the lay beneath them -- two
-	 renderings of the one feed in one grid vocabulary, sharing one
-	 label width so the columns align down the page."
+	"My branches judged column by column, the lay beneath them: two
+	 renderings of one feed in one grid vocabulary, sharing one label
+	 width so the columns align down the page."
 	<gtView>
 	<gtBeamView>
 	| feed |

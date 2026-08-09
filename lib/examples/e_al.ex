@@ -504,10 +504,10 @@ defmodule Examples.EAl do
 
   @doc """
   I am one derivation reached two ways: `mod` as sugar, and spelled
-  out by hand. Every row the sugar stands on the hand also has -- its
-  quotient bank holding what the hand's head row held -- and the hand
-  pays two slack columns more for the signs the sugar never asks the
-  predicate to carry.
+  out by hand. Every row the sugar stands on the hand also has: its
+  quotient bank holds what the hand's head row held. The hand pays two
+  slack columns more, for the signs the sugar never asks the predicate
+  to carry.
   """
   @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
   example the_sugar_and_the_hand_agree(n \\ 25) do
@@ -723,7 +723,7 @@ defmodule Examples.EAl do
   @doc "I aim a later call where an earlier one landed; deriving me awaits CLP."
   @spec a_call_targets_an_earlier_answer() :: Interpretation.t()
   example a_call_targets_an_earlier_answer do
-    # Two steps from 2: through 3, landing on 1 -- built by hand,
+    # Two steps from 2: through 3, landing on 1. Built by hand,
     # judged whole below.
     witness =
       Interpretation.new([

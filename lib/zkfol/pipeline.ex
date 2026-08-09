@@ -43,10 +43,9 @@ defmodule Zkfol.Pipeline do
 
   @doc """
   I am the default route: try the doubling rewrite, derive the
-  witness, and lower the relations onto it. Evaluation is done one
-  pass early -- the run answers without a predicate -- and only the
-  proof needs the lowering. Composed reads emit as they are; zinc+'s
-  pointer query proves them natively.
+  witness, and lower the relations onto it. Evaluation stops one pass
+  early; only the proof needs the lowering. Composed reads emit as
+  they are; zinc+'s pointer query proves them natively.
   """
   @spec default() :: t()
   def default,
