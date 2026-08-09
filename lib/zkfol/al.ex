@@ -12,6 +12,7 @@ defmodule Zkfol.Al do
 
   import Kernel, except: [apply: 3]
 
+  alias Zkfol.Al.Ask
   alias Zkfol.Lang
   alias Zkfol.Lang.Rel
   alias Zkfol.Ast
@@ -87,6 +88,99 @@ defmodule Zkfol.Al do
   def apply(%Rel{} = root, args, opts), do: apply_rels([root], args, opts)
   def apply([%Rel{} | _rest] = rels, args, opts), do: apply_rels(rels, args, opts)
   def apply(_target, _args, _opts), do: {:error, {:no_relations, %{}}}
+
+  @doc """
+  I open a stepping ask at `arguments`: the question of `target` as
+  plain AL, installed on a branch of my own, and the goal that runs
+  against it. Nothing derives yet.
+
+      {:ok, ask} = open(Examples.EAl.tab(), [:_, :_], [])
+
+  `arguments` address the root relation's head rows in order as
+  `solve/3` does, `:_` free. Where `apply/3` collects every answer at
+  once, I hand them over one at a time: `step/1` takes the next,
+  `close/1` discards the branch. `:branch` says what to fork from,
+  `:heap` bounds the install.
+
+  The ask holds AL's search state, so the process that opens it is
+  the process that must step it.
+  """
+  @spec open(Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
+          {:ok, Ask.t()} | {:error, Refusal.t()}
+  def open(%Rel{} = root, arguments, opts), do: open([root], arguments, opts)
+
+  def open([%Rel{} = root | _rest] = rels, arguments, opts) do
+    branch = AL.Branch.fork(:tip, based(landing(Keyword.get(opts, :branch))))
+    bind = for {a, row} <- Enum.with_index(arguments, 1), a != :_, into: %{}, do: {row, a}
+    args = Enum.map(1..root.arity, &Map.get(bind, &1, v(:"qa#{&1}")))
+
+    with {:ok, program} <- question_program(rels),
+         :ok <- install(program, branch, Keyword.get(opts, :heap, 256_000_000)) do
+      {:ok,
+       %Ask{
+         name: root.name,
+         goal: [AL.ast_to_pattern({root.name, [], [@class | args]})],
+         arguments: arguments,
+         branch: branch
+       }}
+    else
+      {:error, _reason} = refusal ->
+        AL.Branch.discard(branch)
+        refusal
+    end
+  end
+
+  def open([], _arguments, _opts), do: {:error, {:no_relations, %{}}}
+
+  @doc """
+  I take the ask's next answer, and the ask to step again: the
+  argument list with every free row ground. The search runs out as
+  `:exhausted`; a row it leaves open is residue, not an answer. The
+  ask advances whenever AL did, so a refused step is stepped past
+  rather than asked again.
+  """
+  @spec step(Ask.t()) :: {Ask.outcome(), Ask.t()}
+  def step(%Ask{state: nil} = ask), do: answered(AL.eval(ask.goal, nil, ask.branch, []), ask)
+  def step(%Ask{state: state} = ask), do: answered(AL.next_solution(state), ask)
+
+  @doc "I discard the ask's branch: the install and its journal go with it."
+  @spec close(Ask.t()) :: :ok
+  def close(%Ask{branch: branch}), do: AL.Branch.discard(branch)
+
+  # AL's outcome for one step. The state stays in this process; only
+  # the bindings are read, and they are the answer.
+  @spec answered(term(), Ask.t()) :: {Ask.outcome(), Ask.t()}
+  defp answered({:atomic, {bindings, state}}, ask),
+    do: {ground(bindings, ask.arguments), %{ask | state: state}}
+
+  defp answered({:aborted, %{reason: {:resource_limit_exceeded, n}}}, ask),
+    do: {{:error, {:unresolved_within_budget, %{reductions: n}}}, ask}
+
+  defp answered({:aborted, _reason}, ask), do: {:exhausted, ask}
+  defp answered(exceeded, ask), do: {Refusal.from_al(exceeded), ask}
+
+  # The answer: a bound argument as it was asked, a free one as the
+  # search ground it. An answer is every asked row ground, so a row
+  # the search left open under its constraints refuses as residue.
+  @spec ground(AL.Var.bindings(), [integer() | :_]) ::
+          {:ok, [integer()]} | {:error, Refusal.t()}
+  defp ground(bindings, arguments) do
+    answer =
+      for {argument, row} <- Enum.with_index(arguments, 1) do
+        if argument == :_,
+          do: bindings |> AL.Var.deref(:"$qa#{row}") |> AL.Var.subst(bindings),
+          else: argument
+      end
+
+    if Enum.all?(answer, &is_integer/1),
+      do: {:ok, answer},
+      else: {:error, {:residue, %{answer: answer}}}
+  end
+
+  # What a fresh branch forks from: the session's head unless one is named.
+  @spec based(term() | nil) :: AL.Branch.t()
+  defp based(nil), do: AL.Branch.head()
+  defp based(id), do: %AL.Branch{id: id}
 
   @spec apply_rels([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
