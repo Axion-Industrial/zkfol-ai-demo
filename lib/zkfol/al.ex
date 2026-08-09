@@ -310,37 +310,20 @@ defmodule Zkfol.Al do
   defp len_bound(true, bind) when is_map_key(bind, 1), do: :ok
   defp len_bound(true, _bind), do: {:error, {:len_needs_a_bound_count, %{}}}
 
-  # A free row the answer grounds pins a replay: the search's journal
-  # carries redo scars, the ground re-run's is the derivation clean.
+  # One ask, and its journal is the derivation: AL keeps every call
+  # under the frame that made it, so a free row the answer grounds
+  # leaves no scar to run off.
   @spec derive(prep(), AL.Branch.t(), pos_integer()) ::
           {:ok, [map()]} | {:error, Refusal.t()}
   defp derive(%{root: root, bind: bind, name: name} = prep, branch, heap) do
-    args = goal(root.arity, bind, [])
-
     tree =
       &(&1.domino.trace
         |> Enum.reverse()
         |> AL.Trace.derivation_tree(&1.active_choicepoint.store))
 
-    with {:ok, bindings, derived} <- ask(plain(call(prep, args)), branch, heap, name, tree) do
-      grounded =
-        Enum.map(args, fn
-          {nm, [], nil} = var ->
-            value = bindings |> AL.Var.deref(:"$#{nm}") |> AL.Var.subst(bindings)
-            if is_integer(value), do: value, else: var
-
-          ground ->
-            ground
-        end)
-
-      if grounded == args do
-        {:ok, derived}
-      else
-        with {:ok, _bindings, replayed} <-
-               ask(plain(call(prep, grounded)), branch, heap, name, tree),
-             do: {:ok, replayed}
-      end
-    end
+    with {:ok, _bindings, derived} <-
+           ask(plain(call(prep, goal(root.arity, bind, []))), branch, heap, name, tree),
+         do: {:ok, derived}
   end
 
   # The root's call at `args`: len rides last where the clauses name
