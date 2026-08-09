@@ -160,10 +160,12 @@ defmodule Zkfol.Al do
       {:ok, ask} = open(Examples.EAl.tab(), [:_, :_], [])
 
   `arguments` address the root relation's head rows in order as
-  `solve/3` does, `:_` free. Where `apply/3` collects every answer at
-  once, I hand them over one at a time: `step/1` takes the next,
-  `close/1` discards the branch. `:branch` says what to fork from,
-  `:heap` bounds the install.
+  `solve/3` does, `:_` free. I prepare as `solve/3` prepares: only the
+  relations the root's closure reaches install, and a relation whose
+  clauses name len wants its count bound. Where `apply/3` collects
+  every answer at once, I hand them over one at a time: `step/1` takes
+  the next, `close/1` discards the branch. `:branch` says what to fork
+  from, `:heap` bounds the install.
 
   The ask holds AL's search state, so the process that opens it is
   the process that must step it.
@@ -172,25 +174,25 @@ defmodule Zkfol.Al do
           {:ok, Ask.t()} | {:error, Refusal.t()}
   def open(%Rel{} = root, arguments, opts), do: open([root], arguments, opts)
 
-  def open([%Rel{} = root | _rest] = rels, arguments, opts) do
-    branch = AL.Branch.fork(:tip, based(landing(Keyword.get(opts, :branch))))
-    bind = for {a, row} <- Enum.with_index(arguments, 1), a != :_, into: %{}, do: {row, a}
-    args = Enum.map(1..root.arity, &Map.get(bind, &1, v(:"qa#{&1}")))
+  def open([%Rel{} | _rest] = rels, arguments, opts) do
+    with {:ok, prep} <- prepared(rels, arguments, opts) do
+      branch = AL.Branch.fork(:tip, based(landing(prep.branch)))
 
-    with {:ok, program} <- question_program(rels),
-         :ok <- install(program, branch, Keyword.get(opts, :heap, 256_000_000)) do
-      {:ok,
-       %Ask{
-         name: root.name,
-         rels: rels,
-         goal: [AL.ast_to_pattern({root.name, [], [@class | args]})],
-         arguments: arguments,
-         branch: branch
-       }}
-    else
-      {:error, _reason} = refusal ->
-        AL.Branch.discard(branch)
-        refusal
+      case install(prep.program, branch, prep.heap || 256_000_000) do
+        :ok ->
+          {:ok,
+           %Ask{
+             name: prep.name,
+             rels: rels,
+             goal: plain(call(prep, goal(prep.root.arity, prep.bind, arguments))),
+             arguments: arguments,
+             branch: branch
+           }}
+
+        {:error, _reason} = refusal ->
+          AL.Branch.discard(branch)
+          refusal
+      end
     end
   end
 
@@ -212,16 +214,16 @@ defmodule Zkfol.Al do
   def close(%Ask{branch: branch}), do: AL.Branch.discard(branch)
 
   # AL's outcome for one step. The state stays in this process; only
-  # the bindings are read, and they are the answer.
+  # the bindings are read, and they are the answer. A finite no is the
+  # end of the search, which is the ask's own policy on a no.
   @spec answered(term(), Ask.t()) :: {Ask.outcome(), Ask.t()}
-  defp answered({:atomic, {bindings, state}}, ask),
-    do: {ground(bindings, ask.arguments), %{ask | state: state}}
-
-  defp answered({:aborted, %{reason: {:resource_limit_exceeded, n}}}, ask),
-    do: {{:error, {:unresolved_within_budget, %{reductions: n}}}, ask}
-
-  defp answered({:aborted, _reason}, ask), do: {:exhausted, ask}
-  defp answered(exceeded, ask), do: {Refusal.from_al(exceeded), ask}
+  defp answered(evaluated, ask) do
+    case outcome(evaluated) do
+      {:ok, bindings, state} -> {ground(bindings, ask.arguments), %{ask | state: state}}
+      {:no, _reason} -> {:exhausted, ask}
+      {:error, _reason} = refusal -> {refusal, ask}
+    end
+  end
 
   # The answer: a bound argument as it was asked, a free one as the
   # search ground it. An answer is every asked row ground, so a row
@@ -318,16 +320,15 @@ defmodule Zkfol.Al do
   # carries redo scars, the ground re-run's is the derivation clean.
   @spec derive(prep(), AL.Branch.t(), pos_integer()) ::
           {:ok, [map()]} | {:error, Refusal.t()}
-  defp derive(%{root: root, bind: bind, len?: len?, name: name}, branch, heap) do
+  defp derive(%{root: root, bind: bind, name: name} = prep, branch, heap) do
     args = goal(root.arity, bind, [])
-    lenp = if len?, do: [Map.fetch!(bind, 1)], else: []
 
     tree =
       &(&1.domino.trace
         |> Enum.reverse()
         |> AL.Trace.derivation_tree(&1.active_choicepoint.store))
 
-    with {:ok, bindings, derived} <- ask(plain(root.name, args ++ lenp), branch, heap, name, tree) do
+    with {:ok, bindings, derived} <- ask(plain(call(prep, args)), branch, heap, name, tree) do
       grounded =
         Enum.map(args, fn
           {nm, [], nil} = var ->
@@ -342,14 +343,22 @@ defmodule Zkfol.Al do
         {:ok, derived}
       else
         with {:ok, _bindings, replayed} <-
-               ask(plain(root.name, grounded ++ lenp), branch, heap, name, tree),
+               ask(plain(call(prep, grounded)), branch, heap, name, tree),
              do: {:ok, replayed}
       end
     end
   end
 
-  @spec plain(atom(), [term()]) :: [struct()]
-  defp plain(rname, args), do: [AL.ast_to_pattern({rname, [], [@class | args]})]
+  # The root's call at `args`: len rides last where the clauses name
+  # it, the bound count that sizes the trace.
+  @spec call(prep(), [Macro.t() | integer()]) :: Macro.t()
+  defp call(%{root: root, len?: false}, args), do: {root.name, [], [@class | args]}
+
+  defp call(%{root: root, len?: true, bind: bind}, args),
+    do: {root.name, [], [@class | args ++ [Map.fetch!(bind, 1)]]}
+
+  @spec plain(Macro.t()) :: [struct()]
+  defp plain(goal), do: [AL.ast_to_pattern(goal)]
 
   # One eval against the installed question, refusals typed. The heap
   # cap is ours, not AL's: its guarded eval sheds the state to nothing,
@@ -359,17 +368,9 @@ defmodule Zkfol.Al do
           {:ok, AL.Var.store(), term()} | {:error, Refusal.t()}
   defp ask(query, branch, heap, name, digest) do
     case outcome(capped_eval(query, branch, heap, digest)) do
-      {:ok, bindings, derived} ->
-        {:ok, bindings, derived}
-
-      {:no, %{reason: {:resource_limit_exceeded, n}}} ->
-        {:error, {:unresolved_within_budget, %{reductions: n}}}
-
-      {:no, _reason} ->
-        {:error, {:no_answer, %{relation: name}}}
-
-      {:error, _reason} = refusal ->
-        refusal
+      {:ok, bindings, derived} -> {:ok, bindings, derived}
+      {:no, _reason} -> {:error, {:no_answer, %{relation: name}}}
+      {:error, _reason} = refusal -> refusal
     end
   end
 
@@ -409,10 +410,16 @@ defmodule Zkfol.Al do
     end)
   end
 
-  # AL's outcome, typed; the caller owns the policy on a no.
+  # AL's outcome, typed; the caller owns the policy on a finite no. A
+  # search stopped by the budget is nobody's policy: it never reached
+  # a no, so it refuses as itself.
   @spec outcome(term()) ::
           {:ok, AL.Var.store(), term()} | {:no, term()} | {:error, Refusal.t()}
   defp outcome({:atomic, {bindings, state}}), do: {:ok, bindings, state}
+
+  defp outcome({:aborted, %{reason: {:resource_limit_exceeded, n}}}),
+    do: {:error, {:unresolved_within_budget, %{reductions: n}}}
+
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
@@ -449,10 +456,9 @@ defmodule Zkfol.Al do
   defp apply_rels([root | _rest] = rels, args, opts) do
     with {:ok, prep} <- prepared(rels, args, opts) do
       names = for a <- args, is_atom(a) and a != :_, do: a
-      lenp = if prep.len?, do: [Map.fetch!(prep.bind, 1)], else: []
-      call = {root.name, [], [@class | goal(root.arity, prep.bind, args) ++ lenp]}
+      site = call(prep, goal(root.arity, prep.bind, args))
       template = Enum.map(names, &v/1)
-      query = [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote([call]), rs)))]
+      query = plain(quote(do: findall(unquote(template), unquote([site]), rs)))
 
       on_question(prep, 20_000_000, fn branch, heap ->
         with {:ok, bindings, _nothing} <-
