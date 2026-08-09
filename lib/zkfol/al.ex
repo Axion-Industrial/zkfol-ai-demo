@@ -279,8 +279,8 @@ defmodule Zkfol.Al do
   @spec prepared([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, prep()} | {:error, Refusal.t()}
   defp prepared([root | _rest] = rels, args, opts) do
-    with {:ok, shape} <- Lang.compile(root, rels),
-         members = Enum.filter(rels, &(&1.name in shape.members)),
+    with {:ok, order} <- Lang.members(root, rels),
+         members = Enum.filter(rels, &(&1.name in order)),
          {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
          len? = Enum.any?(members, &mentions_len?(&1.clauses)),

@@ -33,6 +33,37 @@ defmodule Examples.EQuery do
     v = reify(x = len)
   end
 
+  # The collatz step: a fresh body name in each clause, nowhere in the
+  # head, which only the prove road needs placed.
+  defrel collatz_next(x, y) do
+    x = 2 * k
+    y = k
+  end
+
+  defrel collatz_next(x, y) do
+    x = 2 * k + 1
+    y = 3 * x + 1
+  end
+
+  @doc """
+  Evaluation never lowers: a fresh body name derives, and only the
+  prove road wants it on a row.
+  """
+  @spec a_fresh_name_evaluates() :: Refusal.t()
+  example a_fresh_name_evaluates do
+    {:ok, odd} = Zkfol.eval(collatz_next(), [7, :_], [])
+    assert Query.taken(odd) == [[7, 22]]
+    Query.close(odd)
+
+    {:ok, even} = Zkfol.eval(collatz_next(), [8, :_], [])
+    assert Query.taken(even) == [[8, 4]]
+    Query.close(even)
+
+    {:error, reason} = Al.solved(collatz_next(), [7], [])
+    assert {:unbound_variable, %{variable: :k}} = reason
+    reason
+  end
+
   @doc "Every answer of a finite relation, in the order its clauses stand."
   @spec table_streams_every_answer() :: [[pos_integer()]]
   example table_streams_every_answer do
