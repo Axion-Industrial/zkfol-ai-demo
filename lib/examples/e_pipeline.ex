@@ -22,26 +22,36 @@ defmodule Examples.EPipeline do
   @spec generation_fills_the_slot() :: Statement.t()
   example generation_fills_the_slot do
     source = %Statement{rels: [EUser.fib()]}
-    pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, args: [8]}]}
+    pipeline = %Pipeline{passes: [{Witness, args: [8]}, {Zkfol.Lang, []}]}
 
     {:ok, statement, trace} = Pipeline.run(pipeline, source)
 
-    # A witness models a predicate, so the slot only opens once lowered.
+    # The run answers first; the witness slot opens when the lowering
+    # lays the derivation it established.
     assert Statement.witness(statement) == Statement.witness(EUser.fibonacci(8))
-    assert [{Zkfol.Lang, %Statement{stage: %Statement.Lowered{}}}, {Witness, ^statement}] = trace
+
+    assert [
+             {Witness, %Statement{stage: %Statement.Derived{}} = derived},
+             {Zkfol.Lang, ^statement}
+           ] =
+             trace
+
+    assert Statement.derivation(derived) == Statement.derivation(statement)
     statement
   end
 
-  @spec the_solve_links_the_shape_the_stage_carries() :: Statement.t()
-  example the_solve_links_the_shape_the_stage_carries do
+  @spec the_link_follows_the_solve() :: Statement.t()
+  example the_link_follows_the_solve do
     source = %Statement{rels: [EUser.regs()], args: [5]}
 
     {:ok, statement, trace} = Pipeline.run(Pipeline.default(), source)
 
-    assert [{Zkfol.Lang, %Statement{stage: %Statement.Lowered{shape: shape}}} | _rest] = trace
-    assert shape.members == [:regs]
+    assert [_doubling, {Witness, %Statement{stage: %Statement.Derived{}}} | _rest] = trace
 
-    assert %Statement.Solved{lay: %Zkfol.Lay{alloc: alloc}, pred: linked} = statement.stage
+    assert %Statement.Solved{lay: %Zkfol.Lay{alloc: alloc, shape: shape}, pred: linked} =
+             statement.stage
+
+    assert shape.members == [:regs]
     assert Statement.alloc(statement) == alloc
     assert Enum.to_list(Zkfol.Alloc.rows(alloc, :regs)) == [1, 2, 3]
     assert alloc.slots == %{regs: [:x, :a, :b]}
@@ -51,11 +61,7 @@ defmodule Examples.EPipeline do
 
   @spec claimless_no_relations_refuses_uniformly() :: Refusal.t()
   example claimless_no_relations_refuses_uniformly do
-    pred = Zkfol.Ast.eq(Zkfol.Ast.cell(1), Zkfol.Ast.cell(1))
-    shape = %{pred: pred, members: [], arities: %{}, calls: %{}, pointers: [], tags: %{}}
-    statement = %Statement{rels: [], stage: %Statement.Lowered{shape: shape}}
-
-    {:error, reason} = Witness.run(statement, [])
+    {:error, reason} = Witness.run(%Statement{rels: []}, [])
 
     assert {:no_relations, _} = reason
     reason
@@ -63,7 +69,7 @@ defmodule Examples.EPipeline do
 
   @spec doubled_through_the_pipeline() :: Log.Ran.t()
   example doubled_through_the_pipeline do
-    pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}
+    pipeline = %Pipeline{passes: [{Doubling, []}, {Zkfol.Lang, []}]}
     source = %Statement{rels: [EUser.fib()], args: [100]}
 
     # One call is the whole act: the route defined, the derivation on
@@ -88,20 +94,21 @@ defmodule Examples.EPipeline do
     assert Enum.find_value(trail, fn
              %Log.Event{body: {:piped, verdicts}} -> verdicts
              _event -> nil
-           end) == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
+           end) == [{Doubling, :rewrites}, {Zkfol.Lang, :declines}]
 
-    # A stage is a re-run, never a record: 0 the source, 1 lowered, 2 doubled.
+    # A stage is a re-run, never a record: 0 the source, 1 doubled,
+    # 2 the same again, the lowering having nothing left to do.
     assert Log.stage(ran, 0) == {:ok, ran.source}
-    assert {:ok, %Statement{stage: %Statement.Lowered{}} = lowered} = Log.stage(ran, 1)
-    assert Statement.pred(lowered) != nil
-    assert {:ok, %Statement{claims: [_exact, _position]}} = Log.stage(ran, 2)
+    assert {:ok, %Statement{claims: [_exact, _position]} = doubled} = Log.stage(ran, 1)
+    assert Statement.pred(doubled) != nil
+    assert {:ok, %Statement{stage: %Statement.Solved{}}} = Log.stage(ran, 2)
 
     trail
   end
 
   @spec emit_leaves_a_receipt_without_a_proof() :: Log.Ran.t()
   example emit_leaves_a_receipt_without_a_proof do
-    pipeline = %Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}
+    pipeline = %Pipeline{passes: [{Doubling, []}, {Zkfol.Lang, []}]}
     source = %Statement{rels: [EUser.fib()], args: [100]}
 
     # The same act stops at the emitted UAIR: the route defined, the
@@ -120,7 +127,7 @@ defmodule Examples.EPipeline do
              %Log.Event{basedon: defined, body: {:piped, verdicts}}
            ] = trail
 
-    assert verdicts == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
+    assert verdicts == [{Doubling, :rewrites}, {Zkfol.Lang, :declines}]
 
     # No intent, so no report ever settles off the log.
     assert Log.report(Log.snapshot(), ran) == nil
@@ -132,8 +139,8 @@ defmodule Examples.EPipeline do
   example a_refusal_names_its_pass do
     source = %Statement{rels: [EUser.fib()], args: [0]}
 
-    {:error, Doubling, refusal, [{Zkfol.Lang, _lowered}]} =
-      Pipeline.run(%Pipeline{passes: [{Zkfol.Lang, []}, {Doubling, []}]}, source)
+    {:error, Doubling, refusal, []} =
+      Pipeline.run(%Pipeline{passes: [{Doubling, []}, {Zkfol.Lang, []}]}, source)
 
     assert {:precedes_base_case, %{n: 0, base: 1}} = refusal
     refusal
@@ -145,12 +152,12 @@ defmodule Examples.EPipeline do
 
     {:ok, statement, trace} = Pipeline.run(Pipeline.default(), source)
 
-    # The doubling try declined and the witness derived: the statement
-    # rides on.
+    # The doubling try declined, the run derived, the lowering laid
+    # what it established: the statement rides on.
     assert [
-             {Zkfol.Lang, lowered},
-             {Doubling, lowered},
-             {Zkfol.Witness, solved}
+             {Doubling, ^source},
+             {Zkfol.Witness, %Statement{stage: %Statement.Derived{}}},
+             {Zkfol.Lang, solved}
            ] = trace
 
     assert statement == solved

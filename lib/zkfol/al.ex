@@ -82,20 +82,16 @@ defmodule Zkfol.Al do
 
   @doc """
   I am the run half: the derivation `arguments` establish, before any
-  allocation places it. `relaid/2` is the other half. A lowered
-  statement lends me its shape; anything else compiles.
+  allocation places it. `relaid/2` is the other half.
   """
   @spec derived(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Derivation.t()} | {:error, Refusal.t()}
   def derived(target, arguments, opts \\ [])
 
-  def derived(%Statement{rels: [_ | _] = rels} = statement, args, opts),
-    do: derive_rels(rels, shape_of(statement), args, opts)
-
+  def derived(%Statement{rels: [_ | _] = rels}, args, opts), do: derive_rels(rels, args, opts)
   def derived(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
-
-  def derived(%Rel{} = root, args, opts), do: derive_rels([root], nil, args, opts)
-  def derived([%Rel{} | _rest] = rels, args, opts), do: derive_rels(rels, nil, args, opts)
+  def derived(%Rel{} = root, args, opts), do: derive_rels([root], args, opts)
+  def derived([%Rel{} | _rest] = rels, args, opts), do: derive_rels(rels, args, opts)
   def derived([], _args, _opts), do: {:error, {:no_relations, %{}}}
 
   @doc """
@@ -155,10 +151,10 @@ defmodule Zkfol.Al do
 
   # --- the flow: prepare, ask, extract, journal ---
 
-  @spec derive_rels([Rel.t()], Lang.shape() | nil, [integer() | :_], keyword()) ::
+  @spec derive_rels([Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Derivation.t()} | {:error, Refusal.t()}
-  defp derive_rels(rels, shape, args, opts) do
-    with {:ok, prep} <- prepared(rels, shape, args, opts) do
+  defp derive_rels(rels, args, opts) do
+    with {:ok, prep} <- prepared(rels, args, opts) do
       on_question(prep, 256_000_000, fn branch, heap ->
         with {:ok, tree} <- derive(prep, branch, heap) do
           derivation = Derivation.of(tree, prep.names, prep.len?)
@@ -171,11 +167,6 @@ defmodule Zkfol.Al do
       end)
     end
   end
-
-  # The shape the stage already carries; nothing, and prepared compiles.
-  @spec shape_of(Statement.t()) :: Lang.shape() | nil
-  defp shape_of(%Statement{stage: %Statement.Lowered{shape: shape}}), do: shape
-  defp shape_of(%Statement{}), do: nil
 
   # A target as the statement it stands for: what the link half lays on.
   @spec statement(Statement.t() | Rel.t() | [Rel.t()]) :: Statement.t()
@@ -191,19 +182,14 @@ defmodule Zkfol.Al do
       else: {:error, {:witness_invalid, %{}}}
   end
 
-  # Everything both asks share, prepared once. A shape handed in is
-  # the stage's; compiling again would let the two drift.
-  @spec prepared([Rel.t()], Lang.shape() | nil, [integer() | atom()], keyword()) ::
+  # Everything both asks share, prepared once. The shape says which
+  # relations the root's closure reaches: only those are asked.
+  @spec prepared([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, prep()} | {:error, Refusal.t()}
-  defp prepared([root | _rest] = rels, nil, args, opts) do
+  defp prepared([root | _rest] = rels, args, opts) do
     with {:ok, shape} <- Lang.compile(root, rels),
-         do: prepared(rels, shape, args, opts)
-  end
-
-  defp prepared([root | _rest] = rels, shape, args, opts) do
-    members = Enum.filter(rels, &(&1.name in shape.members))
-
-    with {:ok, program} <- question_program(members),
+         members = Enum.filter(rels, &(&1.name in shape.members)),
+         {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
          len? = Enum.any?(members, &mentions_len?(&1.clauses)),
          :ok <- len_bound(len?, bind) do
@@ -341,7 +327,7 @@ defmodule Zkfol.Al do
   @spec apply_rels([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
   defp apply_rels([root | _rest] = rels, args, opts) do
-    with {:ok, prep} <- prepared(rels, nil, args, opts) do
+    with {:ok, prep} <- prepared(rels, args, opts) do
       names = for a <- args, is_atom(a) and a != :_, do: a
       lenp = if prep.len?, do: [Map.fetch!(prep.bind, 1)], else: []
       call = {root.name, [], [@class | goal(root.arity, prep.bind, args) ++ lenp]}

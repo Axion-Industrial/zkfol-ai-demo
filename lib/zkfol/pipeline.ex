@@ -42,13 +42,15 @@ defmodule Zkfol.Pipeline do
   end
 
   @doc """
-  I am the default route: lower the relations, try the doubling
-  rewrite, and derive the witness. Composed reads emit as they are;
-  zinc+'s pointer query proves them natively.
+  I am the default route: try the doubling rewrite, derive the
+  witness, and lower the relations onto it. Evaluation is done one
+  pass early -- the run answers without a predicate -- and only the
+  proof needs the lowering. Composed reads emit as they are; zinc+'s
+  pointer query proves them natively.
   """
   @spec default() :: t()
   def default,
-    do: %__MODULE__{passes: [{Zkfol.Lang, []}, {Doubling, []}, {Witness, []}]}
+    do: %__MODULE__{passes: [{Doubling, []}, {Witness, []}, {Zkfol.Lang, []}]}
 
   @doc "I run `statement` through my passes, keeping every intermediate; `opts` ride under each pass's own."
   @spec run(t(), Statement.t(), keyword()) :: outcome()
