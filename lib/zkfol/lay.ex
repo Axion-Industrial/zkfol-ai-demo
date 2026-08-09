@@ -210,33 +210,23 @@ defmodule Zkfol.Lay do
 
   # What one fact left its committed banks to hold: the room each slack
   # site of the clause that fired leaves, and what each mod site
-  # divided out. Both read where the clause bound its names -- the head
-  # from the fact's own tuple, a call's outputs from the fact it
-  # consumed.
+  # divided out, read where that clause bound its names.
   @spec filled(Derivation.fact(), {Consumption.site(), [Derivation.fact()]} | nil) ::
           {[integer()], [integer()]}
   defp filled(_fact, nil), do: {[], []}
 
-  defp filled({_name, tuple}, {{head, body, _ptrs}, used}) do
-    env = Map.merge(bound(head, tuple), returned(body, used))
+  defp filled({_name, tuple}, {{_head, body, _ptrs} = site, used}) do
+    env = Consumption.env(site, tuple, used)
 
-    {for({op, t, u} <- Lang.slacks(body), do: gap(op, value(t, env), value(u, env))),
-     for({_r, e, m} <- Lang.mods(body), do: div(value(e, env), m))}
+    {for({op, t, u} <- Lang.slacks(body), do: gap(op, ground(t, env), ground(u, env))),
+     for({_r, e, m} <- Lang.mods(body), do: div(ground(e, env), m))}
   end
 
-  # A head binds its variables to the fact's own tuple.
-  @spec bound([term()], [term()]) :: %{atom() => integer()}
-  defp bound(head, tuple) do
-    Map.new(for {{:var, nm}, q} <- Enum.zip(head, tuple), do: {nm, Derivation.free_to_zero(q)})
-  end
-
-  # A call binds its outputs to the callee's tuple past the index.
-  @spec returned([term()], [Derivation.fact()]) :: %{atom() => integer()}
-  defp returned(body, used) do
-    for({:call, _name, [_at | outs]} <- body, do: outs)
-    |> Enum.zip(used)
-    |> Enum.flat_map(fn {outs, {_name, tuple}} -> Enum.zip(outs, Enum.drop(tuple, 1)) end)
-    |> Map.new(fn {{:var, nm}, q} -> {nm, Derivation.free_to_zero(q)} end)
+  # A site the placement fills is ground: the clause fired on it.
+  @spec ground(term(), %{atom() => term()}) :: integer()
+  defp ground(term, env) do
+    {:ok, q} = Lang.value(term, env)
+    q
   end
 
   @spec gap(atom(), integer(), integer()) :: integer()
@@ -244,12 +234,6 @@ defmodule Zkfol.Lay do
   defp gap(:>=, a, b), do: a - b
   defp gap(:<, a, b), do: b - a - 1
   defp gap(:<=, a, b), do: b - a
-
-  @spec value(term(), %{atom() => integer()}) :: integer()
-  defp value(q, _env) when is_integer(q), do: q
-  defp value({:var, nm}, env), do: Map.fetch!(env, nm)
-  defp value({:add, t, u}, env), do: value(t, env) + value(u, env)
-  defp value({:mul, t, u}, env), do: value(t, env) * value(u, env)
 
   @spec position_of(t(), Derivation.fact()) :: pos_integer()
   defp position_of(%__MODULE__{derivation: derivation} = lay, fact),

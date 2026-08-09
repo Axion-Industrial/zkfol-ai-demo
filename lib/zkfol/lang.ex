@@ -291,6 +291,33 @@ defmodule Zkfol.Lang do
   @spec mods([term()]) :: [{term(), term(), term()}]
   def mods(body), do: for({:mod, r, e, m} <- body, do: {r, e, m})
 
+  @doc """
+  I am a surface term's value under an environment binding its
+  variables, and `:error` when the term is open: a name the
+  environment does not carry, or a form that is not arithmetic. A
+  reader that must tell ground from open reads me; one that knows its
+  site is ground asserts on the `:ok`.
+  """
+  @spec value(term(), %{atom() => term()}) :: {:ok, integer()} | :error
+  def value(q, _env) when is_integer(q), do: {:ok, q}
+  def value({:add, t, u}, env), do: combined(&+/2, t, u, env)
+  def value({:mul, t, u}, env), do: combined(&*/2, t, u, env)
+
+  def value({:var, nm}, env) do
+    case env do
+      %{^nm => q} when is_integer(q) -> {:ok, q}
+      _open -> :error
+    end
+  end
+
+  def value(_open, _env), do: :error
+
+  @spec combined((integer(), integer() -> integer()), term(), term(), %{atom() => term()}) ::
+          {:ok, integer()} | :error
+  defp combined(op, t, u, env) do
+    with {:ok, a} <- value(t, env), {:ok, b} <- value(u, env), do: {:ok, op.(a, b)}
+  end
+
   @spec slacked(term()) :: [{atom(), term(), term()}]
   defp slacked({:cmp, op, t, u}), do: [{op, t, u}]
   defp slacked({:mod, r, _e, m}), do: [{:<, r, m}]

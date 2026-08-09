@@ -1,15 +1,21 @@
 defmodule Zkfol.Al.Consumption do
   @moduledoc """
   I name the clause that fired: the derivation says what a fact's
-  calls consumed, and the first clause whose head admits the tuple and
-  whose calls line up with what was consumed is the one that ran. From
-  it come the pointers each consumption went through, and the guards
-  whose slack the placement fills. I exist because the journal does
-  not yet name the fired clause; when each call node carries it, I am
-  a lookup, deleted.
+  calls consumed, and the first clause whose head admits the tuple,
+  whose calls line up with what was consumed, and whose ground
+  equations hold is the one that ran. From it come the pointers each
+  consumption went through, and the guards whose slack the placement
+  fills. I exist because the journal does not yet name the fired
+  clause; when each call node carries it, I am a lookup, deleted.
+
+  ### Public API
+
+  - `fired/3` — each fact's clause beside what it consumed.
+  - `env/3` — where that clause bound its names.
   """
 
   alias Zkfol.Derivation
+  alias Zkfol.Lang
   alias Zkfol.Lang.Rel
 
   @typedoc "A clause as a call site: its head, its body, and its calls' pointer names in body order."
@@ -17,8 +23,9 @@ defmodule Zkfol.Al.Consumption do
 
   @doc """
   I am each fact's fired clause beside the facts it consumed: the
-  first clause whose head admits the tuple and whose calls line up
-  with what was consumed, nothing when no clause of the relation does.
+  first clause whose head admits the tuple, whose calls line up with
+  what was consumed, and whose ground equations hold, nothing when no
+  clause of the relation does.
   """
   @spec fired(Derivation.t(), [Rel.t()], Zkfol.Lang.shape()) ::
           %{Derivation.fact() => {site(), [Derivation.fact()]} | nil}
@@ -32,8 +39,42 @@ defmodule Zkfol.Al.Consumption do
        sites
        |> Map.fetch!(name)
        |> Enum.find_value(fn {head, body, _ptrs} = site ->
-         if admits?(head, tuple) and calls_line_up?(body, used), do: {site, used}
+         if admits?(head, tuple) and calls_line_up?(body, used) and settled?(site, tuple, used),
+           do: {site, used}
        end)}
+    end)
+  end
+
+  @doc """
+  I am where a fired clause bound its names: the head against the
+  fact's own tuple, each call's outputs against the tuple it
+  consumed past the index. Whoever reads a clause's sites against
+  what ran reads me first.
+  """
+  @spec env(site(), [term()], [Derivation.fact()]) :: %{atom() => term()}
+  def env({head, body, _ptrs}, tuple, used) do
+    outputs =
+      for({:call, _name, [_at | outs]} <- body, do: outs)
+      |> Enum.zip(used)
+      |> Enum.flat_map(fn {outs, {_name, consumed}} -> Enum.zip(outs, Enum.drop(consumed, 1)) end)
+
+    Map.merge(
+      Map.new(for {{:var, nm}, q} <- Enum.zip(head, tuple), do: {nm, Derivation.free_to_zero(q)}),
+      Map.new(outputs, fn {{:var, nm}, q} -> {nm, Derivation.free_to_zero(q)} end)
+    )
+  end
+
+  # Heads and calls cannot tell apart clauses that differ only in what
+  # their bodies equate, so the equations both sides ground decide.
+  @spec settled?(site(), [term()], [Derivation.fact()]) :: boolean()
+  defp settled?({_head, body, _ptrs} = site, tuple, used) do
+    bindings = env(site, tuple, used)
+
+    Enum.all?(for({:eq, l, r} <- body, do: {l, r}), fn {l, r} ->
+      case {Lang.value(l, bindings), Lang.value(r, bindings)} do
+        {{:ok, a}, {:ok, b}} -> a == b
+        _open -> true
+      end
     end)
   end
 

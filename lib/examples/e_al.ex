@@ -423,6 +423,38 @@ defmodule Examples.EAl do
     witness
   end
 
+  defrel forked(1, 0)
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 1
+    v < 100
+  end
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 10
+    v < 1000
+  end
+
+  @doc """
+  I differ between my two step clauses only in what their bodies
+  equate: both heads admit the same tuple and both call once, so the
+  room a column carries is the second clause's only if the equations
+  name the clause that ran.
+  """
+  @spec the_fired_clause_is_named_by_its_equations() :: Interpretation.t()
+  example the_fired_clause_is_named_by_its_equations do
+    {:ok, pred} = Zkfol.Lang.lower(forked(), [forked()])
+    {:ok, witness} = Al.solve(forked(), [2, 10])
+
+    assert Interpretation.rows(witness) == [[1, 2], [0, 10], [1, 1], [0, 0], [0, 989]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+    witness
+  end
+
   defrel regsm(1, 1, 1)
 
   defrel regsm(x, a, c) do
