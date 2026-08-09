@@ -529,8 +529,7 @@ ZkfolUairExamples >> liveUairFieldsConform [
 		assert: (app evaluateAndWait: 'function_exported?(Examples.EAl, :composed_hop_emits, 0)')
 		description: 'the node must run the lookup/uair-struct stack'.
 	uair := app evaluateAndWait: 'Examples.EAl.composed_hop_emits()'.
-	fields := (ZkfolProxy on: uair
-		fetch: 'Zkfol.Face.grid(' , uair resolve , ')') keys asSet.
+	fields := (uair plainFetch: 'Zkfol.Face.grid(' , uair resolve , ')') keys asSet.
 	assumed := self assumedFields asSet.
 	self
 		assert: fields = assumed
