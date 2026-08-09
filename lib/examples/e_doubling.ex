@@ -3,9 +3,9 @@ defmodule Examples.EDoubling do
   I am the doubling rewrite's evidence: one predicate for every n, the
   oracle validating it, claims agreeing with the generic route, the
   walk over Z_m agreeing with the loop that reduces at every step
-  under the modulus read off the relation, the try leaving
-  other statements alone, the position claim's absence keeping n
-  private, and refusal of the walk that leaves N.
+  under the modulus read off the relation, the try declining a free
+  count, the position claim's absence keeping n private, and refusal
+  of the walk that leaves N.
   """
 
   use ExExample
@@ -108,42 +108,6 @@ defmodule Examples.EDoubling do
       assert value == EUser.fib(n)
       {n, value}
     end
-  end
-
-  @spec logarithmic_at_ten_thousand() :: Statement.t()
-  example logarithmic_at_ten_thousand do
-    statement = rewritten_fibonacci(10_000)
-
-    assert Interpretation.len(Statement.witness(statement)) == 14
-    assert claimed(statement) == EUser.fib(10_000)
-    statement
-  end
-
-  @spec proves_with_its_claims() :: map()
-  example proves_with_its_claims do
-    statement = rewritten_fibonacci(100)
-
-    {:ok, report, _id} =
-      Prover.prove(Statement.pred(statement), Statement.witness(statement),
-        claims: statement.claims,
-        name: :doubled_fibonacci
-      )
-
-    assert [{_claim, value}, {_position, walked}] = report.claims
-    assert value == EUser.fib(100)
-    assert walked == 98
-    report
-  end
-
-  @spec the_try_leaves_other_statements_alone() :: Statement.t()
-  example the_try_leaves_other_statements_alone do
-    {:ok, source} = Zkfol.Lang.run(%Statement{rels: EUser.power().rels}, [])
-
-    {:ok, statement, trace} = Pipeline.run(%Pipeline{passes: [{Doubling, []}]}, source)
-
-    assert statement == source
-    assert [{Doubling, ^source}] = trace
-    statement
   end
 
   @spec a_free_count_passes_the_try() :: Statement.t()

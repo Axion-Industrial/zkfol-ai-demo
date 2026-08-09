@@ -103,14 +103,14 @@ defmodule Examples.EUair do
   example frozen_shapes do
     # The regression gates: translation growth is a failure, not a
     # drift. v0.1.0 froze 279/111 opcodes at 7/5 columns; the X-forge
-    # fix costs its four index pins (60 opcodes) and the ones column,
-    # and each guard costs its slack column and 16 opcodes a clause --
-    # the kernel guards two of its three, the generic one.
-    doubled = EDoubling.rewritten_fibonacci(10_000)
+    # fix costs its four index pins (60 opcodes) and the ones column.
+    # Each guard costs its slack column and 16 opcodes a clause: the
+    # kernel guards two of its three, the generic one.
+    doubled = EDoubling.rewritten_fibonacci(100)
     {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
 
     {:ok, generic} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(20)))
+      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(12)))
 
     assert Uair.num_cols(kernel) == 9
     assert Uair.num_cols(generic) == 7

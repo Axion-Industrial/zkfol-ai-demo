@@ -9,8 +9,6 @@ defmodule Zkfol.Matrix do
   ### Public API
 
   - `new/4` — declare a shape, facts optional.
-  - `from_rows/3` — the dense object of runtime rows.
-  - `list/3` — one row, arity 2.
   - `extensional?/1`, `shape/1`, `data/1` — read the object back.
   """
 
@@ -38,26 +36,6 @@ defmodule Zkfol.Matrix do
       layout: %__MODULE__{rows: rows, cols: cols, public: Keyword.get(opts, :public, false)}
     }
   end
-
-  @doc "I build the dense object of `rows`: every cell a fact."
-  @spec from_rows(atom(), [[non_neg_integer()]], keyword()) :: Rel.t()
-  def from_rows(name, rows, opts \\ []) do
-    facts =
-      for {row, r} <- Enum.with_index(rows), {v, c} <- Enum.with_index(row), do: {r, c, v}
-
-    new(name, {length(rows), length(hd(rows))}, facts, opts)
-  end
-
-  @doc "I am a list: one row, `{index, value}` facts, arity 2."
-  @spec list(atom(), [non_neg_integer()] | pos_integer(), keyword()) :: Rel.t()
-  def list(name, values, opts \\ [])
-
-  def list(name, values, opts) when is_list(values) do
-    rel = from_rows(name, [values], opts)
-    %{rel | arity: 2, clauses: for({[_r, c, v], []} <- rel.clauses, do: {[c, v], []})}
-  end
-
-  def list(name, n, opts) when is_integer(n), do: %{new(name, {1, n}, [], opts) | arity: 2}
 
   @doc "I say whether the object carries facts (extensional) or is prover-filled."
   @spec extensional?(Rel.t()) :: boolean()

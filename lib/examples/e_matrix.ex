@@ -1,8 +1,8 @@
 defmodule Examples.EMatrix do
   @moduledoc """
   I am the object level's evidence: declared data carries its layout,
-  builds from runtime rows, reads back dense with the absent-cell
-  sentinel, and takes its bank behind the derivation.
+  reads back dense with the absent-cell sentinel, and takes its bank
+  behind the derivation.
   """
 
   use ExExample
@@ -30,24 +30,6 @@ defmodule Examples.EMatrix do
 
     assert Interpretation.rows(itp) == [[5, 0], [0, 3]]
     itp
-  end
-
-  @spec from_rows_round_trips() :: Interpretation.t()
-  example from_rows_round_trips do
-    built = Matrix.from_rows(:grid, [[1, 2], [3, 4]])
-
-    assert built |> Matrix.data() |> Interpretation.rows() == [[1, 2], [3, 4]]
-    Matrix.data(built)
-  end
-
-  @spec a_list_is_one_row() :: Zkfol.Lang.Rel.t()
-  example a_list_is_one_row do
-    xs = Matrix.list(:xs, [7, 8, 9])
-
-    assert xs.arity == 2
-    assert Matrix.shape(xs) == {1, 3}
-    assert xs |> Matrix.data() |> Interpretation.rows() == [[7, 8, 9]]
-    xs
   end
 
   @spec an_existential_declares_without_facts() :: Zkfol.Lang.Rel.t()

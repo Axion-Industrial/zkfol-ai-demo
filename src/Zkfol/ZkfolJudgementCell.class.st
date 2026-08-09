@@ -53,25 +53,10 @@ ZkfolJudgementCell >> printOn: aStream [
 ]
 
 { #category : 'accessing' }
-ZkfolJudgementCell >> setTitle: aTitle rows: somePairs [
-	"Each pair: the equation as the paper writes it, and its value at
-	 this column. Zero satisfied; anything else the objection."
-	title := aTitle.
-	rows := somePairs
-]
-
-{ #category : 'accessing' }
-ZkfolJudgementCell >> setTitle: aTitle rows: somePairs column: witnessCells [
-	"Each row: the equation, its two evaluated sides where it is an
-	 equality, and its score. The column: the witness cells the
-	 equations read, row by row."
-	title := aTitle.
-	rows := somePairs.
-	column := witnessCells
-]
-
-{ #category : 'accessing' }
 ZkfolJudgementCell >> setTitle: aTitle rows: someTrees column: witnessCells judgement: aJudgement [
+	"Each row: the branch's clause as the root, unfolding into the
+	 equations it lowered to. The column: the witness cells those
+	 equations read, row by row."
 	title := aTitle.
 	rows := someTrees.
 	column := witnessCells.

@@ -7,8 +7,8 @@ defmodule Zkfol.Witness do
   own; `Zkfol.Lang` lays it against the predicate when a proof is
   wanted.
   The statement's arguments drive the derivation, `:args` in my
-  options overriding them; `:bind`, `:heap`, `:branch`, `:depth`,
-  and `:basedon` pass through.
+  options overriding them; `:bind`, `:heap`, `:branch`, and
+  `:basedon` pass through.
   """
 
   @behaviour Zkfol.Pipeline

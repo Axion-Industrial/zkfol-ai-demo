@@ -94,7 +94,7 @@ defmodule Examples.EQuery do
 
     assert answers == [[1, 10], [2, 20], [3, 40], [4, 40]]
 
-    {:ok, applied} = Al.apply(EAl.tab(), [:x, :v], upto: 4)
+    {:ok, applied} = Al.apply(EAl.tab(), [:x, :v])
     assert Enum.map(applied, &[&1.x, &1.v]) == answers
     answers
   end

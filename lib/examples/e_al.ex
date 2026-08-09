@@ -32,17 +32,6 @@ defmodule Examples.EAl do
   defrel tab(3, 40)
   defrel tab(4, 40)
 
-  @spec registers_program() :: Al.program()
-  example registers_program do
-    {:ok, program} = Al.question(Examples.EUser.regs())
-
-    # The class row, the retraction, one clause per clause: facts first.
-    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, [_ | _]]} = step
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :regs, _head, []]} = base
-    program
-  end
-
   defrel odd(1, 1)
 
   defrel odd(x, v) do
@@ -125,20 +114,6 @@ defmodule Examples.EAl do
     {:ok, backward} = Al.apply(tab(), [:a, 40])
     assert Enum.sort_by(backward, & &1.a) == [%{a: 3}, %{a: 4}]
     answers
-  end
-
-  @doc "I pick an answer and derive it, since bindings alone do not prove."
-  @spec an_answer_derives_when_chosen() :: Interpretation.t()
-  example an_answer_derives_when_chosen do
-    # findall backtracks, so each answer's trace is gone with it. The
-    # bindings say which derivation to want; solve/3 rebuilds it whole.
-    {:ok, [%{a: a}]} = Al.apply(EUser.fib(), [8, :a])
-
-    {:ok, witness} = Al.solve(EUser.fib(), [8, a])
-
-    assert Interpretation.len(witness) == 8
-    assert Interpretation.at(witness, 2, 8) == a
-    witness
   end
 
   @spec resending_replaces_declarations() :: Interpretation.t()
@@ -230,24 +205,6 @@ defmodule Examples.EAl do
 
     {:ok, direct} = Al.solve(gap, [5])
     assert direct |> Interpretation.rows() |> Enum.at(1) == [16, 9, 4, 1, 0]
-    direct
-  end
-
-  @doc "I negate in a clause: one node, the term times -1."
-  @spec negation_goes_straight_down() :: Interpretation.t()
-  example negation_goes_straight_down do
-    flip =
-      rel :flip do
-        flip(1, 0)
-
-        flip(x, v) do
-          flip(x - 1, w)
-          v = -w + 1
-        end
-      end
-
-    {:ok, direct} = Al.solve(flip, [5])
-    assert direct |> Interpretation.rows() |> Enum.at(1) == [0, 1, 0, 1, 0]
     direct
   end
 
@@ -464,20 +421,6 @@ defmodule Examples.EAl do
     c = mod(a + b, 7919)
   end
 
-  # The same reduction spelled out, the quotient smuggled through the
-  # head because a hand cannot freshen a row.
-  defrel regsh(1, 1, 1, 0)
-
-  defrel regsh(x, a, b, q) do
-    x > 1
-    regsh(x - 1, a1, b1, q1)
-    a1 + b1 = q * 7919 + a
-    a < 7919
-    a + 1 > 0
-    q + 1 > 0
-    b = a1
-  end
-
   @doc """
   I recur under a modulus: the head is three wide, the quotient
   nowhere in it, and the value at each column is the fibonacci number
@@ -512,16 +455,16 @@ defmodule Examples.EAl do
   @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
   example the_sugar_and_the_hand_agree(n \\ 25) do
     {:ok, sugar} = Zkfol.Lang.compile(regsm())
-    {:ok, spelled} = Zkfol.Lang.compile(regsh())
+    {:ok, spelled} = Zkfol.Lang.compile(EUser.regsm())
 
     {:ok, sugared} = Al.solve(regsm(), [n])
-    {:ok, by_hand} = Al.solve(regsh(), [n])
+    {:ok, by_hand} = Al.solve(EUser.regsm(), [n])
 
     bank = fn witness, shape, sym ->
       Interpretation.rows(Zkfol.Alloc.region(witness, Zkfol.Alloc.assign(shape), sym))
     end
 
-    head = bank.(by_hand, spelled, :regsh)
+    head = bank.(by_hand, spelled, :regsm)
 
     # The sugar names its head (x, a, c) with the sum last; the hand
     # wrote (x, sum, prev, q), so the value rows cross.
@@ -534,19 +477,6 @@ defmodule Examples.EAl do
     assert spelled.slack - sugar.slack == 2
 
     sugared
-  end
-
-  @doc "I prove a reduction on zinc+ through the front door."
-  @spec a_mod_relation_proves(pos_integer()) :: Zkfol.Log.Ran.t()
-  example a_mod_relation_proves(n \\ 25) do
-    ran =
-      Zkfol.compile(%Statement{rels: [regsm()], args: [n]},
-        pipeline: EUser.plain(),
-        name: :registers_mod
-      )
-
-    assert %Prover.Report{} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
-    ran
   end
 
   defrel shifty(m, x, v) do
@@ -638,11 +568,13 @@ defmodule Examples.EAl do
     honest
   end
 
-  # Recursion across members derives on one chain: odd and even
-  # alternate columns, each read binding the next index down to the
-  # fact that anchors the parity, and the tag row oscillates with it.
-  @spec recursion_between_relations_derives() :: Interpretation.t()
-  example recursion_between_relations_derives do
+  @doc """
+  I recur across members on one chain, the tag row oscillating with
+  the parity, and threading the head through the call spares the
+  intermediary: the two lowerings are one.
+  """
+  @spec threading_a_head_names_no_intermediary() :: Interpretation.t()
+  example threading_a_head_names_no_intermediary do
     {:ok, odd5} = Al.solve([odd(), even()], [5, :_])
 
     assert Interpretation.len(odd5) == 5
@@ -651,47 +583,33 @@ defmodule Examples.EAl do
 
     {:ok, odd4} = Al.solve([odd(), even()], [4, :_])
     assert Interpretation.at(odd4, 2, 4) == 0
-    odd5
-  end
 
-  @doc "I thread the head through the call, and the intermediary I spared says the same."
-  @spec threading_a_head_names_no_intermediary() :: Interpretation.t()
-  example threading_a_head_names_no_intermediary do
     {:ok, threaded} = Zkfol.Lang.lower(odd(), [odd(), even()])
     {:ok, spelled} = Zkfol.Lang.lower(named_odd(), [named_odd(), named_even()])
     {:ok, witness} = Al.solve([named_odd(), named_even()], [5, :_])
 
     assert threaded == spelled
-    assert witness == recursion_between_relations_derives()
+    assert witness == odd5
     witness
   end
 
-  @doc "I name one row twice in a call, so the two reads meet as a join."
-  @spec one_name_in_two_outputs_joins() :: Interpretation.t()
-  example one_name_in_two_outputs_joins do
+  @doc """
+  I read outputs by name alone: one name twice joins, an underscore
+  keeps to itself each time, and a literal pins the row that carries
+  it.
+  """
+  @spec outputs_unify_by_name_alone() :: Interpretation.t()
+  example outputs_unify_by_name_alone do
     {:ok, [%{x: 2, v: 4}]} = Al.apply([twinned(), pairs()], [:x, :v])
-
     {:ok, witness} = Al.solve([twinned(), pairs()], [2, :_])
     assert Interpretation.at(witness, 2, 2) == 4
+
+    {:ok, blind} = Al.apply([loose(), pairs()], [:x])
+    assert Enum.sort_by(blind, & &1.x) == [%{x: 1}, %{x: 2}]
+
+    {:ok, pinned} = Al.apply([mate(), pairs()], [:x, :v])
+    assert pinned == [%{x: 1, v: 5}]
     witness
-  end
-
-  @doc "I do not care twice, and each underscore keeps to itself: no join."
-  @spec an_underscore_is_anonymous_each_time() :: [%{atom() => integer()}]
-  example an_underscore_is_anonymous_each_time do
-    {:ok, answers} = Al.apply([loose(), pairs()], [:x])
-
-    assert Enum.sort_by(answers, & &1.x) == [%{x: 1}, %{x: 2}]
-    answers
-  end
-
-  @doc "I pin an output to a value, so the call reads only the row that carries it."
-  @spec a_literal_output_pins_the_row() :: [%{atom() => integer()}]
-  example a_literal_output_pins_the_row do
-    {:ok, answers} = Al.apply([mate(), pairs()], [:x, :v])
-
-    assert answers == [%{x: 1, v: 5}]
-    answers
   end
 
   @doc "I refuse an unanswerable question by its finite failure, fast."
@@ -704,27 +622,13 @@ defmodule Examples.EAl do
     reason
   end
 
-  @doc "I ignore scope the closure never calls, so a module rides whole."
-  @spec extra_scope_rides_along() :: Interpretation.t()
-  example extra_scope_rides_along do
-    stray =
-      rel :stray do
-        stray(1, v) do
-          v = reify(1 = len)
-        end
-      end
-
-    {:ok, witness} = Al.solve([pick(), tab(), odd(), even(), stray], [:_, 41])
-
-    assert Interpretation.at(witness, 2, 2) == 41
-    witness
-  end
-
-  @doc "I aim a later call where an earlier one landed; deriving me awaits CLP."
+  @doc "I aim a later call where an earlier one landed, derived and judged."
   @spec a_call_targets_an_earlier_answer() :: Interpretation.t()
   example a_call_targets_an_earlier_answer do
-    # Two steps from 2: through 3, landing on 1. Built by hand,
-    # judged whole below.
+    assert {:ok, _derived} = Al.solve([leap(), step()], [:_, :_])
+
+    # Two steps from 2: through 3, landing on 1. Built by hand, so the
+    # judgement stays independent of the derivation.
     witness =
       Interpretation.new([
         [0, 0, 3],

@@ -54,8 +54,6 @@ ZkfolUairGrid >> columns [
 	^ payload at: #columns ifAbsent: [ #() ]
 ]
 
-
-
 { #category : 'accessing' }
 ZkfolUairGrid >> composedReads [
 	^ payload at: #reads ifAbsent: [ #() ]
@@ -140,8 +138,8 @@ ZkfolUairGrid >> gtPointerGridFor: aView [
 	 zoom, out to fit a wide fibonacci or in for a region's detail,
 	 nothing cut off, no hand-rolled scroll or zoom control. The grid's
 	 own cell, label, and header clicks still spawn through phlow from
-	 inside the node. The stencil stays total: elementOrError draws its
-	 own error rather than raising on the async build path.
+	 inside the node. The stencil stays total: it traps the build
+	 itself rather than raising on the async build path.
 
 	 A refused uair says so rather than answering no view at all."
 	<gtView>
@@ -153,7 +151,9 @@ ZkfolUairGrid >> gtPointerGridFor: aView [
 				safely: [ self error: why reason ]
 				as: #zkfolUairGridRefused ] ].
 	self columns isEmpty ifTrue: [ ^ aView empty ].
-	^ self picture canvasOn: aView title: 'Pointer grid' priority: 1
+	^ ZkfolElements
+		canvasOn: aView title: 'Pointer grid' priority: 1
+		node: self picture
 ]
 
 { #category : 'rows' }
@@ -208,11 +208,6 @@ ZkfolUairGrid >> labelTextFor: aKind at: aZeroBasedIndex [
 ]
 
 { #category : 'accessing' }
-ZkfolUairGrid >> lookups [
-	^ payload at: #lookups ifAbsent: [ #() ]
-]
-
-{ #category : 'accessing' }
 ZkfolUairGrid >> numCols [
 	^ self columns size
 ]
@@ -250,38 +245,21 @@ ZkfolUairGrid >> plainDataFrom: aUair [
 	^ answer
 ]
 
-{ #category : 'rows' }
-ZkfolUairGrid >> pointerRows [
-	"The 0-based grid rows a Word lookup constrains as pointers. A
-	 bit-poly lookup names col instead, an index into the binary shadow
-	 columns that never appear in this grid, so I read only row."
-	^ (self lookups
-		collect: [ :each | each at: #row ifAbsent: [ nil ] ]
-		thenReject: [ :each | each isNil ]) asSet
-]
-
 { #category : 'accessing' }
 ZkfolUairGrid >> refusal [
 	"Why the boundary could not read this uair, or nil when it did."
 	^ refusal
 ]
 
-
-
 { #category : 'initialization' }
 ZkfolUairGrid >> setFromPayload: data [
-	"Take everything the grid holds from one payload, then settle the
-	 display model. A grid is made one way and does not change after,
-	 which is what lets the derived model be resolved here rather than
-	 rebuilt by every question asked of it."
+	"Take everything the grid holds from one payload, and with it the
+	 display model, which arrives settled: the face oriented the columns
+	 and named every row's kind, so I only take them in. A grid is made
+	 one way and does not change after, which is what lets the derived
+	 model be resolved here rather than rebuilt by every question asked
+	 of it."
 	payload := data.
-	self settle
-]
-
-{ #category : 'settling' }
-ZkfolUairGrid >> settle [
-	"The display model arrives settled: the face oriented the columns
-	 and named every row's kind, so I only take them in."
 	displayColumns := self columns.
 	kinds := payload at: #kinds ifAbsent: [ #() ]
 ]

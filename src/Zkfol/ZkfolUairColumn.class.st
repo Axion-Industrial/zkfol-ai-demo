@@ -22,16 +22,6 @@ ZkfolUairColumn class >> position: aPosition bits: aBitString cells: aCellCollec
 ]
 
 { #category : 'accessing' }
-ZkfolUairColumn >> bits [
-	^ bits
-]
-
-{ #category : 'accessing' }
-ZkfolUairColumn >> cells [
-	^ cells
-]
-
-{ #category : 'accessing' }
 ZkfolUairColumn >> derefs [
 	^ derefs
 ]
@@ -40,13 +30,13 @@ ZkfolUairColumn >> derefs [
 ZkfolUairColumn >> gtDerefsFor: aView [
 	<gtView>
 	derefs isEmpty ifTrue: [ ^ aView empty ].
-	^ (derefs first grid picture
-		emphasis: (derefs flatCollect: [ :each | each coords ]);
-		connectors: (derefs flatCollect: [ :each | each threads ]);
-		yourself)
+	^ ZkfolElements
 		canvasOn: aView title: 'Deref chain' priority: 5
+		node: (derefs first grid picture
+			emphasis: (derefs flatCollect: [ :each | each coords ]);
+			connectors: (derefs flatCollect: [ :each | each threads ]);
+			yourself)
 ]
-
 
 { #category : 'views' }
 ZkfolUairColumn >> gtCellsFor: aView [

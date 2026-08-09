@@ -63,20 +63,12 @@ defmodule Examples.EAst do
     tampered
   end
 
-  @spec named_cells_build_and_walk() :: Ast.pred()
-  example named_cells_build_and_walk do
-    phi = Ast.eq(Ast.cell({:b, 1}), Ast.add(Ast.cell({:a, 1}), 1))
-
-    assert {:eq, {:cell, {:b, 1}}, {:add, {:cell, {:a, 1}}, 1}} = phi
-    assert {:mul, _difference, _difference2} = Ast.arithmetize(phi)
-    assert Ast.len(:a) == {:len, :a}
-    phi
-  end
-
   @spec a_family_answers_named_cells() :: %{atom() => Interpretation.t()}
   example a_family_answers_named_cells do
     family = %{a: Interpretation.new([[1, 2, 3]]), b: Interpretation.new([[2, 3, 4]])}
-    phi = named_cells_build_and_walk()
+    phi = Ast.eq(Ast.cell({:b, 1}), Ast.add(Ast.cell({:a, 1}), 1))
+
+    assert {:mul, _difference, _difference2} = Ast.arithmetize(phi)
 
     for x <- 1..3, do: assert(Semantics.eval(phi, family, x) == 0)
     assert Semantics.eval(Ast.len(:a), family, 1) == 3

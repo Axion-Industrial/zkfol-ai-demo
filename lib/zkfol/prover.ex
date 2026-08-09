@@ -106,9 +106,9 @@ defmodule Zkfol.Prover do
     end
   end
 
-  @doc "I queue `uair` under `intent` and return once it is in flight."
+  # Queue the uair under its intent, returning once it is in flight.
   @spec run(Uair.t(), pos_integer(), keyword()) :: :ok | {:error, Refusal.t()}
-  def run(uair, intent, opts \\ []), do: GenServer.call(__MODULE__, {:run, uair, intent, opts})
+  defp run(uair, intent, opts), do: GenServer.call(__MODULE__, {:run, uair, intent, opts})
 
   @impl true
   def init(inflight) do

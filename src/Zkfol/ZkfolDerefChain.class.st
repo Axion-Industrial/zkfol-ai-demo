@@ -164,11 +164,12 @@ ZkfolDerefChain >> gtFactsFor: aView [
 ZkfolDerefChain >> gtWalkFor: aView [
 	<gtView>
 	grid ifNil: [ ^ aView empty ].
-	^ (grid picture
-		emphasis: self coords;
-		connectors: self threads;
-		yourself)
+	^ ZkfolElements
 		canvasOn: aView title: 'Walk' priority: 3
+		node: (grid picture
+			emphasis: self coords;
+			connectors: self threads;
+			yourself)
 ]
 
 { #category : 'accessing' }

@@ -24,11 +24,7 @@ ZkfolLay >> gtGridFor: aView [
 	((feed isKindOf: Dictionary)
 		and: [ (feed at: #witness ifAbsent: [ #() ]) notEmpty ])
 			ifFalse: [ ^ aView empty ].
-	^ aView mondrian
-		title: 'Grid';
-		priority: 5;
-		painting: [ :aMondrian |
-			aMondrian nodes
-				stencil: [ :each | each elementOrError ];
-				with: { ZkfolLayPicture onFeed: feed } ]
+	^ ZkfolElements
+		canvasOn: aView title: 'Grid' priority: 5
+		node: (ZkfolLayPicture onFeed: feed)
 ]

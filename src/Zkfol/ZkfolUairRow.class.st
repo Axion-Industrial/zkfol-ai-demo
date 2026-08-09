@@ -47,16 +47,6 @@ ZkfolUairRow >> gtValuesFor: aView [
 		column: 'Value' text: [ :each | each value printString ]
 ]
 
-{ #category : 'accessing' }
-ZkfolUairRow >> index [
-	^ index
-]
-
-{ #category : 'accessing' }
-ZkfolUairRow >> kind [
-	^ kind
-]
-
 { #category : 'printing' }
 ZkfolUairRow >> printOn: aStream [
 	aStream
@@ -77,9 +67,4 @@ ZkfolUairRow >> setIndex: aRowIndex kind: aKind claimed: aBoolean values: aColle
 	claimed := aBoolean.
 	values := aCollection.
 	numVars := aNumber
-]
-
-{ #category : 'accessing' }
-ZkfolUairRow >> values [
-	^ values
 ]

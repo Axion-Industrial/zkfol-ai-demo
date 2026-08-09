@@ -83,23 +83,20 @@ defmodule Zkfol.Uair.Composed do
   def emitted(lowering, cols, mu),
     do: %__MODULE__{reads: reads(lowering, cols), lookups: lookups(lowering, cols, mu)}
 
-  @doc """
-  I hold that `pairs` can be lowered against `witness` at all: every row
-  they name exists, and every pointer row holds column indices. The order
-  is load-bearing, since asking whether a row is confined reads it.
-  """
+  # Holds that the pairs can be lowered against the witness at all:
+  # every row they name exists, and every pointer row holds column
+  # indices. The order is load-bearing, since asking whether a row is
+  # confined reads it.
   @spec admits([{pos_integer(), pos_integer()}], Interpretation.t()) ::
           :ok | {:error, Refusal.t()}
-  def admits(pairs, witness) do
+  defp admits(pairs, witness) do
     with :ok <- inside(pairs, witness), do: confined(pairs, witness)
   end
 
-  @doc """
-  I am the constraints spelling `source` out in `rows`: each row holds a
-  bit, and their weighted sum reconstructs it.
-  """
+  # The constraints spelling the source out in rows: each row holds a
+  # bit, and their weighted sum reconstructs it.
   @spec spelled([pos_integer()], Ast.term_t()) :: [Ast.pred()]
-  def spelled(rows, source) do
+  defp spelled(rows, source) do
     booleanity = for b <- rows, do: Ast.eq(Ast.mul(Ast.cell(b), Ast.cell(b)), Ast.cell(b))
 
     weighted =

@@ -139,9 +139,9 @@ ZkfolStatement >> gtJudgementFor: aView [
 							c horizontal fitContent.
 							c vertical fitContent ];
 						yourself.
-					box addChild: judgement elementOrError.
+					box addChild: (ZkfolElements safely: [ judgement asElement ] as: #zkfolStencilError).
 					box addChild: (BlElement new size: 1 @ 12; yourself).
-					box addChild: lay elementOrError.
+					box addChild: (ZkfolElements safely: [ lay asElement ] as: #zkfolStencilError).
 					box ];
 				with: { feed } ]
 ]

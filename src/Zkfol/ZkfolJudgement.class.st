@@ -5,22 +5,15 @@ Class {
 		'labels',
 		'evals',
 		'terms',
-		'termEvals',
 		'trees',
 		'sources',
 		'rowLabels',
 		'witness',
-		'refusal',
 		'labelWidth'
 	],
 	#category : 'Zkfol',
 	#package : 'Zkfol'
 }
-
-{ #category : 'instance creation' }
-ZkfolJudgement class >> labels: someLabels evals: aMatrix [
-	^ self new setLabels: someLabels evals: aMatrix; yourself
-]
 
 { #category : 'instance creation' }
 ZkfolJudgement class >> onFeed: aDictionary [
@@ -30,81 +23,10 @@ ZkfolJudgement class >> onFeed: aDictionary [
 		setLabels: (aDictionary at: #labels)
 			evals: (aDictionary at: #evals)
 			terms: (aDictionary at: #terms ifAbsent: [ nil ])
-			termEvals: (aDictionary at: #term_evals ifAbsent: [ nil ])
 			trees: (aDictionary at: #trees ifAbsent: [ nil ])
 			sources: (aDictionary at: #sources ifAbsent: [ nil ])
 			rows: (aDictionary at: #rows ifAbsent: [ nil ])
 			witness: (aDictionary at: #witness ifAbsent: [ nil ]);
-		yourself
-]
-
-{ #category : 'instance creation' }
-ZkfolJudgement class >> through: anApplication source: anElixirSource [
-	"The node computes the judgement table; one wire trip. The source
-	 must answer %{labels: [...], evals: [[...]]}. A refusal keeps what
-	 the node said."
-	| answer |
-	answer := BeamProxyObject plainFetch: anElixirSource through: anApplication.
-	(answer isKindOf: ZkfolRefusal) ifTrue: [ ^ self new refuse: answer reason; yourself ].
-	^ self labels: (answer at: 'labels') evals: (answer at: 'evals')
-]
-
-{ #category : 'views' }
-ZkfolJudgement >> canvasOn: aView title: aTitle priority: aNumber [
-	"Me on a canvas as one node, so I pan and zoom as one picture,
-	 and my cell clicks still spawn through phlow from inside it."
-	^ aView mondrian
-		title: aTitle;
-		priority: aNumber;
-		painting: [ :aMondrian |
-			aMondrian nodes
-				stencil: [ :each | each elementOrError ];
-				with: { self } ]
-]
-
-{ #category : 'elements' }
-ZkfolJudgement >> cellFor: aValue [
-	"Zero is a quiet green; an objection shows its math in red."
-	| text |
-	text := BlTextElement new
-		text: (aValue = 0
-			ifTrue: [ '0' asRopedText foreground: Color darkGray ]
-			ifFalse: [ aValue asString asRopedText foreground: Color red darker; bold ]).
-	^ BlElement new
-		layout: BlLinearLayout horizontal alignCenter;
-		background: (aValue = 0
-			ifTrue: [ Color green muchLighter muchLighter ]
-			ifFalse: [ Color red muchLighter muchLighter ]);
-		border: (BlBorder paint: Color veryLightGray width: 1);
-		size: 64 @ 26;
-		margin: (BlInsets all: 1);
-		addChild: text;
-		yourself
-]
-
-{ #category : 'elements' }
-ZkfolJudgement >> cellFor: aValue satisfied: columnHolds [
-	"Green answers for its column. In a column someone answers, the
-	 others decline quietly in gray. Red is reserved for the failure:
-	 the math of every branch in a column nobody answers."
-	| text |
-	text := BlTextElement new
-		text: (aValue = 0
-			ifTrue: [ '0' asRopedText foreground: Color darkGray ]
-			ifFalse: [ columnHolds
-				ifTrue: [ aValue asString asRopedText foreground: Color gray ]
-				ifFalse: [ aValue asString asRopedText foreground: Color red darker; bold ] ]).
-	^ BlElement new
-		layout: BlLinearLayout horizontal alignCenter;
-		background: (aValue = 0
-			ifTrue: [ Color green muchLighter muchLighter ]
-			ifFalse: [ columnHolds
-				ifTrue: [ Color white ]
-				ifFalse: [ Color red muchLighter muchLighter ] ]);
-		border: (BlBorder paint: Color veryLightGray width: 1);
-		size: 64 @ 26;
-		margin: (BlInsets all: 1);
-		addChild: text;
 		yourself
 ]
 
@@ -137,7 +59,7 @@ ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 	shown = aValue printString
 		ifFalse: [ cell aptitude: (BrWithExplicitTooltipAptitude text: aValue printString) ].
 	trees ifNil: [ ^ cell ].
-	^ self make: cell spawn: [
+	^ ZkfolElements make: cell spawn: [
 		| root |
 		root := Dictionary new
 			at: #text put: (sources
@@ -152,19 +74,6 @@ ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 			column: (witness ifNotNil: [ witness at: x ])
 			judgement: self;
 			yourself ]
-]
-
-{ #category : 'elements' }
-ZkfolJudgement >> elementOrError [
-	"The stencil stays total: a refusal or an error draws itself rather
-	 than raising on the async build path. The heatmap alone: the laid
-	 witness is the Lay's to show, beside me."
-	refusal ifNotNil: [ :why |
-		^ BlTextElement new text: why asString asRopedText ].
-	^ [ self heatmapElement ]
-		on: Error
-		do: [ :anError |
-			BlTextElement new text: anError messageText asString asRopedText ]
 ]
 
 { #category : 'accessing' }
@@ -191,34 +100,17 @@ ZkfolJudgement >> gtEquationsFor: aView [
 ZkfolJudgement >> gtHeatmapFor: aView [
 	"The judgement as a picture: which branch answers for each column,
 	 the math in red only where none does, each cell unfolding its
-	 equations on a click. A refusal says why instead."
+	 equations on a click."
 	<gtView>
-	refusal ifNotNil: [ :why |
-		^ aView explicit
-			title: 'Judgement';
-			priority: 1;
-			stencil: [ BlTextElement new text: why asString asRopedText ] ].
 	evals ifNil: [ ^ aView empty ].
-	^ self canvasOn: aView title: 'Judgement' priority: 1
+	^ ZkfolElements canvasOn: aView title: 'Judgement' priority: 1 node: self
 ]
 
 { #category : 'elements' }
-ZkfolJudgement >> headerCellOn: aString [
-	"A column header: the column's width, the text's height."
-	^ (ZkfolElements
-		box: 64 @ 26
-		color: nil
-		text: (aString asRopedText foreground: Color darkGray)
-		fontSize: 11)
-		padding: (BlInsets all: 3);
-		constraintsDo: [ :c | c horizontal exact: 64. c vertical fitContent ];
-		yourself
-]
-
-{ #category : 'elements' }
-ZkfolJudgement >> heatmapElement [
+ZkfolJudgement >> asElement [
 	"Branches down, trace columns across, one verdict per column, in
-	 the one grid vocabulary the Lay beneath me speaks. Disjunction is
+	 the one grid vocabulary the Lay beneath me speaks. The heatmap
+	 alone: the laid witness is the Lay's to show, beside me. Disjunction is
 	 a product: a column holds when some branch zeroes it. Green
 	 answers, white declines beside an answer, red only where nobody
 	 answers. A branch label carries its formula as a tooltip; a cell
@@ -230,7 +122,7 @@ ZkfolJudgement >> heatmapElement [
 	header := ZkfolElements gridRow.
 	header addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
 	1 to: numCols do: [ :x |
-		header addChild: (self
+		header addChild: (ZkfolElements
 			make: (ZkfolElements headerBox: x)
 			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
 	rows := ZkfolElements gridContainer: #zkfolJudgement.
@@ -249,7 +141,7 @@ ZkfolJudgement >> heatmapElement [
 	footer := ZkfolElements gridRow.
 	footer addChild: (self labelCellOn: 'column holds').
 	holds doWithIndex: [ :columnHolds :x |
-		footer addChild: (self
+		footer addChild: (ZkfolElements
 			make: (self verdictCellOn: columnHolds)
 			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
 	rows addChild: footer.
@@ -279,80 +171,19 @@ ZkfolJudgement >> labels [
 	^ labels
 ]
 
-{ #category : 'elements' }
-ZkfolJudgement >> make: anElement spawn: aBlock [
-	"Clicking anElement opens what the block answers in the next pane."
-	anElement mouseCursor: BlHandCursor new.
-	anElement addEventHandlerOn: BlClickEvent do: [ :evt |
-		evt consumed: true.
-		evt currentTarget phlow spawnObject: aBlock value ].
-	^ anElement
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> refuse: aReason [
-	refusal := aReason
-]
-
 { #category : 'accessing' }
 ZkfolJudgement >> rowLabels [
 	^ rowLabels
 ]
 
 { #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix [
-	labels := someLabels.
-	evals := aMatrix
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms termEvals: aTermMatrix [
+ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms trees: aTreeMatrix sources: someSources rows: someRowLabels witness: witnessColumns [
 	labels := someLabels.
 	evals := aMatrix.
 	terms := someTerms.
-	termEvals := aTermMatrix
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms termEvals: aTermMatrix sides: aSidesMatrix witness: witnessColumns [
-	labels := someLabels.
-	evals := aMatrix.
-	terms := someTerms.
-	termEvals := aTermMatrix.
-	sides := aSidesMatrix.
-	witness := witnessColumns
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms termEvals: aTermMatrix trees: aTreeMatrix sources: someSources rows: someRowLabels witness: witnessColumns [
-	labels := someLabels.
-	evals := aMatrix.
-	terms := someTerms.
-	termEvals := aTermMatrix.
 	trees := aTreeMatrix.
 	sources := someSources.
 	rowLabels := someRowLabels.
-	witness := witnessColumns
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms termEvals: aTermMatrix trees: aTreeMatrix sources: someSources witness: witnessColumns [
-	labels := someLabels.
-	evals := aMatrix.
-	terms := someTerms.
-	termEvals := aTermMatrix.
-	trees := aTreeMatrix.
-	sources := someSources.
-	witness := witnessColumns
-]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms termEvals: aTermMatrix trees: aTreeMatrix witness: witnessColumns [
-	labels := someLabels.
-	evals := aMatrix.
-	terms := someTerms.
-	termEvals := aTermMatrix.
-	trees := aTreeMatrix.
 	witness := witnessColumns
 ]
 
@@ -376,9 +207,3 @@ ZkfolJudgement >> verdictCellOn: columnHolds [
 		ifFalse: [ BrGlamorousVectorIcons cancel asElement ]).
 	^ cell
 ]
-
-{ #category : 'accessing' }
-ZkfolJudgement >> witness [
-	^ witness
-]
-

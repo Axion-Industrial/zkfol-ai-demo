@@ -56,11 +56,7 @@ ZkfolDerivationGraph >> paint: aMondrian [
 				border: (BlBorder paint: ZkfolPalette nodeBorderColor);
 				geometry: (BlRoundedRectangleGeometry cornerRadius: 4).
 			spawner ifNotNil: [
-				node mouseCursor: BlHandCursor new.
-				node addEventHandlerOn: BlClickEvent do: [ :evt |
-					evt consumed: true.
-					evt currentTarget phlow spawnObject:
-						(spawner value: (rows indexOf: row)) ] ].
+				ZkfolElements make: node spawn: [ spawner value: (rows indexOf: row) ] ].
 			node ];
 		with: rows.
 	aMondrian edges

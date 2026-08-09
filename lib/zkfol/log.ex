@@ -87,10 +87,6 @@ defmodule Zkfol.Log do
     %__MODULE__{events: Enum.sort_by(events, & &1.id, :desc)}
   end
 
-  @doc "I list every event oldest first, to read or graph the log."
-  @spec events() :: [Event.t()]
-  def events, do: snapshot().events |> Enum.reverse()
-
   @doc "I am event `id` and everything transitively based on it, oldest first."
   @spec thread(t(), pos_integer()) :: [Event.t()]
   def thread(log, id), do: descend(log, MapSet.new([id]))

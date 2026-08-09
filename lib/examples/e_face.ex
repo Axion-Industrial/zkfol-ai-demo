@@ -20,14 +20,9 @@ defmodule Examples.EFace do
     summary = Face.summary(EUser.fibonacci())
 
     assert %{rels: 1, arity: 2, branches: 3, claims: 0, witness: "5 rows", args: [8]} = summary
-    summary
-  end
 
-  @spec a_raw_statement_has_only_its_source_facts() :: %{atom() => term()}
-  example a_raw_statement_has_only_its_source_facts do
-    summary = Face.summary(%Statement{rels: [EUser.fib()], args: [8]})
-
-    assert %{rels: 1, arity: 2, branches: nil, witness: nil} = summary
+    raw = Face.summary(%Statement{rels: [EUser.fib()], args: [8]})
+    assert %{rels: 1, arity: 2, branches: nil, witness: nil} = raw
     summary
   end
 
@@ -116,17 +111,6 @@ defmodule Examples.EFace do
     statement
   end
 
-  @spec judgement_labels_named_pointers() :: %{atom() => term()}
-  example judgement_labels_named_pointers do
-    feed = Face.judgement(EUser.fibonacci())
-
-    assert length(feed.rows) == 5
-    assert Enum.take(feed.rows, 2) == ["C1 · fib x", "C2 · fib v"]
-    assert Enum.all?(Enum.slice(feed.rows, 2..3), &(&1 =~ ~r/^C\d+ · ptr /))
-    assert List.last(feed.rows) == "C5 · slack 1"
-    feed
-  end
-
   @spec the_stage_carries_its_derivation() :: %{atom() => term()}
   example the_stage_carries_its_derivation do
     feed = Face.derivation(EUser.fibonacci())
@@ -136,16 +120,12 @@ defmodule Examples.EFace do
 
     assert feed.extents == %{fib: 8}
     assert feed.edges == 12
-    feed
-  end
 
-  @spec the_derivation_reads_off_the_log() :: %{atom() => term()}
-  example the_derivation_reads_off_the_log do
     ran = Zkfol.emit(%Statement{rels: [EUser.regs()], args: [5]})
-    feed = ran |> Log.Ran.final_stage() |> Face.derivation()
+    logged = ran |> Log.Ran.final_stage() |> Face.derivation()
 
-    assert length(feed.rows) == 5
-    assert %{fact: [:regs, 5, _a, _b], consumes: [[:regs, 4, _, _]]} = List.last(feed.rows)
+    assert length(logged.rows) == 5
+    assert %{fact: [:regs, 5, _a, _b], consumes: [[:regs, 4, _, _]]} = List.last(logged.rows)
     feed
   end
 
@@ -204,11 +184,10 @@ defmodule Examples.EFace do
       assert Enum.count(evals, &(Enum.at(&1, x) == 0)) == 1
     end
 
-    # The equations ride along as the paper writes them, judged term
-    # by term: pick's read of tab, and the tag claim beside it.
+    # The equations ride along as the paper writes them: pick's read
+    # of tab, and the tag claim beside it.
     assert "C3(C6(X)) = 3" in hd(feed.terms)
     assert "C5(X) = 1" in hd(feed.terms)
-    assert feed.term_evals |> hd() |> hd() |> Enum.sum() == 1682
 
     # Each equation carries its computation as a tree, down to the
     # pointer a composed cell reads through: the read of tab really is

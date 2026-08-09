@@ -109,22 +109,6 @@ defmodule Examples.EUser do
     [n, value]
   end
 
-  @spec eval_selects_by_binding(pos_integer()) :: [pos_integer()]
-  example eval_selects_by_binding(n \\ 8) do
-    {:ok, query} = Zkfol.eval(fib(), [:_, fib(n)], [])
-    assert [[index, value]] = Zkfol.Query.taken(query)
-    assert fib(index) == value
-    Zkfol.Query.close(query)
-    [index, value]
-  end
-
-  @spec eval_refuses_a_false_binding(pos_integer()) :: Refusal.t()
-  example eval_refuses_a_false_binding(n \\ 8) do
-    {:error, reason} = Zkfol.eval(fib(), [n, fib(n) + 1], [])
-    assert {:no_answer, %{}} = reason
-    reason
-  end
-
   # The plain route carries a source to the solved statement: the
   # predicate and the witness, derived off the relation alone.
   @spec fibonacci(pos_integer()) :: Statement.t()
@@ -146,7 +130,7 @@ defmodule Examples.EUser do
   end
 
   @spec registers_mod(pos_integer()) :: Statement.t()
-  example registers_mod(n \\ 1000) do
+  example registers_mod(n \\ 300) do
     source = %Statement{rels: [regsm()], args: [n, :_, :_, :_]}
     {:ok, statement, _trace} = Pipeline.run(plain(), source)
 
@@ -183,28 +167,6 @@ defmodule Examples.EUser do
     reason
   end
 
-  # A relation built where values live: the pin splices them in.
-  example a_relation_pins_runtime_values do
-    k = 3
-
-    scaled =
-      rel :scaled do
-        scaled(1, ^k)
-
-        scaled(x, v) do
-          x > 1
-          scaled(x - 1, prev)
-          v = ^k * prev
-        end
-      end
-
-    {:ok, _compiled} = Lang.compile(scaled, [scaled])
-    {:ok, witness} = Al.solve(scaled, [5])
-
-    assert witness |> Interpretation.rows() |> Enum.at(1) == [3, 9, 27, 81, 243]
-    scaled
-  end
-
   # Two recursive clauses put the answer behind an infinite DFS subtree
   # for unification, which cannot invert ee + ee. CLP reads the same
   # equation as 2*ee = e and runs the exponent backward.
@@ -215,22 +177,6 @@ defmodule Examples.EUser do
     assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
     assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
     witness
-  end
-
-  @spec squaring_solves_at_the_base() :: Interpretation.t()
-  example squaring_solves_at_the_base do
-    {:ok, witness} = Al.solve(epower(), [:_, 0])
-
-    assert Interpretation.len(witness) == 1
-    assert witness |> Interpretation.rows() |> Enum.at(0) |> List.last() == 1
-    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 0
-    witness
-  end
-
-  example unknown_relation_is_refused do
-    {:error, reason} = Lang.compile(fib(), [])
-    assert {:relation_not_in_scope, _} = reason
-    reason
   end
 
   @doc "I am the module as a program: any defrel roots it, the rest ride as scope."

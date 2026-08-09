@@ -20,11 +20,6 @@ ZkfolUairPicture class >> on: aGrid [
 	^ self new setGrid: aGrid; yourself
 ]
 
-{ #category : 'accessing' }
-ZkfolUairPicture >> grid [
-	^ grid
-]
-
 { #category : 'initialization' }
 ZkfolUairPicture >> setGrid: aGrid [
 	grid := aGrid
@@ -75,7 +70,7 @@ ZkfolUairPicture >> cellElementFor: aValue row: aRowIndex position: aPosition ki
 	text := ZkfolElements compactValue: aValue upTo: 5.
 	cell := (ZkfolElements
 		box: 24 @ 20
-		color: (self colorOfKind: aKind)
+		color: (ZkfolPalette kindColor: aKind)
 		text: text
 		fontSize: (text size > 4 ifTrue: [ 8 ] ifFalse: [ 9 ]))
 		id: #zkfolUairCell;
@@ -87,15 +82,7 @@ ZkfolUairPicture >> cellElementFor: aValue row: aRowIndex position: aPosition ki
 	cell addEventHandlerOn: BlMouseEnterEvent do: [ :evt |
 		self hovered: aRowIndex @ aPosition ].
 	cell addEventHandlerOn: BlMouseLeaveEvent do: [ :evt | self hideHover ].
-	^ self make: cell spawn: [ grid cellAtRow: aRowIndex position: aPosition ]
-
-]
-
-{ #category : 'rendering' }
-ZkfolUairPicture >> colorOfKind: aKind [
-	"Derived rows announce their kind; the class side holds the one
-	 palette every Zkfol view shares."
-	^ ZkfolPalette kindColor: aKind
+	^ ZkfolElements make: cell spawn: [ grid cellAtRow: aRowIndex position: aPosition ]
 ]
 
 { #category : 'hover' }
@@ -133,18 +120,11 @@ ZkfolUairPicture >> drawThreads: aCollectionOfThreads [
 				hoverLayer addChild: (self connectorFrom: from to: to color: thread value) ] ] ]
 ]
 
-{ #category : 'rendering' }
-ZkfolUairPicture >> elementOrError [
-	"The grid element, its reason when it cannot draw, never a raise."
-	^ ZkfolElements safely: [ self asElement ] as: #zkfolUairGridError
-]
-
 { #category : 'accessing' }
 ZkfolUairPicture >> emphasis: aCollectionOfCoords [
 	"The cells this rendering is about. Everything else fades."
 	emphasis := aCollectionOfCoords asSet
 ]
-
 
 { #category : 'rendering' }
 ZkfolUairPicture >> headerElementFor: aPosition [
@@ -158,21 +138,17 @@ ZkfolUairPicture >> headerElementFor: aPosition [
 			default: [ :w | w border: BlBorder empty ];
 			hovered: [ :w | w border: (BlBorder paint: ZkfolPalette hoverColor width: 1) ];
 			yourself).
-	^ self make: header spawn: [ grid columnAt: aPosition ]
-
+	^ ZkfolElements make: header spawn: [ grid columnAt: aPosition ]
 ]
 
 { #category : 'rendering' }
 ZkfolUairPicture >> headerRowElement [
 	"The position ruler over the grid: a spacer the width of the row
 	 labels, then one clickable header per shown position."
-	| row width |
+	| row |
 	row := ZkfolElements gridRow.
 	row addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
-	width := grid displayColumns
-		inject: 0
-		into: [ :max :each | each isCollection ifTrue: [ max max: each size ] ifFalse: [ max ] ].
-	1 to: (self maxPositions min: width) do: [ :pos |
+	1 to: (self maxPositions min: grid fullWidth) do: [ :pos |
 		row addChild: (self headerElementFor: pos) ].
 	^ row
 ]
@@ -218,7 +194,7 @@ ZkfolUairPicture >> labelElementFor: aKind at: aZeroBasedIndex column: aColumn [
 		width: self labelWidth)
 		id: #zkfolUairRowLabel;
 		yourself.
-	^ self make: label spawn: [ ZkfolUairRow
+	^ ZkfolElements make: label spawn: [ ZkfolUairRow
 		index: aZeroBasedIndex
 		kind: aKind
 		claimed: aZeroBasedIndex < grid numPublic
@@ -231,16 +207,6 @@ ZkfolUairPicture >> labelWidth [
 	"The grid's one label width, off every row's introduction."
 	^ ZkfolElements labelWidthFor: ((0 to: grid displayColumns size - 1)
 		collect: [ :each | grid labelTextFor: (grid kindOfRow: each) at: each ])
-]
-
-{ #category : 'rendering' }
-ZkfolUairPicture >> make: anElement spawn: aBlock [
-	"Clicking anElement opens what the block answers in the next pane."
-	anElement mouseCursor: BlHandCursor new.
-	anElement addEventHandlerOn: BlClickEvent do: [ :evt |
-		evt consumed: true.
-		evt currentTarget phlow spawnObject: aBlock value ].
-	^ anElement
 ]
 
 { #category : 'rendering' }
@@ -360,16 +326,4 @@ ZkfolUairPicture >> truncationMarkerElement [
 		markerElement: 'showing first ' , self maxPositions printString
 			, ' of ' , grid fullWidth printString , ' positions'
 		id: #zkfolTruncationMarker
-]
-
-{ #category : 'views' }
-ZkfolUairPicture >> canvasOn: aView title: aTitle priority: aNumber [
-	"Me on a canvas as one node, so I pan and zoom as one picture."
-	^ aView mondrian
-		title: aTitle;
-		priority: aNumber;
-		painting: [ :aMondrian |
-			aMondrian nodes
-				stencil: [ :each | each elementOrError ];
-				with: { self } ]
 ]

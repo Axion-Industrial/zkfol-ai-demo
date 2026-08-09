@@ -127,11 +127,7 @@ ZkfolPipelineModel >> nodeLabeled: aString color: aColorOrNil id: anIdSymbol cli
 			yourself);
 		yourself.
 	aBlockOrNil
-		ifNotNil: [
-			node mouseCursor: BlHandCursor new.
-			node addEventHandlerOn: BlClickEvent do: [ :evt |
-				evt consumed: true.
-				evt currentTarget phlow spawnObject: aBlockOrNil value ] ]
+		ifNotNil: [ ZkfolElements make: node spawn: aBlockOrNil ]
 		ifNil: [
 			node addEventHandlerOn: BlClickEvent do: [ :evt | evt consumed: true ] ].
 	^ node
@@ -155,7 +151,6 @@ ZkfolPipelineModel >> paintPipelineOn: aMondrian [
 		to: #value.
 	aMondrian layout custom: GtGradVerticalDominanceTreeLayout new
 ]
-
 
 { #category : 'accessing' }
 ZkfolPipelineModel >> passes [

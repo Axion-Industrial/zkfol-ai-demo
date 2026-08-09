@@ -49,12 +49,6 @@ ZkfolUairCell >> bits [
 	^ bits
 ]
 
-{ #category : 'accessing' }
-ZkfolUairCell >> color [
-	"My kind's color from the one shared palette."
-	^ ZkfolPalette kindColor: kind
-]
-
 { #category : 'views' }
 ZkfolUairCell >> gtFactsFor: aView [
 	"One cell of the trace, spelled out."

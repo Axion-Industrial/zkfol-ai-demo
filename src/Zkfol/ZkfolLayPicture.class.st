@@ -140,12 +140,6 @@ ZkfolLayPicture >> displayGroups [
 ]
 
 { #category : 'rendering' }
-ZkfolLayPicture >> elementOrError [
-	"The grid element, its reason when it cannot draw, never a raise."
-	^ ZkfolElements safely: [ self asElement ] as: #zkfolLayError
-]
-
-{ #category : 'rendering' }
 ZkfolLayPicture >> headerRowElement [
 	"The position ruler over the grid: a spacer the width of the row
 	 labels, then one muted position number per trace column."

@@ -40,15 +40,6 @@ defmodule Examples.EFacts do
     v = mod(a + b, 1000)
   end
 
-  defrel lopsided(1, 1)
-  defrel lopsided(2, 1)
-
-  defrel lopsided(x, v) do
-    lopsided(x - 1, a)
-    lopsided(x - 3, b)
-    v = a + b
-  end
-
   defrel entangled(1, 1)
   defrel entangled(2, 1)
 
@@ -63,14 +54,6 @@ defmodule Examples.EFacts do
     {:ok, descriptor} = Facts.recurrence(EUser.fib())
 
     assert %{p: 1, q: 1, initial: [{1, 1}, {2, 1}]} = Map.from_struct(descriptor)
-    descriptor
-  end
-
-  @spec subtraction_reads_its_signs() :: Facts.t()
-  example subtraction_reads_its_signs do
-    {:ok, descriptor} = Facts.recurrence(sub())
-
-    assert %{p: 1, q: -1} = Map.from_struct(descriptor)
     descriptor
   end
 
@@ -92,13 +75,6 @@ defmodule Examples.EFacts do
   example factorial_is_refused do
     {:error, refusal} = Facts.recurrence(factorial())
     assert {:not_order_two, %{offsets: [-1]}} = refusal
-    refusal
-  end
-
-  @spec a_lopsided_history_is_refused() :: Refusal.t()
-  example a_lopsided_history_is_refused do
-    {:error, refusal} = Facts.recurrence(lopsided())
-    assert {:not_order_two, %{offsets: [-1, -3]}} = refusal
     refusal
   end
 

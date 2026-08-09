@@ -104,10 +104,6 @@ defmodule Zkfol.Face do
       labels: labels(statement.rels, table, length(branches)),
       evals: for(b <- branches, do: for(x <- 1..len, do: Semantics.eval(b, witness, x))),
       terms: for(goals <- conjuncts, do: Enum.map(goals, &phi_text/1)),
-      term_evals:
-        for goals <- conjuncts do
-          for x <- 1..len, do: for(g <- goals, do: Semantics.eval(g, witness, x))
-        end,
       trees:
         for goals <- conjuncts do
           for x <- 1..len, do: for(g <- goals, do: tree(g, witness, x))
@@ -364,7 +360,6 @@ defmodule Zkfol.Face do
       rows = Zkfol.Alloc.rows(alloc, name)
       "#{rows.first}..#{rows.last}"
     end)
-    |> ColumnedList.column("Width", fn {_name, width} -> to_string(width) end)
     |> ColumnedList.column("Public", fn {name, _width} ->
       if name in alloc.public, do: "public", else: ""
     end)
@@ -525,7 +520,6 @@ defmodule Zkfol.Face do
 
   defp rows_of(_statement), do: nil
 
-  @spec inspected(term()) :: String.t()
   # A node of the computation: its text, its value here, and the parts
   # it is computed from, down to the witness cells themselves. A
   # composed cell's child is the pointer it reads through.
@@ -733,5 +727,6 @@ defmodule Zkfol.Face do
     end
   end
 
+  @spec inspected(term()) :: String.t()
   defp inspected(term), do: inspect(term, pretty: true, limit: 100, printable_limit: 2048)
 end

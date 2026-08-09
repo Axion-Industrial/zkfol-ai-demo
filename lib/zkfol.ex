@@ -59,11 +59,7 @@ defmodule Zkfol do
   """
   @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
           {:ok, Query.t()} | {:error, Refusal.t()}
-  def eval(rels, arguments, opts \\ [])
-
-  def eval(%Statement{rels: rels}, arguments, opts), do: eval(rels, arguments, opts)
-
-  def eval(rels, arguments, opts) do
+  def eval(rels, arguments, opts \\ []) do
     with {:ok, query} <- Query.open(rels, arguments, opts) do
       case Query.next(query) do
         {:ok, _answer} ->

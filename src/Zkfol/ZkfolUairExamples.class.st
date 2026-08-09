@@ -59,17 +59,6 @@ ZkfolUairExamples >> cellClickSpawnsCell [
 	^ scripter
 ]
 
-{ #category : 'helpers' }
-ZkfolUairExamples >> cellsUnder: anElement [
-	"Every rendered trace cell beneath an element, in order. Three
-	 examples counted these by hand with the same six lines."
-	| cells |
-	cells := OrderedCollection new.
-	anElement withAllChildrenBreadthFirstDo: [ :each |
-		each id asSymbol = #zkfolUairCell ifTrue: [ cells add: each ] ].
-	^ cells
-]
-
 { #category : 'fixtures' }
 ZkfolUairExamples >> classicAffine [
 	"The pre-Section-4 shape: every read affine, so no composed reads and
@@ -192,6 +181,18 @@ ZkfolUairExamples >> elementWithId: anIdSymbol in: anElement [
 	anElement withAllChildrenBreadthFirstDo: [ :each |
 		each id asSymbol = anIdSymbol ifTrue: [ ^ each ] ].
 	^ nil
+]
+
+{ #category : 'private' }
+ZkfolUairExamples >> elementsWithId: anIdSymbol in: anElement [
+	"Every descendant carrying the id, in order. The trace cells, the
+	 pipeline nodes: several examples counted these by hand with the
+	 same four lines."
+	| found |
+	found := OrderedCollection new.
+	anElement withAllChildrenBreadthFirstDo: [ :each |
+		each id asSymbol = anIdSymbol ifTrue: [ found add: each ] ].
+	^ found
 ]
 
 { #category : 'fixtures' }
@@ -376,7 +377,6 @@ ZkfolUairExamples >> hopReversed [
 		#lookups -> { { #row -> 1. #table -> #(#word 2) } asDictionary }.
 		#columns -> self reversedHopColumns } asDictionary
 ]
-
 
 { #category : 'fixtures' }
 ZkfolUairExamples >> orientedHop [
@@ -583,8 +583,6 @@ ZkfolUairExamples >> miniatureHop [
 				#(3 4 1 5 1 3 1 3) } } asDictionary
 ]
 
-
-
 { #category : 'examples' }
 ZkfolUairExamples >> pipelineElement [
 	"I render the act as its vertical Mondrian graph and assert the flow:
@@ -599,9 +597,7 @@ ZkfolUairExamples >> pipelineElement [
 		wait forEmptySpaceTaskQueue;
 		play.
 	self assert: (self elementWithId: #zkfolPipelineSource in: element) notNil.
-	nodes := OrderedCollection new.
-	element withAllChildrenBreadthFirstDo: [ :each |
-		each id asSymbol = #zkfolPipelineNode ifTrue: [ nodes add: each ] ].
+	nodes := self elementsWithId: #zkfolPipelineNode in: element.
 	self assert: nodes size equals: 4.
 	self assert: (self elementWithId: #zkfolPipelineIntent in: element) notNil.
 	self assert: (self elementWithId: #zkfolPipelineReport in: element) notNil.
@@ -719,14 +715,14 @@ ZkfolUairExamples >> pointerGridForwardBuildsAsync [
 	scripter wait
 		forElementCondition: [ :el |
 			(self elementWithId: #zkfolUairGrid in: el) notNil
-				and: [ (self elementWithId: #zkfolUairGridError in: el) notNil ] ]
+				and: [ (self elementWithId: #zkfolStencilError in: el) notNil ] ]
 		timeout: 10 seconds.
 	scripter play.
 	self
 		assert: (self elementWithId: #zkfolUairGrid in: container) notNil
 		description: 'the healthy forward should render the grid'.
 	self
-		assert: (self elementWithId: #zkfolUairGridError in: container) notNil
+		assert: (self elementWithId: #zkfolStencilError in: container) notNil
 		description: 'the failing forward should render the grid error, not reject'.
 	^ scripter
 ]
@@ -919,7 +915,6 @@ ZkfolUairExamples >> textsUnder: anElement [
 	^ texts
 ]
 
-
 { #category : 'examples' }
 ZkfolUairExamples >> wideGridRendersInMondrian [
 	"I build a forty-position trace and assert the Mondrian view carries
@@ -962,12 +957,16 @@ ZkfolUairExamples >> wideGridTruncatesHonestly [
 	<return: #ZkfolUairGrid>
 	| within over |
 	within := self syntheticGridOfLength: 200 vars: 8 rows: 1.
-	self assert: (self cellsUnder: within picture asElement) size equals: 200.
+	self
+		assert: (self elementsWithId: #zkfolUairCell in: within picture asElement) size
+		equals: 200.
 	self
 		assert: (self elementWithId: #zkfolTruncationMarker in: within picture asElement) isNil
 		description: 'a fitting trace carries no marker'.
 	over := self syntheticGridOfLength: 700 vars: 10 rows: 1.
-	self assert: (self cellsUnder: over picture asElement) size equals: over picture maxPositions.
+	self
+		assert: (self elementsWithId: #zkfolUairCell in: over picture asElement) size
+		equals: over picture maxPositions.
 	self
 		assert: (self elementWithId: #zkfolTruncationMarker in: over picture asElement) text asString
 		equals: 'showing first ' , over picture maxPositions printString , ' of 700 positions'.

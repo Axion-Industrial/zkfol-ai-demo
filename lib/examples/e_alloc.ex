@@ -48,20 +48,14 @@ defmodule Examples.EAlloc do
     linked
   end
 
-  @spec unallocated_symbol_refuses() :: Zkfol.Refusal.t()
-  example unallocated_symbol_refuses do
-    {:error, reason} = Alloc.link(Ast.eq(Ast.cell({:zzz, 1}), 0), successor_alloc())
+  @spec linking_refuses_what_no_region_holds() :: Zkfol.Refusal.t()
+  example linking_refuses_what_no_region_holds do
+    {:error, unallocated} = Alloc.link(Ast.eq(Ast.cell({:zzz, 1}), 0), successor_alloc())
+    assert {:symbol_not_allocated, %{symbol: :zzz}} = unallocated
 
-    assert {:symbol_not_allocated, %{symbol: :zzz}} = reason
-    reason
-  end
-
-  @spec a_row_past_its_region_refuses() :: Zkfol.Refusal.t()
-  example a_row_past_its_region_refuses do
-    {:error, reason} = Alloc.link(Ast.eq(Ast.cell({:a, 2}), 0), successor_alloc())
-
-    assert {:row_outside_region, %{symbol: :a, row: 2}} = reason
-    reason
+    {:error, outside} = Alloc.link(Ast.eq(Ast.cell({:a, 2}), 0), successor_alloc())
+    assert {:row_outside_region, %{symbol: :a, row: 2}} = outside
+    outside
   end
 
   @spec named_len_folds_or_refuses() :: Ast.pred()
@@ -96,21 +90,15 @@ defmodule Examples.EAlloc do
     itp
   end
 
-  @spec interpret_refuses_shape_lies() :: Zkfol.Refusal.t()
-  example interpret_refuses_shape_lies do
+  @spec interpret_refuses_what_disagrees() :: Zkfol.Refusal.t()
+  example interpret_refuses_what_disagrees do
     family = %{a: Interpretation.new([[1], [2]]), b: Interpretation.new([[2]])}
-    {:error, reason} = Alloc.interpret(successor_alloc(), family)
+    {:error, lied} = Alloc.interpret(successor_alloc(), family)
+    assert {:region_shape_mismatch, %{symbol: :a}} = lied
 
-    assert {:region_shape_mismatch, %{symbol: :a}} = reason
-    reason
-  end
-
-  @spec interpret_refuses_a_missing_region() :: Zkfol.Refusal.t()
-  example interpret_refuses_a_missing_region do
-    {:error, reason} = Alloc.interpret(successor_alloc(), %{a: Interpretation.new([[1]])})
-
-    assert {:region_uninterpreted, %{symbol: :b}} = reason
-    reason
+    {:error, missing} = Alloc.interpret(successor_alloc(), %{a: Interpretation.new([[1]])})
+    assert {:region_uninterpreted, %{symbol: :b}} = missing
+    missing
   end
 
   @spec claims_resolve_by_name() :: [Interpretation.claim()]

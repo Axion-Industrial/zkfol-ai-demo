@@ -28,6 +28,31 @@ ZkfolElements class >> box: anExtent color: aColorOrNil text: aTextOrNil fontSiz
 	^ box
 ]
 
+{ #category : 'views' }
+ZkfolElements class >> canvasOn: aView title: aTitle priority: aNumber node: aPicture [
+	"One picture as one Mondrian node, so it pans and zooms as one and
+	 its own clicks still spawn through phlow from inside it. The stencil
+	 stays total: it traps the build itself, so the drawn objects need
+	 only asElement."
+	^ aView mondrian
+		title: aTitle;
+		priority: aNumber;
+		painting: [ :aMondrian |
+			aMondrian nodes
+				stencil: [ :each | self safely: [ each asElement ] as: #zkfolStencilError ];
+				with: { aPicture } ]
+]
+
+{ #category : 'building' }
+ZkfolElements class >> make: anElement spawn: aBlock [
+	"Clicking anElement opens what the block answers in the next pane."
+	anElement mouseCursor: BlHandCursor new.
+	anElement addEventHandlerOn: BlClickEvent do: [ :evt |
+		evt consumed: true.
+		evt currentTarget phlow spawnObject: aBlock value ].
+	^ anElement
+]
+
 { #category : 'building' }
 ZkfolElements class >> safely: aBlock as: anIdSymbol [
 	"A stencil that raises during an async forward build trips phlow's
