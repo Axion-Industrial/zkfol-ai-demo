@@ -301,7 +301,12 @@ defmodule Zkfol.Lay do
 
     forest = Map.new(welds, fn {consumer, callee, k} -> {callee, {consumer, -k}} end)
 
-    walked = Enum.map(facts, &{walk(forest, &1), &1})
+    {walked, _seen} =
+      Enum.map_reduce(facts, %{}, fn fact, seen ->
+        {place, seen} = walk(forest, fact, seen)
+        {{place, fact}, seen}
+      end)
+
     roots = for {{root, _delta}, _fact} <- walked, uniq: true, do: root
     grouped = Enum.group_by(walked, fn {{root, _delta}, _fact} -> root end)
 
@@ -313,16 +318,26 @@ defmodule Zkfol.Lay do
     end)
   end
 
-  # pos(fact) = pos(root) + delta, the forest carrying the deltas.
-  @spec walk(map(), Derivation.fact()) :: {Derivation.fact(), integer()}
-  defp walk(forest, fact) do
-    case forest do
-      %{^fact => {parent, delta}} ->
-        {root, above} = walk(forest, parent)
-        {root, delta + above}
+  # pos(fact) = pos(root) + delta, the forest carrying the deltas and
+  # `seen` each fact's place once, so a chain walks its length, not
+  # its square.
+  @spec walk(map(), Derivation.fact(), map()) ::
+          {{Derivation.fact(), integer()}, map()}
+  defp walk(forest, fact, seen) do
+    case seen do
+      %{^fact => place} ->
+        {place, seen}
 
-      _forest ->
-        {fact, 0}
+      _seen ->
+        case forest do
+          %{^fact => {parent, delta}} ->
+            {{root, above}, seen} = walk(forest, parent, seen)
+            place = {root, delta + above}
+            {place, Map.put(seen, fact, place)}
+
+          _forest ->
+            {{fact, 0}, seen}
+        end
     end
   end
 end
