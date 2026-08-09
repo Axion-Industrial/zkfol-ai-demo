@@ -50,9 +50,15 @@ defmodule Zkfol.Pipeline do
   def default,
     do: %__MODULE__{passes: [{Zkfol.Lang, []}, {Doubling, []}, {Witness, []}]}
 
-  @doc "I run `statement` through my passes, keeping every intermediate; `opts` ride under each pass's own."
+  @doc """
+  I run `statement` through my passes, keeping every intermediate;
+  `opts` ride under each pass's own. The statement enters carrying its
+  whole program: relations its roots reach gather from their homes.
+  """
   @spec run(t(), Statement.t(), keyword()) :: outcome()
   def run(%__MODULE__{passes: passes}, statement, opts \\ []) do
+    statement = %{statement | rels: Zkfol.Lang.gathered(statement.rels)}
+
     Enum.reduce_while(passes, {statement, []}, fn {pass, own}, {current, trace} ->
       case pass.run(current, Keyword.merge(opts, own)) do
         {:ok, next} -> {:cont, {next, [{pass, next} | trace]}}

@@ -407,7 +407,7 @@ defmodule Examples.EAl do
   """
   @spec a_guard_binds_its_slack() :: Interpretation.t()
   example a_guard_binds_its_slack do
-    {:ok, shape} = Zkfol.Lang.compile(capped(), [capped()])
+    {:ok, shape} = Zkfol.Lang.compile(capped())
     alloc = Zkfol.Alloc.assign(shape)
 
     assert shape.slack == 1
@@ -485,7 +485,7 @@ defmodule Examples.EAl do
   """
   @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
   example a_mod_relation_reduces(n \\ 25) do
-    {:ok, shape} = Zkfol.Lang.compile(regsm(), [regsm()])
+    {:ok, shape} = Zkfol.Lang.compile(regsm())
     alloc = Zkfol.Alloc.assign(shape)
 
     assert shape.quot == 1
@@ -510,8 +510,8 @@ defmodule Examples.EAl do
   """
   @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
   example the_sugar_and_the_hand_agree(n \\ 25) do
-    {:ok, sugar} = Zkfol.Lang.compile(regsm(), [regsm()])
-    {:ok, spelled} = Zkfol.Lang.compile(regsh(), [regsh()])
+    {:ok, sugar} = Zkfol.Lang.compile(regsm())
+    {:ok, spelled} = Zkfol.Lang.compile(regsh())
 
     {:ok, sugared} = Al.solve(regsm(), [n])
     {:ok, by_hand} = Al.solve(regsh(), [n])
@@ -558,7 +558,7 @@ defmodule Examples.EAl do
   """
   @spec a_variable_modulus_is_refused() :: Refusal.t()
   example a_variable_modulus_is_refused do
-    {:error, refusal} = Zkfol.Lang.compile(shifty(), [shifty()])
+    {:error, refusal} = Zkfol.Lang.compile(shifty())
 
     assert {:modulus_not_literal, %{modulus: {:var, :m}}} = refusal
     refusal
@@ -569,7 +569,7 @@ defmodule Examples.EAl do
   # own, and the three facts nothing reached never materialize.
   @spec a_call_between_relations_derives() :: Interpretation.t()
   example a_call_between_relations_derives do
-    {:ok, shape} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, shape} = Zkfol.Lang.compile(pick())
     alloc = Zkfol.Alloc.assign(shape)
 
     assert Enum.to_list(Zkfol.Alloc.rows(alloc, :pick)) == [1, 2]
@@ -607,7 +607,7 @@ defmodule Examples.EAl do
   @doc "I pin the pointer's identity: two callees at one address are two pointers."
   @spec two_callees_take_two_pointers() :: Interpretation.t()
   example two_callees_take_two_pointers do
-    {:ok, shape} = Zkfol.Lang.compile(sums(), [sums(), five(), seven()])
+    {:ok, shape} = Zkfol.Lang.compile(sums())
 
     assert [{:five, _at}, {:seven, _same}] = shape.pointers
 
@@ -793,7 +793,7 @@ defmodule Examples.EAl do
         end
       end
 
-    {:error, lifted} = Zkfol.Lang.compile(reify_of_a_call, [reify_of_a_call])
+    {:error, lifted} = Zkfol.Lang.compile(reify_of_a_call)
     {:error, headed} = Al.solve(head_that_is_a_term, [5])
 
     assert {:unliftable_term, %{term: {:reify, {:call, :rc, _args}}}} = lifted

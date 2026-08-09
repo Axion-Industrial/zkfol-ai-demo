@@ -260,6 +260,14 @@ defmodule Zkfol.Al do
     end
   end
 
+  # A target as the relations it stands for, the root first; a target
+  # naming none refuses, which is every door's answer to nothing to run.
+  @spec rels(Statement.t() | Rel.t() | [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
+  defp rels(%Statement{rels: [_ | _] = rels}), do: {:ok, Lang.gathered(rels)}
+  defp rels(%Rel{} = root), do: {:ok, Lang.gathered([root])}
+  defp rels([%Rel{} | _rest] = list), do: {:ok, Lang.gathered(list)}
+  defp rels(_none), do: {:error, {:no_relations, %{}}}
+
   # A target as the statement it stands for: what the link half lays on.
   @spec statement(Statement.t() | Rel.t() | [Rel.t()]) :: Statement.t()
   defp statement(%Statement{} = statement), do: statement

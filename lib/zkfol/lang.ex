@@ -18,7 +18,7 @@ defmodule Zkfol.Lang do
         v = v1 + v2
       end
 
-      Lang.compile(fib(), [fib()])
+      Lang.compile(fib())
 
   A body statement may also reduce: `r = mod(e, m)` at a literal `m`
   is `exists q in N. e = m*q + r and r < m`, and I own the quotient.
@@ -63,6 +63,7 @@ defmodule Zkfol.Lang do
       field(:arity, pos_integer())
       field(:clauses, [{[term()], [term()]}])
       field(:layout, Zkfol.Matrix.t() | nil, default: nil, enforce: false)
+      field(:home, module() | nil, default: nil, enforce: false)
     end
   end
 
@@ -99,7 +100,8 @@ defmodule Zkfol.Lang do
       %Zkfol.Lang.Rel{
         name: unquote(name),
         arity: unquote(arity),
-        clauses: unquote(Macro.escape(clauses, unquote: true))
+        clauses: unquote(Macro.escape(clauses, unquote: true)),
+        home: __MODULE__
       }
     end
   end
@@ -159,7 +161,8 @@ defmodule Zkfol.Lang do
             %Zkfol.Lang.Rel{
               name: unquote(name),
               arity: unquote(arity),
-              clauses: unquote(Macro.escape(clauses))
+              clauses: unquote(Macro.escape(clauses)),
+              home: __MODULE__
             }
           end
         end
@@ -251,11 +254,11 @@ defmodule Zkfol.Lang do
   Which row each name lands on is `Zkfol.Alloc`'s to say, and it says
   it once the derivation is in hand; I only name.
 
-      Lang.compile(fib(), [fib(), double()])
+      Lang.compile(fib())
   """
-  @spec compile(Rel.t(), [Rel.t()]) :: {:ok, shape()} | {:error, Refusal.t()}
-  def compile(%Rel{} = root, rels) do
-    scope = Map.new(rels, &{&1.name, &1})
+  @spec compile(Rel.t(), [Rel.t()] | nil) :: {:ok, shape()} | {:error, Refusal.t()}
+  def compile(%Rel{} = root, rels \\ nil) do
+    scope = Map.new(gathered(rels || [root]), &{&1.name, &1})
 
     with {:ok, order} <- closure([root.name], scope, MapSet.new(), []),
          tags = tags(order),
@@ -276,13 +279,40 @@ defmodule Zkfol.Lang do
   end
 
   @doc """
+  I am `rels` with every relation their clauses reach: a callee the
+  list misses pulls by name from the home module its defrel compiled
+  in, transitively. A name no home answers stays missing, for
+  `members/2` to refuse.
+  """
+  @spec gathered([Rel.t()]) :: [Rel.t()]
+  def gathered(rels), do: gather(rels, MapSet.new(rels, & &1.name))
+
+  defp gather(rels, seen) do
+    pulled =
+      for %Rel{home: home} = rel <- rels,
+          home != nil,
+          {_head, body} <- rel.clauses,
+          {:call, name, _args} <- body,
+          not MapSet.member?(seen, name),
+          function_exported?(home, name, 0),
+          %Rel{} = callee <- [apply(home, name, [])],
+          uniq: true,
+          do: callee
+
+    case pulled do
+      [] -> rels
+      new -> gather(rels ++ new, MapSet.union(seen, MapSet.new(new, & &1.name)))
+    end
+  end
+
+  @doc """
   I am the relations `root` reaches in `rels`, in call order: what a
   question asks, before anyone asks whether it lowers. A call to a
   relation outside `rels` refuses.
   """
   @spec members(Rel.t(), [Rel.t()]) :: {:ok, [atom()]} | {:error, Refusal.t()}
   def members(%Rel{} = root, rels),
-    do: closure([root.name], Map.new(rels, &{&1.name, &1}), MapSet.new(), [])
+    do: closure([root.name], Map.new(gathered(rels), &{&1.name, &1}), MapSet.new(), [])
 
   @doc """
   I am a clause body's slack sites in order: a guard as it stands, a
