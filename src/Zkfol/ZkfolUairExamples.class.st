@@ -174,7 +174,7 @@ ZkfolUairExamples >> derefWalkDrawsItsClaims [
 	| chain target threads |
 	chain := self miniatureChain.
 	self assert: chain agrees.
-	target := chain valueRow @ chain address.
+	target := chain valueRow @ chain target.
 	threads := chain threads.
 	self
 		assert: (threads collect: [ :each | each key ]) asArray
@@ -238,7 +238,7 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	"I assert the failure list says nothing when nothing is wrong. Every
 	 oriented fixture lists no failure and offers no tab at all; the blind
-	 reversed shape lists exactly its two contradictions. A view that is
+	 reversed shape contradicts at four of its five reads. A view that is
 	 empty when all is well is one whose presence means something."
 	<gtExample>
 	<return: #ZkfolUairGrid>
@@ -252,7 +252,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 			assert: (grid gtFailuresFor: GtPhlowView empty) class
 			equals: GtPhlowEmptyView ].
 	broken := ZkfolUairGrid onUair: self hopReversed.
-	self assert: broken failingChains size equals: 2.
+	self assert: broken failingChains size equals: 4.
 	self
 		assert: (broken gtFailuresFor: GtPhlowView empty) class
 		equals: GtPhlowColumnedListView.
@@ -261,7 +261,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 		"its ends are the trace's own cells, by value: what lets a graph
 		 pair them up, and what the drawing silently needs"
 		self
-			assert: (broken cellAtRow: chain valueRow position: chain address)
+			assert: (broken cellAtRow: chain valueRow position: chain target)
 			equals: chain targetCell ].
 	self
 		assert: (broken hoverPairsOf: 1 position: 1 value: 3) first key
