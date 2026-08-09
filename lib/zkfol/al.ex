@@ -4,7 +4,9 @@ defmodule Zkfol.Al do
   written, so the derivation is the witness. The clauses go down as
   plain AL, AL's journal of the committed derivation comes back, and
   the witness is its facts, laid by `Zkfol.Derivation` and judged by
-  the oracle. The flow: prepare, ask, extract, lay, judge, journal.
+  the oracle. The act has two halves: `derived/3` runs -- prepare,
+  ask, extract, journal -- and `relaid/2` links and lays what it
+  established, no run of its own. `solved/3` is both in one call.
 
   My satellites are the distance from the ideal: `Zkfol.Al.Freeze`
   dies when CLPFD lands, `Zkfol.Al.Consumption` dies when the journal
@@ -33,14 +35,10 @@ defmodule Zkfol.Al do
 
   @typep bind :: %{optional(pos_integer()) => integer()}
 
-  # Everything an ask needs, prepared once: see `prepared/3`.
+  # Everything an ask needs, prepared once: see `prepared/4`.
   @typep prep :: %{
            root: Rel.t(),
            name: atom(),
-           shape: Lang.shape(),
-           alloc: Alloc.t(),
-           linked: Ast.pred(),
-           members: [Rel.t()],
            names: MapSet.t(),
            program: program(),
            bind: bind(),
@@ -83,27 +81,42 @@ defmodule Zkfol.Al do
   end
 
   @doc """
+  I am the run half: the derivation `arguments` establish, before any
+  allocation places it. `relaid/2` is the other half. A lowered
+  statement lends me its shape; anything else compiles.
+  """
+  @spec derived(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
+          {:ok, Derivation.t()} | {:error, Refusal.t()}
+  def derived(target, arguments, opts \\ [])
+
+  def derived(%Statement{rels: [_ | _] = rels} = statement, args, opts),
+    do: derive_rels(rels, shape_of(statement), args, opts)
+
+  def derived(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
+
+  def derived(%Rel{} = root, args, opts), do: derive_rels([root], nil, args, opts)
+  def derived([%Rel{} | _rest] = rels, args, opts), do: derive_rels(rels, nil, args, opts)
+  def derived([], _args, _opts), do: {:error, {:no_relations, %{}}}
+
+  @doc """
   I am the solving act whole: the `Zkfol.Statement.Solved` stage, its
-  linked predicate, witness, derivation, and allocation born of one
-  run. A lowered statement lends me its shape; anything else compiles.
+  linked predicate, witness, derivation, and allocation, `derived/3`
+  run and `relaid/2` laid over what it established.
   """
   @spec solved(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Statement.Solved.t()} | {:error, Refusal.t()}
-  def solved(target, arguments, opts \\ [])
+  def solved(target, arguments, opts \\ []) do
+    statement = statement(target)
 
-  def solved(%Statement{rels: [_ | _] = rels} = statement, args, opts),
-    do: solve_rels(rels, statement, args, opts)
-
-  def solved(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
-
-  def solved(%Rel{} = root, args, opts), do: solve_rels([root], [root], args, opts)
-  def solved([%Rel{} | _rest] = rels, args, opts), do: solve_rels(rels, rels, args, opts)
-  def solved([], _args, _opts), do: {:error, {:no_relations, %{}}}
+    with {:ok, derivation} <- derived(statement, arguments, opts),
+         {:ok, laid} <- relaid(statement, derivation),
+         do: {:ok, laid.stage}
+  end
 
   @doc """
-  I lay `derivation` as the statement's witness: the shape compiled
-  from its relations, the allocation assigned, the predicate linked,
-  the banks laid and judged -- link and lay as one pure act, no run.
+  I am the link half: I lay `derivation` as the statement's witness --
+  the shape compiled from its relations, the allocation assigned, the
+  predicate linked, the banks laid and judged -- one pure act, no run.
   A subderivation or a candidate layout lays through me.
   """
   @spec relaid(Statement.t(), Derivation.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
@@ -140,32 +153,35 @@ defmodule Zkfol.Al do
   def apply([%Rel{} | _rest] = rels, args, opts), do: apply_rels(rels, args, opts)
   def apply(_target, _args, _opts), do: {:error, {:no_relations, %{}}}
 
-  # --- the flow: prepare, ask, extract, lay, judge, journal ---
+  # --- the flow: prepare, ask, extract, journal ---
 
-  @spec solve_rels([Rel.t()], Statement.t() | [Rel.t()], [integer() | :_], keyword()) ::
-          {:ok, Statement.Solved.t()} | {:error, Refusal.t()}
-  defp solve_rels(rels, target, args, opts) do
-    with {:ok, prep} <- prepared(rels, shape_of(target), args, opts) do
+  @spec derive_rels([Rel.t()], Lang.shape() | nil, [integer() | :_], keyword()) ::
+          {:ok, Derivation.t()} | {:error, Refusal.t()}
+  defp derive_rels(rels, shape, args, opts) do
+    with {:ok, prep} <- prepared(rels, shape, args, opts) do
       on_question(prep, 256_000_000, fn branch, heap ->
-        with {:ok, tree} <- derive(prep, branch, heap),
-             derivation = Derivation.of(tree, prep.names, prep.len?),
-             lay = Lay.of(derivation, prep.alloc, prep.shape, prep.members),
-             {:ok, witness} <- Lay.witness(lay),
-             :ok <- judged(prep.linked, witness) do
-          count = Interpretation.len(witness)
+        with {:ok, tree} <- derive(prep, branch, heap) do
+          derivation = Derivation.of(tree, prep.names, prep.len?)
+          count = length(derivation.facts)
           event = {:al_solved, %{name: prep.name, count: count, branch: branch.id}}
           Log.push(event, prep.basedon)
 
-          {:ok, %Statement.Solved{pred: prep.linked, witness: witness, lay: lay}}
+          {:ok, derivation}
         end
       end)
     end
   end
 
   # The shape the stage already carries; nothing, and prepared compiles.
-  @spec shape_of(Statement.t() | [Rel.t()]) :: Lang.shape() | nil
+  @spec shape_of(Statement.t()) :: Lang.shape() | nil
   defp shape_of(%Statement{stage: %Statement.Lowered{shape: shape}}), do: shape
-  defp shape_of(_target), do: nil
+  defp shape_of(%Statement{}), do: nil
+
+  # A target as the statement it stands for: what the link half lays on.
+  @spec statement(Statement.t() | Rel.t() | [Rel.t()]) :: Statement.t()
+  defp statement(%Statement{} = statement), do: statement
+  defp statement(%Rel{} = root), do: %Statement{rels: [root]}
+  defp statement(rels) when is_list(rels), do: %Statement{rels: rels}
 
   # The oracle on the whole witness: banks stacked, every region in it.
   @spec judged(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}
@@ -185,11 +201,9 @@ defmodule Zkfol.Al do
   end
 
   defp prepared([root | _rest] = rels, shape, args, opts) do
-    alloc = Alloc.assign(shape)
+    members = Enum.filter(rels, &(&1.name in shape.members))
 
-    with {:ok, linked} <- Alloc.link(shape.pred, alloc),
-         members = Enum.filter(rels, &(&1.name in shape.members)),
-         {:ok, program} <- question_program(members),
+    with {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
          len? = Enum.any?(members, &mentions_len?(&1.clauses)),
          :ok <- len_bound(len?, bind) do
@@ -197,10 +211,6 @@ defmodule Zkfol.Al do
        %{
          root: root,
          name: Keyword.get(opts, :name, root.name),
-         shape: shape,
-         alloc: alloc,
-         linked: linked,
-         members: members,
          names: MapSet.new(members, & &1.name),
          program: program,
          bind: bind,
