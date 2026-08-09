@@ -423,6 +423,115 @@ defmodule Examples.EAl do
     witness
   end
 
+  defrel regsm(1, 1, 1)
+
+  defrel regsm(x, a, c) do
+    x > 1
+    regsm(x - 1, b, a)
+    c = mod(a + b, 7919)
+  end
+
+  # The same reduction spelled out, the quotient smuggled through the
+  # head because a hand cannot freshen a row.
+  defrel regsh(1, 1, 1, 0)
+
+  defrel regsh(x, a, b, q) do
+    x > 1
+    regsh(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
+  @doc """
+  I recur under a modulus: the head is three wide, the quotient
+  nowhere in it, and the value at each column is the fibonacci number
+  reduced. Two reduced summands cross the modulus at most once, so
+  the quotient bank the compiler opened is a bit.
+  """
+  @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
+  example a_mod_relation_reduces(n \\ 25) do
+    {:ok, shape} = Zkfol.Lang.compile(regsm(), [regsm()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.quot == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :quot)) == [7]
+
+    {:ok, witness} = Al.solve(regsm(), [n])
+
+    assert Interpretation.at(witness, 3, n) == rem(EUser.fib(n + 1), 7919)
+
+    [quotients] = Interpretation.rows(Zkfol.Alloc.region(witness, alloc, :quot))
+    assert quotients |> Enum.uniq() |> Enum.sort() == [0, 1]
+
+    witness
+  end
+
+  @doc """
+  I am one derivation reached two ways: `mod` as sugar, and spelled
+  out by hand. Every row the sugar stands on the hand also has -- its
+  quotient bank holding what the hand's head row held -- and the hand
+  pays two slack columns more for the signs the sugar never asks the
+  predicate to carry.
+  """
+  @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
+  example the_sugar_and_the_hand_agree(n \\ 25) do
+    {:ok, sugar} = Zkfol.Lang.compile(regsm(), [regsm()])
+    {:ok, spelled} = Zkfol.Lang.compile(regsh(), [regsh()])
+
+    {:ok, sugared} = Al.solve(regsm(), [n])
+    {:ok, by_hand} = Al.solve(regsh(), [n])
+
+    bank = fn witness, shape, sym ->
+      Interpretation.rows(Zkfol.Alloc.region(witness, Zkfol.Alloc.assign(shape), sym))
+    end
+
+    head = bank.(by_hand, spelled, :regsh)
+
+    # The sugar names its head (x, a, c) with the sum last; the hand
+    # wrote (x, sum, prev, q), so the value rows cross.
+    assert bank.(sugared, sugar, :regsm) ==
+             [Enum.at(head, 0), Enum.at(head, 2), Enum.at(head, 1)]
+
+    assert bank.(sugared, sugar, :quot) == Enum.drop(head, 3)
+    assert bank.(sugared, sugar, :ptr) == bank.(by_hand, spelled, :ptr)
+    assert bank.(sugared, sugar, :slack) == Enum.take(bank.(by_hand, spelled, :slack), 2)
+    assert spelled.slack - sugar.slack == 2
+
+    sugared
+  end
+
+  @doc "I prove a reduction on zinc+ through the front door."
+  @spec a_mod_relation_proves(pos_integer()) :: Zkfol.Log.Ran.t()
+  example a_mod_relation_proves(n \\ 25) do
+    ran =
+      Zkfol.compile(%Statement{rels: [regsm()], args: [n]},
+        pipeline: EUser.plain(),
+        name: :registers_mod
+      )
+
+    assert %Prover.Report{} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
+    ran
+  end
+
+  defrel shifty(m, x, v) do
+    v = mod(x, m)
+  end
+
+  @doc """
+  I refuse a modulus the clause does not know: m times the quotient is
+  a product of two unknowns, which nothing here can suspend.
+  """
+  @spec a_variable_modulus_is_refused() :: Refusal.t()
+  example a_variable_modulus_is_refused do
+    {:error, refusal} = Zkfol.Lang.compile(shifty(), [shifty()])
+
+    assert {:modulus_not_literal, %{modulus: {:var, :m}}} = refusal
+    refusal
+  end
+
   # A call between relations derives on one trace: pick reads tab
   # through the pointer row, the fact it reaches takes a column of its
   # own, and the three facts nothing reached never materialize.

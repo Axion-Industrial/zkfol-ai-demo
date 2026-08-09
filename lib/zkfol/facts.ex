@@ -1,8 +1,10 @@
 defmodule Zkfol.Facts do
   @moduledoc """
   I am the order-2 descriptor read off a relation's clauses: the base
-  values from its facts, the coefficients from its step equation. What
-  the rows only imply, the clauses declare.
+  values from its facts, the coefficients from its step equation, and
+  the modulus when the step reduces. What the rows only imply, the
+  clauses declare -- a reader takes the modulus off the structure
+  rather than being told it.
 
       Facts.recurrence(Examples.EUser.fib())
   """
@@ -16,6 +18,7 @@ defmodule Zkfol.Facts do
     field(:p, integer())
     field(:q, integer())
     field(:initial, [{pos_integer(), integer()}])
+    field(:mod, pos_integer() | nil, default: nil, enforce: false)
   end
 
   @doc "I extract the order-2 descriptor from `rel`'s clauses, or refuse with a reason."
@@ -25,8 +28,8 @@ defmodule Zkfol.Facts do
 
     with {:ok, initial} <- initials(facts),
          {:ok, step} <- the_step(steps),
-         {:ok, p, q} <- coefficients(name, step),
-         do: {:ok, %__MODULE__{p: p, q: q, initial: initial}}
+         {:ok, p, q, mod} <- coefficients(name, step),
+         do: {:ok, %__MODULE__{p: p, q: q, initial: initial, mod: mod}}
   end
 
   def recurrence(%Rel{name: name, arity: arity}),
@@ -62,16 +65,17 @@ defmodule Zkfol.Facts do
   # Calls one and two back bind the history; the step equation must be
   # an affine combination of exactly those two values.
   @spec coefficients(atom(), {atom(), [term()]}) ::
-          {:ok, integer(), integer()} | {:error, Refusal.t(Refusal.restructure())}
+          {:ok, integer(), integer(), pos_integer() | nil}
+          | {:error, Refusal.t(Refusal.restructure())}
   defp coefficients(name, {out, body}) do
     offsets =
       for {:call, ^name, [{:add, {:var, _index}, k}, {:var, v}]} <- body, do: {k, v}
 
     with {:ok, back_one, back_two} <- history(offsets),
-         [rhs] <- for({:eq, {:var, ^out}, rhs} <- body, do: rhs),
+         [{rhs, mod}] <- for(goal <- body, defined = defines(goal, out), do: defined),
          {:ok, coefficients} <- linear(rhs, %{}) do
       case Map.keys(coefficients) -- [back_one, back_two] do
-        [] -> {:ok, coefficients[back_one] || 0, coefficients[back_two] || 0}
+        [] -> {:ok, coefficients[back_one] || 0, coefficients[back_two] || 0, mod}
         vars -> {:error, {:step_beyond_history, %{extra: vars}}}
       end
     else
@@ -79,6 +83,13 @@ defmodule Zkfol.Facts do
       _eqs -> {:error, {:step_needs_an_equation, %{}}}
     end
   end
+
+  # What a goal says the step's value is, and the modulus it says it
+  # under: a plain equation reduces by nothing, a mod site by its own.
+  @spec defines(term(), atom()) :: {term(), pos_integer() | nil} | nil
+  defp defines({:eq, {:var, out}, rhs}, out), do: {rhs, nil}
+  defp defines({:mod, {:var, out}, rhs, m}, out) when is_integer(m), do: {rhs, m}
+  defp defines(_goal, _out), do: nil
 
   @spec history([{integer(), atom()}]) ::
           {:ok, atom(), atom()} | {:error, Refusal.t(Refusal.restructure())}

@@ -24,11 +24,24 @@ defmodule Zkfol.Doubling do
   (`private: true`) keeps n secret up to its bit length: the trace
   length stays public. Positions at the base cases become a single
   pinned column.
+
+  A step that reduces carries its modulus in the descriptor, and the
+  walk then runs over Z_m: every defining equation becomes its
+  existential-witness encoding, the raw value equal to m times a
+  committed quotient plus the reduced cell, and a guard holding that
+  cell under m, so the pair is unique over N. The quotients are three
+  more rows. Nothing searches for them: two unknowns to an equation is
+  outside what a derivation reaches, so under a modulus the walk is
+  computed here and laid as it stands. Reduction joins ranges and
+  order as a discipline candidate at the linker-scoped aux row seam;
+  amortizing it on Zinc+'s native lookup waits for a workload whose
+  trace is long enough to want it.
   """
 
   @behaviour Zkfol.Pipeline
 
   alias Zkfol.Al
+  alias Zkfol.Derivation
   alias Zkfol.Facts
   require Zkfol.Lang
   alias Zkfol.Lang.Rel
@@ -68,18 +81,16 @@ defmodule Zkfol.Doubling do
 
   @spec rewritten(Facts.t(), integer(), keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp rewritten(descriptor, n, opts) do
-    [{start, x1}, {_, x2}] = descriptor.initial
-
+  defp rewritten(%Facts{initial: [{start, x1}, {_, x2}], mod: mod} = descriptor, n, opts) do
     case n - start + 1 do
       m when m < 1 ->
         {:error, {:precedes_base_case, %{n: n, base: start}}}
 
       1 ->
-        trivial(x1, opts)
+        trivial(reduced(x1, mod), opts)
 
       2 ->
-        trivial(x2, opts)
+        trivial(reduced(x2, mod), opts)
 
       m ->
         build(
@@ -90,6 +101,10 @@ defmodule Zkfol.Doubling do
         )
     end
   end
+
+  @spec reduced(integer(), pos_integer() | nil) :: integer()
+  defp reduced(value, nil), do: value
+  defp reduced(value, mod), do: rem(value, mod)
 
   # The kernel walks beside the relation it doubles, named after it;
   # one new atom per relation, bounded by the program.
@@ -117,14 +132,82 @@ defmodule Zkfol.Doubling do
 
     with {:ok, shape} <- Zkfol.Lang.compile(krel, [krel]),
          alloc = Zkfol.Alloc.assign(shape),
-         [_x, _u, _w, walked, result] = Enum.to_list(Zkfol.Alloc.rows(alloc, :kernel)) do
+         [_x, _u, _w, walked, result | _quotients] =
+           Enum.to_list(Zkfol.Alloc.rows(alloc, :kernel)) do
       claims =
         [{@claim, result, count}] ++
           if(private, do: [], else: [{@position, walked, count}])
 
-      with {:ok, solved} <- Al.solved(krel, [count], [bind: %{walked => m - 2}] ++ solve_opts),
-           do: {:ok, %Statement{rels: [krel], claims: claims, stage: solved}}
+      statement = %Statement{rels: [krel], claims: claims}
+      derived(statement, descriptor, m, [bind: %{walked => m - 2}] ++ solve_opts)
     end
+  end
+
+  # Plain, the walk is AL's: the bound position descends and the bits
+  # fall out. Under a modulus each quotient is a second unknown in its
+  # equation, so the walk is computed and laid instead, the oracle
+  # judging what it lays.
+  @spec derived(Statement.t(), Facts.t(), pos_integer(), keyword()) ::
+          {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp derived(%Statement{rels: rels} = statement, %Facts{mod: nil}, m, solve_opts) do
+    with {:ok, solved} <- Al.solved(rels, [count(m)], solve_opts),
+         do: {:ok, %{statement | stage: solved}}
+  end
+
+  defp derived(statement, descriptor, m, _solve_opts),
+    do: Al.relaid(statement, walk(descriptor, m))
+
+  # The walk computed: the bits of the position after its leading one,
+  # the kernel pair reduced at every step, each fact consuming the one
+  # below it, which is what the descent is.
+  @spec walk(Facts.t(), pos_integer()) :: Derivation.t()
+  defp walk(descriptor, m) do
+    [1 | bits] = Integer.digits(m - 2, 2)
+    base = base(descriptor)
+    walked = Enum.scan(bits, base, &step(&2, &1, descriptor))
+
+    %Derivation{
+      facts: for(tuple <- [base | walked], do: {:kernel, tuple}),
+      edges: [[] | for(i <- 0..(length(bits) - 1)//1, do: [i])]
+    }
+  end
+
+  # The base column: the kernel pair at position one, reduced, its
+  # quotients nothing.
+  @spec base(Facts.t()) :: [integer()]
+  defp base(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}),
+    do: [1, rem(1, mod), rem(p, mod), 1, rem(x2 * p + q * x1, mod), 0, 0, 0]
+
+  # One column from the one below it: the identities the bit selects,
+  # each raw value split into its quotient and its reduced cell.
+  @spec step([integer()], 0 | 1, Facts.t()) :: [integer()]
+  defp step([x, uu, ww, ee | _rest], bit, descriptor) do
+    %Facts{q: q, initial: [{_, x1}, {_, x2}], mod: mod} = descriptor
+    {raw_u, raw_w} = pair(bit, uu, ww, descriptor)
+    u = rem(raw_u, mod)
+    w = rem(raw_w, mod)
+    raw_r = x2 * w + q * x1 * u
+
+    [
+      x + 1,
+      u,
+      w,
+      2 * ee + bit,
+      rem(raw_r, mod),
+      div(raw_u, mod),
+      div(raw_w, mod),
+      div(raw_r, mod)
+    ]
+  end
+
+  # The doubling identities as the clauses state them, before reduction.
+  @spec pair(0 | 1, integer(), integer(), Facts.t()) :: {integer(), integer()}
+  defp pair(0, uu, ww, %Facts{p: p, q: q, mod: mod}),
+    do: {uu * (2 * ww + p * mod - p * uu), q * (uu * uu) + ww * ww}
+
+  defp pair(1, uu, ww, %Facts{p: p, q: q, mod: mod}) do
+    odd = q * (uu * uu) + ww * ww
+    {odd, p * rem(odd, mod) + q * (uu * (2 * ww + p * mod - p * uu))}
   end
 
   @spec count(pos_integer()) :: pos_integer()
@@ -133,7 +216,7 @@ defmodule Zkfol.Doubling do
   # The kernel is itself a relation: one base fact, two step clauses
   # interpreting a bit, the result riding every clause.
   @spec kernel(Facts.t()) :: Rel.t()
-  defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}]}) do
+  defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: nil}) do
     Zkfol.Lang.rel :kernel do
       kernel(1, 1, ^p, 1, ^(x2 * p + q * x1))
 
@@ -153,6 +236,42 @@ defmodule Zkfol.Doubling do
         u = ^q * (uu * uu) + ww * ww
         w = ^p * u + ^q * (uu * (2 * ww + ^(-p) * uu))
         r = ^x2 * w + ^(q * x1) * u
+      end
+    end
+  end
+
+  # Over Z_mod the same identities, each stated as its raw value split
+  # into a committed quotient and a reduced cell the guard holds under
+  # the modulus. The subtraction rides p * mod, so every committed
+  # value the walk lays is a natural.
+  defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod} = descriptor) do
+    [_x, u0, w0, _e, r0 | _quotients] = base(descriptor)
+
+    Zkfol.Lang.rel :kernel do
+      kernel(1, ^u0, ^w0, 1, ^r0, 0, 0, 0)
+
+      kernel(x, u, w, e, r, cu, cw, cr) do
+        x > 1
+        u < ^mod
+        w < ^mod
+        r < ^mod
+        kernel(x - 1, uu, ww, ee, _rr, _rcu, _rcw, _rcr)
+        e = 2 * ee + 0
+        uu * (2 * ww + ^(p * mod) + ^(-p) * uu) = ^mod * cu + u
+        ^q * (uu * uu) + ww * ww = ^mod * cw + w
+        ^x2 * w + ^(q * x1) * u = ^mod * cr + r
+      end
+
+      kernel(x, u, w, e, r, cu, cw, cr) do
+        x > 1
+        u < ^mod
+        w < ^mod
+        r < ^mod
+        kernel(x - 1, uu, ww, ee, _rr, _rcu, _rcw, _rcr)
+        e = 2 * ee + 1
+        ^q * (uu * uu) + ww * ww = ^mod * cu + u
+        ^p * u + ^q * (uu * (2 * ww + ^(p * mod) + ^(-p) * uu)) = ^mod * cw + w
+        ^x2 * w + ^(q * x1) * u = ^mod * cr + r
       end
     end
   end

@@ -408,6 +408,7 @@ defmodule Zkfol.Al do
   defp question_clause(rname, {head, body}, i, len?) do
     case Enum.find(head, &(not (match?({:var, _}, &1) or is_integer(&1)))) do
       nil ->
+        body = surfaced(body, i)
         env = [head | Enum.map(body, &Tuple.to_list/1)] |> qvars() |> Map.new(&{&1, &1})
         lenp = if len?, do: [v(:len)], else: []
         params = Enum.map(head, &qterm/1) ++ lenp
@@ -421,6 +422,32 @@ defmodule Zkfol.Al do
       bad ->
         {:error, {:head_not_a_column, %{head: bad}}}
     end
+  end
+
+  # A mod site as the goals it means, the quotient a name of ours: the
+  # defining equation, the remainder under the modulus, and the two
+  # signs the Z-side derivation cannot read off the committed rows the
+  # predicate stands on. The equation is linear at a literal modulus,
+  # so it posts at clause entry and the fixpoint binds both once the
+  # dividend grounds.
+  @spec surfaced([term()], non_neg_integer()) :: [term()]
+  defp surfaced(body, i) do
+    body
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {{:mod, r, e, m}, j} ->
+        q = {:var, :"m#{i}q#{j}"}
+
+        [
+          {:eq, e, {:add, {:mul, q, m}, r}},
+          {:cmp, :<, r, m},
+          {:cmp, :>, {:add, r, 1}, 0},
+          {:cmp, :>, {:add, q, 1}, 0}
+        ]
+
+      {goal, _j} ->
+        [goal]
+    end)
   end
 
   # The body's statements, each call carrying its place among the calls:
