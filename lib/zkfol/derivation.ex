@@ -1,8 +1,8 @@
 defmodule Zkfol.Derivation do
   @moduledoc """
   I am the extension a run established: the facts in callees-first
-  order and the consumption between them, position as identity; no
-  argument is the count.
+  order, the consumption between them, and the clause each fact fired,
+  position as identity; no argument is the count.
 
   I am `Zkfol.Matrix`'s mirror: a relation plus its extension becomes
   an interpretation either way, mine derived by a run and its
@@ -17,26 +17,30 @@ defmodule Zkfol.Derivation do
   typedstruct enforce: true do
     field(:facts, [fact()])
     field(:edges, [[non_neg_integer()]], default: [])
+    field(:clauses, [non_neg_integer() | nil], default: [])
   end
 
   @doc """
   I am the derivation AL's journal carries, deduplicated: every fact
   the committed tree established, callees ahead of their callers, and
-  `edges` beside `facts` position by position -- the k-th entry the
-  indices of the facts the k-th fact's calls consumed, in body order.
-  The tree's children are those calls; flattening is what would lose
-  them. Indices, so I ride the bridge whole.
+  `edges` and `clauses` beside `facts` position by position: the k-th
+  edge entry is the indices of the facts the k-th fact's calls
+  consumed, in body order; the k-th clause entry is the 0-based seq of
+  the clause that established it. The tree's children are those calls,
+  which flattening would lose. Indices, so I ride the bridge whole.
   """
   @spec of([map()] | map(), MapSet.t(), boolean()) :: t()
   def of(tree, names, len? \\ false) do
     nodes = tree |> List.wrap() |> Enum.flat_map(&walk(&1, names, len?))
     facts = nodes |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     index = facts |> Enum.with_index() |> Map.new()
-    consumed = Map.new(nodes)
+    digested = Map.new(nodes)
+    ran = Enum.map(facts, &Map.fetch!(digested, &1))
 
     %__MODULE__{
       facts: facts,
-      edges: for(fact <- facts, do: for(callee <- Map.fetch!(consumed, fact), do: index[callee]))
+      edges: for({callees, _clause} <- ran, do: for(callee <- callees, do: index[callee])),
+      clauses: for({_callees, clause} <- ran, do: clause)
     }
   end
 
@@ -48,8 +52,9 @@ defmodule Zkfol.Derivation do
   end
 
   # Post-order: a member node becomes its fact beside the facts of its
-  # member children, resolved through each node's own bindings.
-  @spec walk(map(), MapSet.t(), boolean()) :: [{fact(), [fact()]}]
+  # member children and the clause it fired, resolved through each
+  # node's own bindings.
+  @spec walk(map(), MapSet.t(), boolean()) :: [{fact(), {[fact()], non_neg_integer() | nil}}]
   defp walk(%{label: {_self, m, _args}, children: kids} = node, names, len?) do
     below = Enum.flat_map(kids, &walk(&1, names, len?))
 
@@ -58,7 +63,7 @@ defmodule Zkfol.Derivation do
         below ++
           [
             {fact_of(node, len?),
-             for(kid <- kids, fact = member_fact(kid, names, len?), do: fact)}
+             {for(kid <- kids, fact = member_fact(kid, names, len?), do: fact), node.clause}}
           ],
       else: below
   end
@@ -91,7 +96,7 @@ defmodule Zkfol.Derivation do
   me yields a witness every column of which still holds.
   """
   @spec under(t(), fact()) :: t()
-  def under(%__MODULE__{facts: facts, edges: edges}, fact) do
+  def under(%__MODULE__{facts: facts, edges: edges, clauses: clauses}, fact) do
     index = facts |> Enum.with_index() |> Map.new()
     kept = reach([Map.fetch!(index, fact)], edges, MapSet.new())
 
@@ -103,7 +108,8 @@ defmodule Zkfol.Derivation do
       edges:
         for {callees, i} <- Enum.with_index(edges), i in kept do
           for c <- callees, do: Map.fetch!(renumber, c)
-        end
+        end,
+      clauses: for({c, i} <- Enum.with_index(clauses), i in kept, do: c)
     }
   end
 
@@ -127,7 +133,7 @@ defimpl Inspect, for: Zkfol.Derivation do
   import Inspect.Algebra
 
   # fib(3, 2)<-{0,1} reads: this fact's calls consumed facts 0 and 1,
-  # in body order -- indices into my own facts, position as identity.
+  # in body order. The numbers index my own facts.
   def inspect(%Zkfol.Derivation{facts: facts, edges: edges}, _opts) do
     lines =
       facts
