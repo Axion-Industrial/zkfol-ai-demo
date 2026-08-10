@@ -219,7 +219,7 @@ defmodule Examples.EUser do
   end
 
   @spec plain() :: Pipeline.t()
-  def plain(), do: %Pipeline{passes: [{Zkfol.Lang, []}, {Witness, []}]}
+  def plain(), do: %Pipeline{passes: [{Witness, []}, {Zkfol.Lang, []}]}
 
   @spec fib(pos_integer()) :: pos_integer()
   def fib(n) do

@@ -6,21 +6,22 @@ defmodule Zkfol.Statement do
 
   The stage says what is known, so a pass states its precondition as a
   type rather than testing for absence: `:raw` has only relations,
-  `Lowered` carries the predicate they lower to, and `Solved` carries a
-  witness that models it. A stage that knows nothing is a bare atom;
-  only the stages carrying data are structs. Only a solved statement
-  can be proved.
+  `Derived` carries the derivation the run established, and `Solved`
+  carries the predicate it lowers to beside the witness modelling it.
+  A stage that knows nothing is a bare atom; only the stages carrying
+  data are structs. An answer is had at `Derived`; only a solved
+  statement can be proved.
   """
 
   use TypedStruct
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
-  alias Zkfol.Statement.Lowered
+  alias Zkfol.Statement.Derived
   alias Zkfol.Statement.Solved
 
   @typedoc "How far the pipeline has carried a statement."
-  @type stage :: :raw | Lowered.t() | Solved.t()
+  @type stage :: :raw | Derived.t() | Solved.t()
 
   typedstruct enforce: true do
     field(:rels, [Zkfol.Lang.Rel.t()], default: [])
@@ -29,12 +30,8 @@ defmodule Zkfol.Statement do
     field(:stage, stage(), default: :raw)
   end
 
-  @doc """
-  I am the predicate, once the statement has been lowered to one:
-  named while lowered, linked once solved.
-  """
+  @doc "I am the predicate the statement's relations lower to, linked, once solved."
   @spec pred(t()) :: Ast.pred()
-  def pred(%__MODULE__{stage: %Lowered{shape: shape}}), do: shape.pred
   def pred(%__MODULE__{stage: %Solved{pred: pred}}), do: pred
 
   @doc "I am the witness, once one models the predicate."
@@ -51,22 +48,24 @@ defmodule Zkfol.Statement do
   def alloc(%__MODULE__{} = statement),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.alloc)
 
-  @doc "I am the derivation, read off the lay."
+  @doc "I am the derivation: the run's own once derived, the lay's once solved."
   @spec derivation(t()) :: Zkfol.Derivation.t() | nil
+  def derivation(%__MODULE__{stage: %Derived{derivation: derivation}}), do: derivation
+
   def derivation(%__MODULE__{} = statement),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.derivation)
 
-  @doc "I am the statement lowered to `shape`: the named predicate and what it stands on."
-  @spec lowered(t(), Zkfol.Lang.shape()) :: t()
-  def lowered(%__MODULE__{} = statement, shape),
-    do: %{statement | stage: %Lowered{shape: shape}}
+  @doc "I am the statement carrying `derivation`: what its relations established, unlaid."
+  @spec derived(t(), Zkfol.Derivation.t()) :: t()
+  def derived(%__MODULE__{} = statement, derivation),
+    do: %{statement | stage: %Derived{derivation: derivation}}
 
   @doc """
   I am the statement beneath one established fact, named by its
   position in my derivation: the fact's own relation becomes the
-  root, so the shape shrinks to what its closure entails -- a leaf
-  stands on its own bank alone -- and the subderivation lays through
-  a fresh allocation. Nil when there is no such fact or no derivation.
+  root, so the shape shrinks to what its closure entails and a leaf
+  stands on its own bank alone. The subderivation lays through a fresh
+  allocation. Nil when there is no such fact or no derivation.
   """
   @spec under(t(), pos_integer()) :: t() | nil
   def under(%__MODULE__{rels: rels} = statement, k) when is_integer(k) do

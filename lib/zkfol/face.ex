@@ -29,7 +29,7 @@ defmodule Zkfol.Face do
   @doc "I am the statement's facts, one map: what a delta view compares."
   @spec summary(Statement.t()) :: %{atom() => term()}
   def summary(%Statement{} = statement) do
-    pred = lowered_pred(statement)
+    pred = solved_pred(statement)
 
     %{
       rels: length(statement.rels),
@@ -51,12 +51,12 @@ defmodule Zkfol.Face do
   def text(%Statement{} = statement), do: inspected(statement)
 
   @doc """
-  I am the derivation the solved stage carries, shaped for its view:
-  one row per fact in laying order, what it consumed, and its fan-in.
-  A fact rides as `[relation | tuple]`.
+  I am the derivation the statement carries, shaped for its view: one
+  row per fact in laying order, what it consumed, and its fan-in. A
+  fact rides as `[relation | tuple]`.
   """
-  @spec derivation(Statement.t() | Zkfol.Derivation.t()) :: %{atom() => term()}
-  def derivation(%Statement{stage: %Solved{lay: %Zkfol.Lay{derivation: d}}}), do: derivation(d)
+  @spec derivation(Statement.t() | Zkfol.Derivation.t() | nil) :: %{atom() => term()}
+  def derivation(%Statement{} = statement), do: derivation(Statement.derivation(statement))
 
   def derivation(%Zkfol.Derivation{} = d) do
     consumption = Zkfol.Derivation.consumption(d)
@@ -76,7 +76,7 @@ defmodule Zkfol.Face do
     }
   end
 
-  def derivation(%Statement{}), do: %{rows: [], extents: %{}, edges: 0}
+  def derivation(nil), do: %{rows: [], extents: %{}, edges: 0}
 
   @spec fact_row(Zkfol.Derivation.fact()) :: [term()]
   defp fact_row({name, tuple}), do: [name | tuple]
@@ -508,9 +508,9 @@ defmodule Zkfol.Face do
     end
   end
 
-  @spec lowered_pred(Statement.t()) :: Zkfol.Ast.pred() | nil
-  defp lowered_pred(%Statement{stage: :raw}), do: nil
-  defp lowered_pred(statement), do: Statement.pred(statement)
+  @spec solved_pred(Statement.t()) :: Zkfol.Ast.pred() | nil
+  defp solved_pred(%Statement{stage: %Solved{}} = statement), do: Statement.pred(statement)
+  defp solved_pred(%Statement{}), do: nil
 
   @spec rows_of(Statement.t()) :: String.t() | nil
   defp rows_of(%Statement{stage: %Solved{witness: witness}}),

@@ -41,13 +41,13 @@ ZkfolPipelineModel class >> example [
 		#report -> report.
 		#failure -> nil.
 		#passes -> {
-			{ #index -> 1. #name -> 'Lang'. #verdict -> #lowers } asDictionary.
-			{ #index -> 2. #name -> 'Doubling'. #verdict -> #rewrites } asDictionary.
-			{ #index -> 3. #name -> 'Witness'. #verdict -> #solves } asDictionary.
+			{ #index -> 1. #name -> 'Doubling'. #verdict -> #rewrites } asDictionary.
+			{ #index -> 2. #name -> 'Witness'. #verdict -> #solves } asDictionary.
+			{ #index -> 3. #name -> 'Lang'. #verdict -> #lowers } asDictionary.
 			{ #index -> 4. #name -> 'Accumulator'. #verdict -> #expands } asDictionary }.
 		#trail -> {
 			{ #id -> 41. #basedon -> nil. #body -> '{:define, :composed_hop, %Zkfol.Pipeline{}}' } asDictionary.
-			{ #id -> 42. #basedon -> 41. #body -> '{:piped, [{Zkfol.Lang, :lowers}, ...]}' } asDictionary.
+			{ #id -> 42. #basedon -> 41. #body -> '{:piped, [{Zkfol.Doubling, :rewrites}, ...]}' } asDictionary.
 			{ #id -> 43. #basedon -> 42. #body -> '{:prove_requested, :composed_hop}' } asDictionary.
 			{ #id -> 44. #basedon -> 43. #body -> '{:proved, %Zkfol.Prover.Report{}}' } asDictionary } } asDictionary)
 		stageSpawner: [ :k | summaries at: k + 1 ];

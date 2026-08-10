@@ -36,11 +36,15 @@ them; do not rely on paraphrase (they evolve):
 ## The pipeline (what compiles a statement to a proof)
 
 A `Zkfol.Statement` flows through a `Zkfol.Pipeline` of passes (each `{module, opts}`),
-its stage a sum-type — `Raw` → `Lowered` → `Solved`:
+its stage a sum-type — `Raw` → `Derived` → `Solved`. Evaluation needs no Φ and
+stops at `Derived`; only proving needs the lowering, which is why it runs last:
 
 - `Zkfol.Lang` — the relational surface: `defrel`/`rel` macros → a predicate (`Ast`).
+  As the last pass it lowers the run's relations and lays its derivation on the
+  allocation born of that (`Al.relaid`), reaching `Solved`.
 - `Zkfol.Al` — the AL backend: runs the statement as clauses, the derivation IS the
-  witness (judged by the oracle). A free count asks the *question* first — the clauses
+  witness (judged by the oracle). `derived/3` is the run half, `relaid/2` the link
+  half, `solved/3` both in one call. A free count asks the *question* first — the clauses
   as plain AL (`Al.question/1`), no trace, no size — then the structural ask; refusals
   are typed (`no_answer` is a finite no, `unresolved_within_budget` outran AL's fixed
   reduction budget) and nothing searches by witness size. Predicates that call
@@ -48,7 +52,7 @@ its stage a sum-type — `Raw` → `Lowered` → `Solved`:
   guards (`x > 2`) steer the derivation but do not reach the emitted predicate.
   `Zkfol.Facts` reads order-2 descriptors; `Zkfol.Doubling` rewrites recurrences to a
   log-depth kernel.
-- `Zkfol.Witness` — derives the witness via `Al.solve`.
+- `Zkfol.Witness` — runs the statement via `Al.derived`; the derivation is the answer.
 - `Zkfol.Uair` — `emit/3` translates a Solved statement to Figure 2 over committed
   columns; `prove/3` proves it on Zinc+. Mode is a sum: `Uair.Plain | Composed`
   (`Composed` = Section 4 lowering for unscheduled pointers; its reads prove

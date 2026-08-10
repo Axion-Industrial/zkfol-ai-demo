@@ -196,15 +196,19 @@ defmodule Zkfol.Lang do
   defp goal(form),
     do: raise(ArgumentError, "a goal is an equation or a call, not #{Macro.to_string(form)}")
 
-  @doc "As a pass I lower a statement's relations to its shape; the first is the root."
+  @doc """
+  As a pass I lower a derived statement's relations to its shape --
+  the first is the root -- and lay the derivation on the allocation
+  born of it, which is what `Zkfol.Al.relaid/2` is. Only a proof
+  wants the shape, so nothing before me needs one, and a statement
+  that has not run rides through.
+  """
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{rels: []} = statement, _opts), do: {:ok, statement}
+  def run(%Statement{stage: %Statement.Derived{derivation: derivation}} = statement, _opts),
+    do: Zkfol.Al.relaid(statement, derivation)
 
-  def run(%Statement{rels: [root | _rest] = rels} = statement, _opts) do
-    with {:ok, shape} <- compile(root, rels),
-         do: {:ok, Statement.lowered(statement, shape)}
-  end
+  def run(%Statement{} = statement, _opts), do: {:ok, statement}
 
   @impl Zkfol.Pipeline
   @spec verb() :: Zkfol.Pipeline.verdict()
