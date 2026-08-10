@@ -24,8 +24,12 @@ defmodule Zkfol.Ast do
           | {:add, poly(leaf), poly(leaf)}
           | {:mul, poly(leaf), poly(leaf)}
 
+  @typedoc "A row reference: a bare row post-link, or {symbol, row} before Alloc links it."
+  @type row_ref :: pos_integer() | {atom(), pos_integer()}
+
   @typedoc "The leaves Figure 2's polynomials stand on."
-  @type ep_leaf :: :x | :len | {:cell, pos_integer()} | {:cell, pos_integer(), pos_integer()}
+  @type ep_leaf ::
+          :x | :len | {:len, atom()} | {:cell, row_ref()} | {:cell, row_ref(), row_ref()}
 
   @typedoc "Figure 2's enriched polynomials: the reify-free subsyntax of terms."
   @type ep :: poly(ep_leaf())
@@ -46,12 +50,16 @@ defmodule Zkfol.Ast do
   @spec len() :: term_t()
   def len, do: :len
 
-  @doc "I am C_i(X): row `i` at the current column."
-  @spec cell(pos_integer()) :: term_t()
+  @doc "I am len(M): the column count of the named symbol; `Zkfol.Alloc` folds me to a constant."
+  @spec len(atom()) :: term_t()
+  def len(sym), do: {:len, sym}
+
+  @doc "I am C_i(X): row `i` at the current column, the row named or already linked."
+  @spec cell(row_ref()) :: term_t()
   def cell(i), do: {:cell, i}
 
   @doc "I am C_i(C_j(X)): row `i` at the column stored in row `j` of the current column."
-  @spec cell(pos_integer(), pos_integer()) :: term_t()
+  @spec cell(row_ref(), row_ref()) :: term_t()
   def cell(i, j), do: {:cell, i, j}
 
   @doc "I am t + u, born canonical: constants fold and ride right, zero vanishes."
@@ -154,7 +162,11 @@ defmodule Zkfol.Ast do
   def reduce(node, acc, fun),
     do: Enum.reduce(children(node), fun.(node, acc), &reduce(&1, &2, fun))
 
-  @doc "I am the rows `pred` reads through as pointers, each once, in order."
+  @doc """
+  I am the rows `pred` reads through as pointers, each once, in order.
+  I read linked (numeric) predicates; named references resolve through
+  `Zkfol.Alloc.link/3` before I run.
+  """
   @spec pointer_reads(pred()) :: [pos_integer()]
   def pointer_reads(pred) do
     pred |> pointer_derefs() |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
@@ -179,7 +191,9 @@ defmodule Zkfol.Ast do
   and a branch guarded eq(X, k) that pins a read row corroborates it.
   A composed read pinned to a term names a computed target, so its
   pointer takes no schedule. Ambiguity refuses: conflicting offsets
-  and offsets that do not look back have no shift.
+  and offsets that do not look back have no shift. I read linked
+  (numeric) predicates; named references resolve through
+  `Zkfol.Alloc.link/3` before I run.
   """
   @spec schedules(pred()) ::
           {:ok, %{pos_integer() => pos_integer()}} | {:error, Zkfol.Refusal.t()}

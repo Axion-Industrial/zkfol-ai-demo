@@ -18,7 +18,7 @@ defmodule Examples.EFace do
   example a_statement_summarises_to_its_facts do
     summary = Face.summary(EUser.fibonacci())
 
-    assert %{rels: 1, arity: 2, branches: 3, claims: 0, witness: "4 rows", args: [8]} = summary
+    assert %{rels: 1, arity: 2, branches: 3, claims: 0, witness: "5 rows", args: [8]} = summary
     summary
   end
 
@@ -43,7 +43,9 @@ defmodule Examples.EFace do
     # n row counts 1..len, and every row's kind named off the shifts.
     assert feed.traces_order
     assert hd(feed.columns) == Enum.to_list(1..8)
-    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :scheduled, :scheduled]
+    # The slack row is committed like any other, so it is plain: it
+    # takes no shift and carries no read of its own.
+    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :plain, :scheduled, :scheduled]
     assert Enum.all?(feed.columns, &(length(&1) == 8))
     assert feed.num_vars == 3
 
@@ -105,6 +107,87 @@ defmodule Examples.EFace do
     text
   end
 
+  @spec the_statement_rides_the_bridge_whole() :: Statement.t()
+  example the_statement_rides_the_bridge_whole do
+    statement = EUser.fibonacci()
+
+    assert {:ok, _json} = Jexon.to_json(statement)
+    statement
+  end
+
+  @spec judgement_labels_named_pointers() :: %{atom() => term()}
+  example judgement_labels_named_pointers do
+    feed = Face.judgement(EUser.fibonacci())
+
+    assert length(feed.rows) == 5
+    assert Enum.take(feed.rows, 2) == ["C1 · fib x", "C2 · fib v"]
+    assert Enum.all?(Enum.slice(feed.rows, 2..3), &(&1 =~ ~r/^C\d+ · ptr /))
+    assert List.last(feed.rows) == "C5 · slack 1"
+    feed
+  end
+
+  @spec the_stage_carries_its_derivation() :: %{atom() => term()}
+  example the_stage_carries_its_derivation do
+    feed = Face.derivation(EUser.fibonacci())
+
+    assert %{fact: [:fib, 8, 21], consumes: [[:fib, 7, 13], [:fib, 6, 8]], fan_in: 0} =
+             List.last(feed.rows)
+
+    assert feed.extents == %{fib: 8}
+    assert feed.edges == 12
+    feed
+  end
+
+  @spec the_derivation_reads_off_the_log() :: %{atom() => term()}
+  example the_derivation_reads_off_the_log do
+    ran = Zkfol.emit(%Statement{rels: [EUser.regs()], args: [5]})
+    feed = ran |> Face.final_stage() |> Face.derivation()
+
+    assert length(feed.rows) == 5
+    assert %{fact: [:regs, 5, _a, _b], consumes: [[:regs, 4, _, _]]} = List.last(feed.rows)
+    feed
+  end
+
+  @spec the_judgement_draws_the_weld_arrows() :: %{atom() => term()}
+  example the_judgement_draws_the_weld_arrows do
+    feed = Face.judgement(EUser.fibonacci())
+
+    assert feed.regions == [
+             %{name: :fib, first: 1, last: 2},
+             %{name: :ptr, first: 3, last: 4},
+             %{name: :slack, first: 5, last: 5}
+           ]
+
+    assert length(feed.arrows) == 12
+    assert %{ptr: 3, from: 8, to: 7, to_row: 1, weld: 1} in feed.arrows
+    assert %{ptr: 4, from: 8, to: 6, to_row: 1, weld: 2} in feed.arrows
+
+    assert feed.aims == [%{ptr: 3, member: :fib}, %{ptr: 4, member: :fib}]
+    feed
+  end
+
+  @spec a_fact_carries_its_own_lay() :: Statement.t()
+  example a_fact_carries_its_own_lay do
+    sub = Face.under(EUser.fibonacci(), 4)
+
+    assert %Statement{stage: %Zkfol.Statement.Solved{}} = sub
+    assert length(Statement.derivation(sub).facts) == 4
+    assert Zkfol.Interpretation.len(Statement.witness(sub)) == 4
+    assert Zkfol.Semantics.valid?(Statement.pred(sub), Statement.witness(sub))
+
+    assert Face.under(EUser.fibonacci(), 99) == nil
+
+    {:ok, picked, _trace} =
+      Zkfol.Pipeline.run(EUser.plain(), %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]})
+
+    leaf = Face.under(picked, 1)
+
+    assert hd(leaf.rels).name == :tab
+    assert Zkfol.Alloc.width(Statement.alloc(leaf)) == 2
+    assert Zkfol.Interpretation.rows(Statement.witness(leaf)) == [[3], [40]]
+    sub
+  end
+
   @doc "I label every branch off the relations and judge every column."
   @spec the_judgement_is_derived() :: %{atom() => term()}
   example the_judgement_is_derived do
@@ -149,7 +232,15 @@ defmodule Examples.EFace do
 
     # And every witness row wears its meaning: the members' head
     # variables, the tag, the pointer by its target.
-    assert feed.rows == ["pick x", "pick v", "tab 1", "tab 2", "tag", "ptr 3"]
+    assert feed.rows ==
+             [
+               "C1 · pick x",
+               "C2 · pick v",
+               "C3 · tab 1",
+               "C4 · tab 2",
+               "C5 · tag",
+               "C6 · ptr tab 3"
+             ]
 
     feed
   end

@@ -13,6 +13,18 @@ ZkfolRan class >> elixirClass [
 ]
 
 { #category : 'accessing' }
+ZkfolRan >> finalStage [
+	"The act's final statement, the bridged struct wearing its own
+	 views; a run some pass refused answers a refusal that says so and
+	 hides the forwarded tabs."
+	| stage |
+	stage := self evaluateOrNil: 'Zkfol.Face.final_stage(' , self resolve , ')'.
+	^ (stage isKindOf: ZkfolStatement)
+		ifTrue: [ stage ]
+		ifFalse: [ ZkfolRefusal because: 'no final stage: a pass refused' ]
+]
+
+{ #category : 'accessing' }
 ZkfolRan >> emitted [
 	"The final stage's statement emitted as its UAIR through the face:
 	 the registered %Zkfol.Uair{} dispatches to ZkfolUair by exclass
@@ -22,38 +34,59 @@ ZkfolRan >> emitted [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtJudgementFor: aView [
-	"The act's final stage judged branch by column on the node, off the
-	 log alone, the named witness beneath it: labels, clauses and row
-	 names from the relations, values and computation trees from the
-	 oracle. On the canvas it pans and zooms as one picture."
+ZkfolRan >> gtLayFor: aView [
+	"The final stage owns its lay; I only forward to it."
 	<gtView>
 	<gtBeamView>
-	^ aView mondrian
+	^ aView forward
+		title: 'Lay';
+		priority: 10;
+		object: [ self finalStage ];
+		view: #gtLayFor:
+]
+
+{ #category : 'views' }
+ZkfolRan >> gtObjectsFor: aView [
+	"The act's interesting objects, one send each: my own beside the
+	 final stage's own list, read from it rather than repeated here."
+	<gtView>
+	<gtBeamView>
+	^ aView columnedList
+		title: 'Objects';
+		priority: 12;
+		items: [ | stage |
+			stage := self finalStage.
+			{ 'source statement' -> [ self stageAt: 0 ].
+				'final stage' -> [ stage ] }
+				, stage interestingObjects
+				, { 'emitted uair' -> [ self emitted ].
+					'proved report' -> [ self provedReport ] } ];
+		column: 'Object' text: [ :each | each key ];
+		send: [ :each | each value value ]
+]
+
+{ #category : 'views' }
+ZkfolRan >> gtDerivationFor: aView [
+	"The final stage owns its derivation; I only forward to it."
+	<gtView>
+	<gtBeamView>
+	^ aView forward
+		title: 'Derivation';
+		priority: 11;
+		object: [ self finalStage ];
+		view: #gtDerivationGraphFor:
+]
+
+{ #category : 'views' }
+ZkfolRan >> gtJudgementFor: aView [
+	"The final stage owns the judgement; I only forward to it."
+	<gtView>
+	<gtBeamView>
+	^ aView forward
 		title: 'Judgement';
 		priority: 9;
-		painting: [ :aMondrian |
-			| feed judgement |
-			feed := ZkfolProxy
-				on: self
-				fetch: 'Zkfol.Face.judgement_of(' , self resolve , ')'.
-			judgement := ((feed isKindOf: Dictionary)
-				and: [ (feed at: #evals ifAbsent: [ #() ]) notEmpty ])
-					ifTrue: [ ZkfolJudgement new
-						setLabels: (feed at: #labels)
-							evals: (feed at: #evals)
-							terms: (feed at: #terms ifAbsent: [ nil ])
-							termEvals: (feed at: #term_evals ifAbsent: [ nil ])
-							trees: (feed at: #trees ifAbsent: [ nil ])
-							sources: (feed at: #sources ifAbsent: [ nil ])
-							rows: (feed at: #rows ifAbsent: [ nil ])
-							witness: (feed at: #witness ifAbsent: [ nil ]);
-						yourself ]
-					ifFalse: [ ZkfolJudgement new
-						refuse: 'no judgement to show'; yourself ].
-			aMondrian nodes
-				stencil: [ :each | each elementOrError ];
-				with: { judgement } ]
+		object: [ self finalStage ];
+		view: #gtJudgementFor:
 ]
 
 { #category : 'views' }

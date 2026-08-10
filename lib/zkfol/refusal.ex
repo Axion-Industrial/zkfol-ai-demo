@@ -14,8 +14,6 @@ defmodule Zkfol.Refusal do
 
   - `:restructure` — the statement's shape is not one I compile. Rewrite it.
   - `:out_of_range` — a bound was exceeded. Shrink it, or raise the bound.
-  - `:capability` — I could compile this; the pinned backend cannot prove
-    it yet. Wait, or take another path.
   - `:false_statement` — nothing is wrong with the statement except that
     it is not true. The honest refusal, and the only one that is a result.
   - `:transport` — the prover died, timed out, or never answered. Nothing
@@ -23,7 +21,7 @@ defmodule Zkfol.Refusal do
   """
 
   @typedoc "What the caller should do about a refusal."
-  @type kind :: :restructure | :out_of_range | :capability | :false_statement | :transport
+  @type kind :: :restructure | :out_of_range | :false_statement | :transport
 
   @typedoc "The values the message needs, and a view can point at."
   @type detail :: map()
@@ -44,17 +42,16 @@ defmodule Zkfol.Refusal do
     restructure: ~w(not_an_index_relation facts_not_consecutive fact_not_ground step_clauses
          step_head_not_indexed step_beyond_history
          step_needs_an_equation not_order_two step_not_linear no_relations
-         raw_predicate_has_no_clauses unbound_variable relation_not_in_scope
-         call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
+         unbound_variable relation_not_in_scope
+         conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
          row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
-         free_index_needs_a_bound residue
+         len_needs_a_bound_count residue
          lookup_width_mismatch lookup_chunk_indivisible)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted unresolved_within_budget value_exceeds_cell
          constant_exceeds_cell)a,
-    capability: ~w(calls_between_relations)a,
     false_statement: ~w(no_derivation no_derivation_at_count witness_invalid
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
@@ -189,17 +186,11 @@ defmodule Zkfol.Refusal do
   def message({:arguments_exceed_rows, %{args: args, rows: rows}}),
     do: "#{args} arguments for a relation of #{rows} rows"
 
-  def message({:free_index_needs_a_bound, _detail}),
-    do: "a free index has no last answer; say :upto how far to look"
+  def message({:len_needs_a_bound_count, %{}}),
+    do: "len is the trace length, which only a bound count names"
 
   def message({:no_relations, _detail}),
     do: "the statement carries no relations; supply its witness instead"
-
-  def message({:raw_predicate_has_no_clauses, _detail}),
-    do: "a raw predicate has no clauses to run; write it as relations"
-
-  def message({:calls_between_relations, _detail}),
-    do: "not yet: calls between relations derive through the core path"
 
   def message({:unbound_variable, %{variable: name}}),
     do: "the variable #{name} is not bound by the head or a call"
@@ -220,9 +211,6 @@ defmodule Zkfol.Refusal do
 
   def message({:relation_not_in_scope, %{relation: name}}),
     do: "the relation #{name} is not in scope"
-
-  def message({:call_output_not_fresh, %{output: out}}),
-    do: "a call output must be a fresh variable, got #{inspect(out)}"
 
   def message({:conflicting_schedule_offsets, %{row: row, offsets: offsets}}),
     do: "pointer row #{row} has conflicting schedule offsets #{inspect(offsets)}"
@@ -252,9 +240,6 @@ defmodule Zkfol.Refusal do
 
   def message({:unresolved_within_budget, %{reductions: n}}),
     do: "no verdict within #{n} reductions; CLP or a bound count may reach it"
-
-  def message({:len_needs_a_bound_count, %{}}),
-    do: "len is the trace length, which only a bound count names"
 
   def message({:witness_invalid, %{}}),
     do: "the derived witness does not satisfy the judgement"

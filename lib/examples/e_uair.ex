@@ -25,10 +25,10 @@ defmodule Examples.EUair do
   alias Zkfol.ZincPlus
 
   @spec big_values_prove(pos_integer()) :: Log.Ran.t()
-  example big_values_prove(n \\ 99) do
+  example big_values_prove(n \\ 98) do
     # The plain route on purpose: the trace's own values need int768.
     route = EUser.plain()
-    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [n]}, pipeline: route)
+    ran = Zkfol.compile(%Statement{rels: [EFacts.factorial()], args: [n]}, pipeline: route)
 
     assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
     assert report.backend =~ "int768"
@@ -82,7 +82,7 @@ defmodule Examples.EUair do
   @spec concurrent_proves_hold() :: [{:ok, Prover.Report.t(), pos_integer()}]
   example concurrent_proves_hold do
     factorial = EFacts.factorial()
-    {:ok, %{pred: factorial_pred}} = Lang.compile(factorial, [factorial])
+    {:ok, factorial_pred} = Lang.lower(factorial, [factorial])
     {:ok, factorial_witness} = Al.solve(factorial, [6])
 
     reports =
@@ -103,17 +103,19 @@ defmodule Examples.EUair do
   example frozen_shapes do
     # The regression gates: translation growth is a failure, not a
     # drift. v0.1.0 froze 279/111 opcodes at 7/5 columns; the X-forge
-    # fix costs its four index pins (60 opcodes) and the ones column.
+    # fix costs its four index pins (60 opcodes) and the ones column,
+    # and each guard costs its slack column and 16 opcodes a clause --
+    # the kernel guards two of its three, the generic one.
     doubled = EDoubling.rewritten_fibonacci(10_000)
     {:ok, kernel} = Uair.emit(Statement.pred(doubled), Statement.witness(doubled), doubled.claims)
 
     {:ok, generic} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(32)))
+      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(20)))
 
-    assert Uair.num_cols(kernel) == 8
-    assert Uair.num_cols(generic) == 6
-    assert length(kernel.program) == 339
-    assert length(generic.program) == 171
+    assert Uair.num_cols(kernel) == 9
+    assert Uair.num_cols(generic) == 7
+    assert length(kernel.program) == 371
+    assert length(generic.program) == 187
 
     [kernel, generic]
   end

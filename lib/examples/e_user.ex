@@ -41,6 +41,20 @@ defmodule Examples.EUser do
     b = a1
   end
 
+  # Mod 7919 by existential witness: the quotient rides the head until
+  # fresh body names get columns, and the sign guards are Z-side only.
+  defrel regsm(1, 1, 1, 0)
+
+  defrel regsm(x, a, b, q) do
+    x > 1
+    regsm(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
   # The base rides as a value: prover's knowledge enters at construction.
   @spec power_rel(integer()) :: Lang.Rel.t()
   def power_rel(base) do

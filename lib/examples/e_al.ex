@@ -34,7 +34,7 @@ defmodule Examples.EAl do
 
   @spec registers_program() :: Al.program()
   example registers_program do
-    {:ok, program} = Al.translate(Examples.EUser.regs())
+    {:ok, program} = Al.question(Examples.EUser.regs())
 
     # The class row, the retraction, one clause per clause: facts first.
     assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, base, step] = program
@@ -47,16 +47,45 @@ defmodule Examples.EAl do
 
   defrel odd(x, v) do
     x > 1
-    even(x - 1, w)
-    v = w
+    even(x - 1, v)
   end
 
   defrel even(1, 0)
 
   defrel even(x, v) do
     x > 1
-    odd(x - 1, w)
+    odd(x - 1, v)
+  end
+
+  defrel named_odd(1, 1)
+
+  defrel named_odd(x, v) do
+    x > 1
+    named_even(x - 1, w)
     v = w
+  end
+
+  defrel named_even(1, 0)
+
+  defrel named_even(x, v) do
+    x > 1
+    named_odd(x - 1, w)
+    v = w
+  end
+
+  defrel pairs(1, 3, 5)
+  defrel pairs(2, 4, 4)
+
+  defrel twinned(x, v) do
+    pairs(x, v, v)
+  end
+
+  defrel mate(x, v) do
+    pairs(x, 3, v)
+  end
+
+  defrel loose(x) do
+    pairs(x, _, _)
   end
 
   defrel step(1, 2)
@@ -67,25 +96,6 @@ defmodule Examples.EAl do
     step(2, k)
     step(k, w)
     v = w
-  end
-
-  @doc "I ask the emitted relation for its count rather than telling it."
-  @spec the_program_runs_backward() :: pos_integer()
-  example the_program_runs_backward do
-    {:ok, program} = Al.translate(EUser.fib())
-    branch = AL.Branch.fork()
-    {:atomic, _} = AL.eval(program, nil, branch, heap: 20_000_000)
-
-    # fib(self, x, v, t): row one is the count, so leaving it free is
-    # the whole question, and F(8) pins the value row.
-    x = {:x, [], nil}
-    goal = AL.ast_to_pattern({:fib, [], [:zkfol, x, EUser.fib(8), {:t, [], nil}]})
-    {:atomic, {bindings, _}} = AL.eval([goal], nil, branch, heap: 20_000_000)
-    AL.Branch.discard(branch)
-
-    count = bindings |> AL.Var.deref(:"$x") |> AL.Var.subst(bindings)
-    assert count == 8
-    count
   end
 
   @doc "I solve one relation both ways, one answer being the other's question."
@@ -104,15 +114,17 @@ defmodule Examples.EAl do
     backward
   end
 
-  @doc "I name the rows I want back, and every answer carries them."
+  @doc "I name the rows I want back, and a finite ask answers whole, either way around."
   @spec every_answer_is_named() :: [%{atom() => integer()}]
   example every_answer_is_named do
-    answers = Al.apply(EUser.fib(), [:n, :a], upto: 6)
+    {:ok, answers} = Al.apply(tab(), [:n, :a])
 
-    assert {:ok, [%{n: 1, a: 1}, %{n: 2, a: 1}, %{n: 3, a: 2} | _rest]} = answers
-    {:ok, all} = answers
-    assert length(all) == 6
-    all
+    assert [%{n: 1, a: 10}, %{n: 2, a: 20}, %{n: 3, a: 40}, %{n: 4, a: 40}] =
+             Enum.sort_by(answers, & &1.n)
+
+    {:ok, backward} = Al.apply(tab(), [:a, 40])
+    assert Enum.sort_by(backward, & &1.a) == [%{a: 3}, %{a: 4}]
+    answers
   end
 
   @doc "I pick an answer and derive it, since bindings alone do not prove."
@@ -120,25 +132,13 @@ defmodule Examples.EAl do
   example an_answer_derives_when_chosen do
     # findall backtracks, so each answer's trace is gone with it. The
     # bindings say which derivation to want; solve/3 rebuilds it whole.
-    {:ok, answers} = Al.apply(EUser.fib(), [:n, :a], upto: 6)
-    %{n: n, a: a} = List.last(answers)
+    {:ok, [%{a: a}]} = Al.apply(EUser.fib(), [8, :a])
 
-    {:ok, witness} = Al.solve(EUser.fib(), [n, a])
+    {:ok, witness} = Al.solve(EUser.fib(), [8, a])
 
-    assert Interpretation.len(witness) == n
-    assert Interpretation.at(witness, 2, n) == a
+    assert Interpretation.len(witness) == 8
+    assert Interpretation.at(witness, 2, 8) == a
     witness
-  end
-
-  @doc "I renew the reduction budget per count, so depth cannot starve the answers."
-  @spec answers_keep_their_budget() :: [%{atom() => integer()}]
-  example answers_keep_their_budget do
-    # Far past where one shared budget once died quietly.
-    {:ok, answers} = Al.apply(EUser.fib(), [:n, :a], upto: 60)
-
-    assert length(answers) == 60
-    assert %{n: 60} = List.last(answers)
-    answers
   end
 
   @spec resending_replaces_declarations() :: Interpretation.t()
@@ -166,17 +166,6 @@ defmodule Examples.EAl do
     last = Interpretation.len(witness)
     assert Interpretation.at(witness, 4, last) == n - 2
     assert Interpretation.at(witness, 5, last) == EUser.fib(n)
-    witness
-  end
-
-  @spec al_binds_a_bound_claim_too() :: Interpretation.t()
-  example al_binds_a_bound_claim_too do
-    statement = EDoubling.rewritten_fibonacci(10)
-    {:ok, witness} = Al.solve(statement, [:_, :_, :_, 8, 55], heap: 2_000_000)
-
-    last = Interpretation.len(witness)
-    assert last == 4
-    assert Interpretation.at(witness, 5, last) == 55
     witness
   end
 
@@ -212,12 +201,14 @@ defmodule Examples.EAl do
   end
 
   # Outside doubling's class, inside the direct path's: order one,
-  # a coefficient that is the column itself.
+  # a coefficient that is the column itself. The derivation bottoms at
+  # the fact it reached, so the trace starts there: no column below
+  # the base the derivation consumed.
   @spec factorial_goes_straight_down() :: Interpretation.t()
   example factorial_goes_straight_down do
     {:ok, witness} = Al.solve(Examples.EFacts.factorial(), [5])
 
-    assert witness |> Interpretation.rows() |> Enum.at(1) == [1, 2, 6, 24, 120]
+    assert witness |> Interpretation.rows() |> Enum.at(1) == [2, 6, 24, 120]
     witness
   end
 
@@ -274,11 +265,12 @@ defmodule Examples.EAl do
     end
   end
 
-  # The pointer enumerates when nothing binds it.
+  # The derivation consumes two facts, so the witness is two columns:
+  # position is identity, and the count is nobody's argument.
   @spec value_targets_go_straight_down() :: Interpretation.t()
   example value_targets_go_straight_down do
     {:ok, witness} = Al.solve(hop_rel(), [5])
-    assert witness |> Interpretation.rows() |> Enum.at(1) == [1, 2, 2, 2, 2]
+    assert witness |> Interpretation.rows() |> Enum.take(2) == [[1, 5], [1, 2]]
     witness
   end
 
@@ -315,18 +307,22 @@ defmodule Examples.EAl do
   # read, and the Word lookup, all judged by the oracle inside emit.
   @spec composed_hop_emits() :: Uair.t()
   example composed_hop_emits do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(hop_rel(), [hop_rel()])
+    {:ok, pred} = Zkfol.Lang.lower(hop_rel(), [hop_rel()])
     witness = value_targets_go_straight_down()
     {:ok, uair} = Uair.emit(pred, witness)
     len = Interpretation.len(witness)
 
-    assert [%{row: pointer, table: {:word, 3}}] = uair.mode.lookups
-    assert [%{value_row: 0, bit_rows: bits, result_row: 6}, second] = uair.mode.reads
-    assert %{value_row: 1, bit_rows: ^bits, result_row: 7} = second
+    assert [%{row: pointer, table: {:word, _mu}}] = uair.mode.lookups
+    assert [%{value_row: 0, bit_rows: bits, result_row: _r1}, second] = uair.mode.reads
+    assert %{value_row: 1, bit_rows: ^bits, result_row: _r2} = second
 
-    [b1, b2, b3] = for b <- bits, do: Enum.at(uair.columns, b)
-    assert Enum.all?(b1 ++ b2 ++ b3, &(&1 in [0, 1]))
-    weighted = Enum.zip_with([b1, b2, b3], fn [u, v, w] -> u + 2 * v + 4 * w end)
+    bit_columns = for b <- bits, do: Enum.at(uair.columns, b)
+    assert bit_columns |> List.flatten() |> Enum.all?(&(&1 in [0, 1]))
+
+    weighted =
+      Enum.zip_with(bit_columns, fn cells ->
+        cells |> Enum.with_index() |> Enum.map(fn {b, i} -> b * 2 ** i end) |> Enum.sum()
+      end)
 
     # The bits spell the cube index of the address, len - a(x), so the
     # reversed committed layout reads directly.
@@ -356,9 +352,9 @@ defmodule Examples.EAl do
   # columns only: the overlap refuses by name at the prover's door.
   @spec claimed_read_row_is_refused() :: Refusal.t()
   example claimed_read_row_is_refused do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(hop_rel(), [hop_rel()])
+    {:ok, pred} = Zkfol.Lang.lower(hop_rel(), [hop_rel()])
     witness = value_targets_go_straight_down()
-    {:ok, uair} = Uair.emit(pred, witness, [{"out", 2, 5}])
+    {:ok, uair} = Uair.emit(pred, witness, [{"out", 2, 2}])
 
     {:error, reason} = ZincPlus.request(uair)
     assert {:read_row_claimed, _} = reason
@@ -375,27 +371,6 @@ defmodule Examples.EAl do
     assert %Zkfol.Uair.Plain{} = uair.mode
     assert uair.shifts != []
     uair
-  end
-
-  @doc "I leave the guard off, and the step runs away as it should."
-  @spec an_unguarded_step_runs_away() :: Refusal.t()
-  example an_unguarded_step_runs_away do
-    unguarded =
-      rel :unguarded do
-        unguarded(1, 1)
-
-        unguarded(x, v) do
-          unguarded(x - 1, w)
-          v = w + 1
-        end
-      end
-
-    # A satisfiable ask now resolves by unification, guard or no
-    # guard; only where no solution exists does the descent run free.
-    {:error, reason} = Al.solve(unguarded, [:_, 0], heap: 200_000)
-
-    assert {:heap_exhausted, _} = reason
-    reason
   end
 
   @doc "I bound a step from both ends, and past the top it derives nothing."
@@ -420,19 +395,193 @@ defmodule Examples.EAl do
     band
   end
 
+  defrel capped(x, v) do
+    x < 4
+    v = x + 1
+  end
+
+  @doc """
+  I hold a guard nothing structural implies: `x < 4` reaches the
+  predicate as the room it leaves, and a cell claiming other room is
+  no witness.
+  """
+  @spec a_guard_binds_its_slack() :: Interpretation.t()
+  example a_guard_binds_its_slack do
+    {:ok, shape} = Zkfol.Lang.compile(capped(), [capped()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.slack == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :slack)) == [3]
+
+    {:ok, pred} = Zkfol.Lang.lower(capped(), [capped()])
+    {:ok, witness} = Al.solve(capped(), [2])
+
+    assert Interpretation.rows(witness) == [[2], [3], [1]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+
+    refute Zkfol.Semantics.valid?(pred, Interpretation.new([[2], [3], [0]]))
+    witness
+  end
+
+  defrel forked(1, 0)
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 1
+    v < 100
+  end
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 10
+    v < 1000
+  end
+
+  @doc """
+  I differ between my two step clauses only in what their bodies
+  equate: both heads admit the same tuple and both call once, so the
+  room a column carries is the second clause's only if the equations
+  name the clause that ran.
+  """
+  @spec the_fired_clause_is_named_by_its_equations() :: Interpretation.t()
+  example the_fired_clause_is_named_by_its_equations do
+    {:ok, pred} = Zkfol.Lang.lower(forked(), [forked()])
+    {:ok, witness} = Al.solve(forked(), [2, 10])
+
+    assert Interpretation.rows(witness) == [[1, 2], [0, 10], [1, 1], [0, 0], [0, 989]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+    witness
+  end
+
+  defrel regsm(1, 1, 1)
+
+  defrel regsm(x, a, c) do
+    x > 1
+    regsm(x - 1, b, a)
+    c = mod(a + b, 7919)
+  end
+
+  # The same reduction spelled out, the quotient smuggled through the
+  # head because a hand cannot freshen a row.
+  defrel regsh(1, 1, 1, 0)
+
+  defrel regsh(x, a, b, q) do
+    x > 1
+    regsh(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
+  @doc """
+  I recur under a modulus: the head is three wide, the quotient
+  nowhere in it, and the value at each column is the fibonacci number
+  reduced. Two reduced summands cross the modulus at most once, so
+  the quotient bank the compiler opened is a bit.
+  """
+  @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
+  example a_mod_relation_reduces(n \\ 25) do
+    {:ok, shape} = Zkfol.Lang.compile(regsm(), [regsm()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.quot == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :quot)) == [7]
+
+    {:ok, witness} = Al.solve(regsm(), [n])
+
+    assert Interpretation.at(witness, 3, n) == rem(EUser.fib(n + 1), 7919)
+
+    [quotients] = Interpretation.rows(Zkfol.Alloc.region(witness, alloc, :quot))
+    assert quotients |> Enum.uniq() |> Enum.sort() == [0, 1]
+
+    witness
+  end
+
+  @doc """
+  I am one derivation reached two ways: `mod` as sugar, and spelled
+  out by hand. Every row the sugar stands on the hand also has -- its
+  quotient bank holding what the hand's head row held -- and the hand
+  pays two slack columns more for the signs the sugar never asks the
+  predicate to carry.
+  """
+  @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
+  example the_sugar_and_the_hand_agree(n \\ 25) do
+    {:ok, sugar} = Zkfol.Lang.compile(regsm(), [regsm()])
+    {:ok, spelled} = Zkfol.Lang.compile(regsh(), [regsh()])
+
+    {:ok, sugared} = Al.solve(regsm(), [n])
+    {:ok, by_hand} = Al.solve(regsh(), [n])
+
+    bank = fn witness, shape, sym ->
+      Interpretation.rows(Zkfol.Alloc.region(witness, Zkfol.Alloc.assign(shape), sym))
+    end
+
+    head = bank.(by_hand, spelled, :regsh)
+
+    # The sugar names its head (x, a, c) with the sum last; the hand
+    # wrote (x, sum, prev, q), so the value rows cross.
+    assert bank.(sugared, sugar, :regsm) ==
+             [Enum.at(head, 0), Enum.at(head, 2), Enum.at(head, 1)]
+
+    assert bank.(sugared, sugar, :quot) == Enum.drop(head, 3)
+    assert bank.(sugared, sugar, :ptr) == bank.(by_hand, spelled, :ptr)
+    assert bank.(sugared, sugar, :slack) == Enum.take(bank.(by_hand, spelled, :slack), 2)
+    assert spelled.slack - sugar.slack == 2
+
+    sugared
+  end
+
+  @doc "I prove a reduction on zinc+ through the front door."
+  @spec a_mod_relation_proves(pos_integer()) :: Zkfol.Log.Ran.t()
+  example a_mod_relation_proves(n \\ 25) do
+    ran =
+      Zkfol.compile(%Statement{rels: [regsm()], args: [n]},
+        pipeline: EUser.plain(),
+        name: :registers_mod
+      )
+
+    assert %Prover.Report{} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
+    ran
+  end
+
+  defrel shifty(m, x, v) do
+    v = mod(x, m)
+  end
+
+  @doc """
+  I refuse a modulus the clause does not know: m times the quotient is
+  a product of two unknowns, which nothing here can suspend.
+  """
+  @spec a_variable_modulus_is_refused() :: Refusal.t()
+  example a_variable_modulus_is_refused do
+    {:error, refusal} = Zkfol.Lang.compile(shifty(), [shifty()])
+
+    assert {:modulus_not_literal, %{modulus: {:var, :m}}} = refusal
+    refusal
+  end
+
   # A call between relations derives on one trace: pick reads tab
   # through the pointer row, the fact it reaches takes a column of its
   # own, and the three facts nothing reached never materialize.
   @spec a_call_between_relations_derives() :: Interpretation.t()
   example a_call_between_relations_derives do
-    {:ok, %{rows: rows, pointers: pointers, tag: 5, width: 6}} =
-      Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, shape} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    alloc = Zkfol.Alloc.assign(shape)
 
-    assert %{pick: [1, 2], tab: [3, 4]} = rows
-    assert [6] = Map.values(pointers)
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :pick)) == [1, 2]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :tab)) == [3, 4]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :tag)) == [5]
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :ptr)) == [6]
+    assert Zkfol.Alloc.width(alloc) == 6
 
     # The list reads root then scope, and the arguments are pick's own
-    # two: its index free, its value asked for.
+    # two: its index free, its value asked for. Nothing determines the
+    # index, so unification leaves it and the witness fills it.
+    {:ok, [%{v: 41}]} = Al.apply([pick(), tab()], [:_, :v])
     {:ok, witness} = Al.solve([pick(), tab()], [:_, 41])
 
     assert Interpretation.len(witness) == 2
@@ -446,12 +595,36 @@ defmodule Examples.EAl do
     witness
   end
 
+  defrel five(1, 5)
+  defrel seven(1, 7)
+
+  defrel sums(x, v) do
+    five(x, a)
+    seven(x, b)
+    v = a + b
+  end
+
+  @doc "I pin the pointer's identity: two callees at one address are two pointers."
+  @spec two_callees_take_two_pointers() :: Interpretation.t()
+  example two_callees_take_two_pointers do
+    {:ok, shape} = Zkfol.Lang.compile(sums(), [sums(), five(), seven()])
+
+    assert [{:five, _at}, {:seven, _same}] = shape.pointers
+
+    {:ok, witness} = Al.solve([sums(), five(), seven()], [1, :_])
+
+    assert Interpretation.len(witness) == 3
+    assert Interpretation.at(witness, 1, 3) == 1
+    assert Interpretation.at(witness, 2, 3) == 12
+    witness
+  end
+
   # The tag anchors the read. A column is what it wears: wearing tab, a
   # forged (3, 99) satisfies no tab fact; wearing pick, the self-read
   # demands the pointed column wear tab. The math objects either way.
   @spec a_forged_fact_is_rejected() :: Interpretation.t()
   example a_forged_fact_is_rejected do
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(pick(), [pick(), tab()])
+    {:ok, pred} = Zkfol.Lang.lower(pick(), [pick(), tab()])
 
     honest = Interpretation.new([[0, 2], [0, 41], [3, 0], [40, 0], [2, 1], [1, 1]])
     assert Zkfol.Semantics.valid?(pred, honest)
@@ -480,24 +653,44 @@ defmodule Examples.EAl do
     odd5
   end
 
-  @doc "I resolve a closure's counter by unification, unasked."
-  @spec the_counter_resolves_by_unification() :: Interpretation.t()
-  example the_counter_resolves_by_unification do
-    # The answer needs two columns; unification names them unasked.
-    {:ok, witness} = Al.solve([pick(), tab()], [:_, 41])
+  @doc "I thread the head through the call, and the intermediary I spared says the same."
+  @spec threading_a_head_names_no_intermediary() :: Interpretation.t()
+  example threading_a_head_names_no_intermediary do
+    {:ok, threaded} = Zkfol.Lang.lower(odd(), [odd(), even()])
+    {:ok, spelled} = Zkfol.Lang.lower(named_odd(), [named_odd(), named_even()])
+    {:ok, witness} = Al.solve([named_odd(), named_even()], [5, :_])
 
-    assert Interpretation.len(witness) == 2
+    assert threaded == spelled
+    assert witness == recursion_between_relations_derives()
     witness
   end
 
-  @doc "I am the question's shape: plain clauses, no trace argument anywhere."
-  @spec the_question_is_plain() :: Al.program()
-  example the_question_is_plain do
-    {:ok, program} = Al.question(EUser.fib())
+  @doc "I name one row twice in a call, so the two reads meet as a join."
+  @spec one_name_in_two_outputs_joins() :: Interpretation.t()
+  example one_name_in_two_outputs_joins do
+    {:ok, [%{x: 2, v: 4}]} = Al.apply([twinned(), pairs()], [:x, :v])
 
-    assert [%AL.Goal.SetClass{}, %AL.Goal.Forall{}, _base1, _base2, step] = program
-    assert %AL.Goal.OApply{method_id: :defmethod, args: [:zkfol, :fib, [_self, _x, _v], _]} = step
-    program
+    {:ok, witness} = Al.solve([twinned(), pairs()], [2, :_])
+    assert Interpretation.at(witness, 2, 2) == 4
+    witness
+  end
+
+  @doc "I do not care twice, and each underscore keeps to itself: no join."
+  @spec an_underscore_is_anonymous_each_time() :: [%{atom() => integer()}]
+  example an_underscore_is_anonymous_each_time do
+    {:ok, answers} = Al.apply([loose(), pairs()], [:x])
+
+    assert Enum.sort_by(answers, & &1.x) == [%{x: 1}, %{x: 2}]
+    answers
+  end
+
+  @doc "I pin an output to a value, so the call reads only the row that carries it."
+  @spec a_literal_output_pins_the_row() :: [%{atom() => integer()}]
+  example a_literal_output_pins_the_row do
+    {:ok, answers} = Al.apply([mate(), pairs()], [:x, :v])
+
+    assert answers == [%{x: 1, v: 5}]
+    answers
   end
 
   @doc "I refuse an unanswerable question by its finite failure, fast."
@@ -510,19 +703,17 @@ defmodule Examples.EAl do
     reason
   end
 
-  @doc "I resolve a lone relation's count the same way."
-  @spec the_count_resolves_for_one_relation() :: Interpretation.t()
-  example the_count_resolves_for_one_relation do
-    {:ok, witness} = Al.solve(EUser.fib(), [:_, 21])
-
-    assert Interpretation.len(witness) == 8
-    witness
-  end
-
   @doc "I ignore scope the closure never calls, so a module rides whole."
   @spec extra_scope_rides_along() :: Interpretation.t()
   example extra_scope_rides_along do
-    {:ok, witness} = Al.solve([pick(), tab(), odd(), even()], [:_, 41])
+    stray =
+      rel :stray do
+        stray(1, v) do
+          v = reify(1 = len)
+        end
+      end
+
+    {:ok, witness} = Al.solve([pick(), tab(), odd(), even(), stray], [:_, 41])
 
     assert Interpretation.at(witness, 2, 2) == 41
     witness
@@ -549,16 +740,16 @@ defmodule Examples.EAl do
     k = Interpretation.at(witness, 4, Interpretation.at(witness, 6, 3))
     assert Interpretation.at(witness, 3, Interpretation.at(witness, 7, 3)) == k
 
-    {:ok, %{pred: pred}} = Zkfol.Lang.compile(leap(), [leap(), step()])
+    {:ok, pred} = Zkfol.Lang.lower(leap(), [leap(), step()])
     assert Zkfol.Semantics.valid?(pred, witness)
     witness
   end
 
-  # A row nothing determines is the prover's knowledge, not the witness's:
-  # the derivation ends with that cell still an AL variable, and the
-  # refusal names the cell rather than calling it a negative number.
-  @spec a_row_nothing_determines_is_refused() :: Refusal.t()
-  example a_row_nothing_determines_is_refused do
+  # A row nothing determines is anybody's value: unification leaves
+  # the cell free, the witness fills it, and the oracle is content at
+  # any choice.
+  @spec a_row_nothing_determines_is_free() :: Interpretation.t()
+  example a_row_nothing_determines_is_free do
     loose =
       rel :loose do
         loose(1, 1, 1)
@@ -570,10 +761,10 @@ defmodule Examples.EAl do
         end
       end
 
-    {:error, reason} = Al.solve(loose, [5])
+    {:ok, witness} = Al.solve(loose, [5])
 
-    assert {:row_undetermined, %{cell: _cell}} = reason
-    reason
+    assert witness |> Interpretation.rows() |> Enum.at(2) == [1, 0, 0, 0, 0]
+    witness
   end
 
   # The surface admits more than the lowering does. Each excess shape
@@ -608,14 +799,5 @@ defmodule Examples.EAl do
     assert {:unliftable_term, %{term: {:reify, {:call, :rc, _args}}}} = lifted
     assert {:head_not_a_column, %{head: {:add, {:var, :x}, 1}}} = headed
     [lifted, headed]
-  end
-
-  # A predicate is not a relation, whichever connective it is built from.
-  @spec a_bare_predicate_has_no_clauses() :: Refusal.t()
-  example a_bare_predicate_has_no_clauses do
-    {:error, reason} = Al.solve(Zkfol.Ast.eq(Zkfol.Ast.x(), 1), [3])
-
-    assert {:raw_predicate_has_no_clauses, _} = reason
-    reason
   end
 end

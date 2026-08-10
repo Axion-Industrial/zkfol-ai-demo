@@ -44,10 +44,42 @@ defmodule Zkfol.Face do
   @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
   @spec text(Statement.t()) :: String.t()
   def text(%Statement{stage: %Solved{} = solved} = statement) do
-    inspected(%{statement | stage: %{solved | witness: :"…elided…"}})
+    elided = %{solved | witness: :"…elided…", lay: :"…elided…"}
+    inspected(%{statement | stage: elided})
   end
 
   def text(%Statement{} = statement), do: inspected(statement)
+
+  @doc """
+  I am the derivation the solved stage carries, shaped for its view:
+  one row per fact in laying order, what it consumed, and its fan-in.
+  A fact rides as `[relation | tuple]`.
+  """
+  @spec derivation(Statement.t() | Zkfol.Derivation.t()) :: %{atom() => term()}
+  def derivation(%Statement{stage: %Solved{lay: %Zkfol.Lay{derivation: d}}}), do: derivation(d)
+
+  def derivation(%Zkfol.Derivation{} = d) do
+    consumption = Zkfol.Derivation.consumption(d)
+    fans = consumption |> Enum.flat_map(&elem(&1, 1)) |> Enum.frequencies()
+
+    %{
+      rows:
+        for {fact, used} <- consumption do
+          %{
+            fact: fact_row(fact),
+            consumes: Enum.map(used, &fact_row/1),
+            fan_in: Map.get(fans, fact, 0)
+          }
+        end,
+      extents: d.facts |> Enum.frequencies_by(&elem(&1, 0)),
+      edges: d.edges |> List.flatten() |> length()
+    }
+  end
+
+  def derivation(%Statement{}), do: %{rows: [], extents: %{}, edges: 0}
+
+  @spec fact_row(Zkfol.Derivation.fact()) :: [term()]
+  defp fact_row({name, tuple}), do: [name | tuple]
 
   @doc """
   I am the judgement as a table: one row per branch of the predicate,
@@ -82,6 +114,9 @@ defmodule Zkfol.Face do
         end,
       sources: sources(statement.rels, table, length(branches)),
       rows: row_labels(statement.rels, table),
+      regions: on_lay(statement, &Zkfol.Lay.regions/1),
+      arrows: on_lay(statement, &Zkfol.Lay.arrows/1),
+      aims: on_lay(statement, &Zkfol.Lay.aims/1),
       witness:
         for x <- 1..len do
           for i <- 1..length(Interpretation.rows(witness)), do: Interpretation.at(witness, i, x)
@@ -91,12 +126,132 @@ defmodule Zkfol.Face do
 
   def judgement(%Statement{}), do: %{labels: [], evals: []}
 
-  @doc "I am the act's judgement, read off its final stage."
-  @spec judgement_of(Log.Ran.t()) :: %{atom() => term()}
-  def judgement_of(%Log.Ran{pipeline: pipeline} = ran) do
+  # A reading of the statement's lay, empty without one.
+  @spec on_lay(Statement.t(), (Zkfol.Lay.t() -> [term()])) :: [term()]
+  defp on_lay(%Statement{stage: %Solved{lay: %Zkfol.Lay{} = lay}}, reading), do: reading.(lay)
+  defp on_lay(%Statement{}, _reading), do: []
+
+  @doc """
+  I am the statement beneath one established fact, named by its
+  position in the derivation: the fact's own relation becomes the
+  root, so the shape shrinks to what its closure entails -- a leaf
+  stands on its own bank alone -- and the subderivation lays through
+  a fresh allocation. Nil when there is no such fact or no derivation.
+  """
+  @spec under(Statement.t(), pos_integer()) :: Statement.t() | nil
+  def under(
+        %Statement{rels: rels, stage: %Solved{lay: %Zkfol.Lay{derivation: d}}} = statement,
+        k
+      )
+      when is_integer(k) do
+    facts = d.facts
+
+    with {name, tuple} = fact <- Enum.at(facts, k - 1),
+         %Lang.Rel{} = root <- Enum.find(rels, &(&1.name == name)),
+         source = %{statement | rels: [root | List.delete(rels, root)], args: tuple, claims: []},
+         {:ok, sub} <- Zkfol.Al.relaid(source, Zkfol.Derivation.under(d, fact)) do
+      sub
+    else
+      _nothing -> nil
+    end
+  end
+
+  def under(_statement, _k), do: nil
+
+  @doc """
+  I am one lay for its grid: the row introductions off its own shape,
+  the witness matrix by column, and the regions, arrows, and aims it
+  already is. What the Lay views draw of a bridged `Zkfol.Lay`.
+  """
+  @spec lay(Zkfol.Lay.t()) :: %{atom() => term()}
+  def lay(%Zkfol.Lay{} = lay) do
+    witness =
+      case Zkfol.Lay.witness(lay) do
+        {:ok, witness} -> witness
+        {:error, _reason} -> nil
+      end
+
+    %{
+      rows: lay_labels(lay),
+      regions: Zkfol.Lay.regions(lay),
+      arrows: Zkfol.Lay.arrows(lay),
+      aims: Zkfol.Lay.aims(lay),
+      witness:
+        if witness do
+          for x <- 1..Interpretation.len(witness) do
+            for i <- 1..length(Interpretation.rows(witness)),
+                do: Interpretation.at(witness, i, x)
+          end
+        else
+          []
+        end
+    }
+  end
+
+  # Row introductions from the shape alone: member and argument index,
+  # pointers by callee and address, each led by its committed column.
+  @spec lay_labels(Zkfol.Lay.t()) :: [String.t()]
+  defp lay_labels(%Zkfol.Lay{shape: shape, alloc: alloc}) do
+    named =
+      for name <- shape.members,
+          {r, i} <- Enum.with_index(Zkfol.Alloc.rows(alloc, name), 1),
+          into: %{},
+          do: {r, "#{name} #{i}"}
+
+    numbered(Map.merge(named, derived_rows(shape, alloc)), alloc)
+  end
+
+  # The rows a shape names beyond its members: the tag row, the
+  # pointers by callee and address, the slack cells its guards bind,
+  # the quotients its reductions divide out.
+  @spec derived_rows(Lang.shape(), Zkfol.Alloc.t()) :: %{pos_integer() => String.t()}
+  defp derived_rows(shape, alloc) do
+    tag = Map.new(region_rows(alloc, :tag), &{&1, "tag"})
+
+    pointers =
+      Map.new(Enum.zip(region_rows(alloc, :ptr), shape.pointers), fn
+        {r, {callee, at}} -> {r, "ptr #{callee} " <> term_text(at)}
+      end)
+
+    tag
+    |> Map.merge(pointers)
+    |> Map.merge(counted(alloc, :slack))
+    |> Map.merge(counted(alloc, :quot))
+  end
+
+  # A bank whose rows say only their place in a clause's sites.
+  @spec counted(Zkfol.Alloc.t(), atom()) :: %{pos_integer() => String.t()}
+  defp counted(alloc, sym) do
+    Map.new(Enum.with_index(region_rows(alloc, sym), 1), fn {r, k} -> {r, "#{sym} #{k}"} end)
+  end
+
+  # A region's rows where the alloc has one, none where it does not.
+  @spec region_rows(Zkfol.Alloc.t(), atom()) :: [pos_integer()]
+  defp region_rows(%Zkfol.Alloc{regions: regions} = alloc, sym) do
+    if List.keymember?(regions, sym, 0), do: Enum.to_list(Zkfol.Alloc.rows(alloc, sym)), else: []
+  end
+
+  # Every committed row by its number, the named ones saying what they are.
+  @spec numbered(%{pos_integer() => String.t()}, Zkfol.Alloc.t()) :: [String.t()]
+  defp numbered(named, alloc) do
+    for r <- 1..Zkfol.Alloc.width(alloc) do
+      case named do
+        %{^r => label} -> "C#{r} · #{label}"
+        _named -> "C#{r}"
+      end
+    end
+  end
+
+  @doc """
+  I am the act's final statement, re-run from the source, so a viewer
+  holds the struct itself and every view it wears; nil when a pass
+  refused and there is no final stage to hold.
+  """
+  @spec final_stage(Log.Ran.t()) :: Statement.t() | nil
+  def final_stage(%Log.Ran{pipeline: pipeline} = ran) do
     case Log.stage(ran, length(pipeline.passes)) do
-      {:ok, statement} -> judgement(statement)
-      {:error, _reason} -> %{labels: [], evals: []}
+      {:ok, statement} -> statement
+      {:error, _reason} -> nil
     end
   end
 
@@ -221,6 +376,40 @@ defmodule Zkfol.Face do
   # The route's views, declared on the structure itself: the flow as
   # a graph of its passes, and the passes as rows. A node and a row
   # both reach the module itself on click, not a picture of it.
+  defview derivation_view(statement = %Statement{}, builder) do
+    feed = derivation(statement)
+
+    builder
+    |> ColumnedList.title("Derivation")
+    |> ColumnedList.priority(6)
+    |> ColumnedList.items(feed.rows)
+    |> ColumnedList.column("Fact", &fact_label(&1.fact))
+    |> ColumnedList.column(
+      "Consumes",
+      &Enum.map_join(&1.consumes, "   ", fn f -> fact_label(f) end)
+    )
+    |> ColumnedList.column("Fan-in", &to_string(&1.fan_in))
+  end
+
+  @spec fact_label([term()]) :: String.t()
+  defp fact_label([name | tuple]), do: "#{name}(#{Enum.join(tuple, ", ")})"
+
+  defview regions_view(alloc = %Zkfol.Alloc{}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Regions")
+    |> ColumnedList.priority(4)
+    |> ColumnedList.items(alloc.regions)
+    |> ColumnedList.column("Region", fn {name, _width} -> to_string(name) end)
+    |> ColumnedList.column("Rows", fn {name, _width} ->
+      rows = Zkfol.Alloc.rows(alloc, name)
+      "#{rows.first}..#{rows.last}"
+    end)
+    |> ColumnedList.column("Width", fn {_name, width} -> to_string(width) end)
+    |> ColumnedList.column("Public", fn {name, _width} ->
+      if name in alloc.public, do: "public", else: ""
+    end)
+  end
+
   defview route_view(%Zkfol.Pipeline{passes: passes}, builder) do
     modules = Enum.map(passes, fn {pass, _opts} -> pass end)
     edges = modules |> Enum.zip(Enum.drop(modules, 1)) |> Map.new(fn {a, b} -> {a, [b]} end)
@@ -465,6 +654,9 @@ defmodule Zkfol.Face do
   defp goal_text({:eq, t, u}), do: surface_text(t) <> " = " <> surface_text(u)
   defp goal_text({:cmp, op, t, u}), do: surface_text(t) <> " #{op} " <> surface_text(u)
 
+  defp goal_text({:mod, r, e, m}),
+    do: surface_text(r) <> " = mod(" <> surface_text(e) <> ", " <> surface_text(m) <> ")"
+
   @spec surface_text(term()) :: String.t()
   defp surface_text(q) when is_integer(q), do: Integer.to_string(q)
   defp surface_text({:var, name}), do: to_string(name)
@@ -479,24 +671,22 @@ defmodule Zkfol.Face do
   defp surface_text(_pinned), do: "^"
 
   # Every row of the interpretation named: a member's rows by its head
-  # variables, the tag row as itself, a pointer row by its target.
+  # variables, the tag row as itself, a pointer row by its target, a
+  # slack row by its place in a clause's guards.
   @spec row_labels([Lang.Rel.t()], map() | nil) :: [String.t()]
   defp row_labels(_rels, nil), do: []
 
-  defp row_labels(rels, table) do
+  defp row_labels(rels, shape) do
     scope = Map.new(rels, &{&1.name, &1})
+    alloc = Zkfol.Alloc.assign(shape)
 
     named =
-      for {name, rows} <- table.rows, {r, i} <- Enum.with_index(rows, 1), into: %{} do
-        {r, member_row(scope[name], name, i)}
-      end
+      for name <- shape.members,
+          {r, i} <- Enum.with_index(Zkfol.Alloc.rows(alloc, name), 1),
+          into: %{},
+          do: {r, member_row(scope[name], name, i)}
 
-    named = if table.tag, do: Map.put(named, table.tag, "tag"), else: named
-
-    named =
-      Map.merge(named, Map.new(table.pointers, fn {at, r} -> {r, "ptr " <> term_text(at)} end))
-
-    for r <- 1..table.width, do: Map.get(named, r, "C#{r}")
+    numbered(Map.merge(named, derived_rows(shape, alloc)), alloc)
   end
 
   @spec member_row(Lang.Rel.t(), atom(), pos_integer()) :: String.t()
@@ -526,15 +716,21 @@ defmodule Zkfol.Face do
   defp term_text(q) when is_integer(q), do: Integer.to_string(q)
   defp term_text(:x), do: "X"
   defp term_text(:len), do: "len"
-  defp term_text({:cell, i}), do: "C#{i}(X)"
-  defp term_text({:cell, i, j}), do: "C#{i}(C#{j}(X))"
+  defp term_text({:len, sym}), do: "len(#{sym})"
+  defp term_text({:cell, i}), do: "#{ref_text(i)}(X)"
+  defp term_text({:cell, i, j}), do: "#{ref_text(i)}(#{ref_text(j)}(X))"
 
   defp term_text({:add, t, q}) when is_integer(q) and q < 0,
     do: term_text(t) <> " - " <> Integer.to_string(-q)
 
   defp term_text({:add, t, u}), do: term_text(t) <> " + " <> term_text(u)
+
   defp term_text({:mul, t, u}), do: factor(t) <> "*" <> factor(u)
   defp term_text({:reify, phi}), do: "[" <> phi_text(phi) <> "]"
+
+  @spec ref_text(Ast.row_ref()) :: String.t()
+  defp ref_text({sym, i}), do: "#{sym}.#{i}"
+  defp ref_text(i), do: "C#{i}"
 
   @spec factor(Ast.term_t()) :: String.t()
   defp factor({:add, _t, _u} = t), do: "(" <> term_text(t) <> ")"

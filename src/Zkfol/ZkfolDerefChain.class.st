@@ -26,6 +26,12 @@ ZkfolDerefChain class >> onGrid: aGrid position: aPosition read: aRead index: aO
 ]
 
 { #category : 'accessing' }
+ZkfolDerefChain >> addressRow [
+	"The grid row my pointer lives on, off the read itself."
+	^ read at: #row ifAbsent: [ nil ]
+]
+
+{ #category : 'accessing' }
 ZkfolDerefChain >> address [
 	"The target position the pointer bits spell out."
 	^ address
