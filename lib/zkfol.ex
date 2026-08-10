@@ -20,9 +20,11 @@ defmodule Zkfol do
       Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
   """
 
+  alias Zkfol.Lang
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Query
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -34,6 +36,96 @@ defmodule Zkfol do
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
   @spec emit(Statement.t(), keyword()) :: Log.Ran.t()
   def emit(%Statement{} = statement, opts \\ []), do: acted(statement, opts, &emitted/2)
+
+  @doc """
+  I am the query door: no route, no proof, the relation run as AL
+  runs it. Arguments bind in order, `:_` free: bound arguments enter
+  the derivation's goal and select it, holes fill from the
+  derivation, and the answer is the argument list unified. A free
+  index searches upward, so the least index satisfying the bindings
+  answers; a binding nothing derives refuses as the false statement
+  it is.
+
+  The answer comes as the query holding it: the first is already
+  taken, `Zkfol.Query.next/1` steps to the rest, `taken/1` lists what
+  crossed, `close/1` ends it. A binding nothing derives closes itself
+  and refuses.
+
+      {:ok, query} = Zkfol.eval(fib, [8, :_], [])
+      Zkfol.Query.taken(query)  #=> [[8, 21]]
+
+  `opts` ride through to `Zkfol.Query.open/3`; `:heap` bounds the
+  derivation.
+  """
+  @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+          {:ok, Query.t()} | {:error, Refusal.t()}
+  def eval(rels, arguments, opts \\ [])
+
+  def eval(%Statement{rels: rels}, arguments, opts), do: eval(rels, arguments, opts)
+
+  def eval(rels, arguments, opts) do
+    with {:ok, query} <- Query.open(rels, arguments, opts) do
+      case Query.next(query) do
+        {:ok, _answer} ->
+          {:ok, query}
+
+        :exhausted ->
+          Query.close(query)
+          {:error, {:no_answer, %{}}}
+
+        {:error, reason} ->
+          Query.close(query)
+          {:error, reason}
+      end
+    end
+  end
+
+  @doc """
+  I am `eval/3` for a hand at the keyboard: the query itself, no tuple
+  to unwrap, and a refusal raised with its own message.
+
+      Zkfol.eval!(fib, [8, :_], [])   #=> %Zkfol.Query{}
+  """
+  @spec eval!(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+          Query.t()
+  def eval!(rels, arguments, opts \\ []) do
+    case eval(rels, arguments, opts) do
+      {:ok, query} -> query
+      {:error, reason} -> raise Refusal.message(reason)
+    end
+  end
+
+  @doc """
+  I am every answer at `arguments`, lazily: a `Zkfol.Query` opened when
+  the stream is first taken from, stepped once per element, and closed
+  when it ends. Answers come in the clauses' own order.
+
+      Zkfol.stream(fib, [:_, :_], []) |> Enum.take(2)  #=> [[1, 1], [2, 1]]
+
+  The stream is answers and nothing else, so a refusal ends it as
+  exhaustion does; `Zkfol.Query.next/1` is the door that says which.
+  `opts` ride through to `Zkfol.Query.open/3`.
+  """
+  @spec stream(Lang.Rel.t() | [Lang.Rel.t()], [integer() | :_], keyword()) :: Enumerable.t()
+  def stream(rels, arguments, opts \\ []) do
+    Stream.resource(
+      fn -> Query.open(rels, arguments, opts) end,
+      fn
+        {:ok, query} = opened ->
+          case Query.next(query) do
+            {:ok, answer} -> {[answer], opened}
+            _ended -> {:halt, opened}
+          end
+
+        {:error, _reason} = refusal ->
+          {:halt, refusal}
+      end,
+      fn
+        {:ok, query} -> Query.close(query)
+        {:error, _reason} -> :ok
+      end
+    )
+  end
 
   # The act itself, up to whatever settles it: the two entry points
   # differ only in that last step.

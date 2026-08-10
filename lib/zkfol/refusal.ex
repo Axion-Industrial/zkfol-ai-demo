@@ -46,11 +46,12 @@ defmodule Zkfol.Refusal do
          conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
          row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
-         len_needs_a_bound_count
+         len_needs_a_bound_count residue
          lookup_width_mismatch lookup_chunk_indivisible)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
-         heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
+         heap_exhausted unresolved_within_budget value_exceeds_cell
+         constant_exceeds_cell)a,
     false_statement: ~w(no_derivation no_derivation_at_count witness_invalid
          witness_unsatisfies_schedule verifier_rejected)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
@@ -233,6 +234,9 @@ defmodule Zkfol.Refusal do
 
   def message({:no_answer, %{relation: name}}),
     do: "the question found no answer: nothing derives #{name} at those values"
+
+  def message({:residue, %{answer: answer}}),
+    do: "the search answered with rows still open: #{inspect(answer)}; pin one and ask again"
 
   def message({:unresolved_within_budget, %{reductions: n}}),
     do: "no verdict within #{n} reductions; CLP or a bound count may reach it"

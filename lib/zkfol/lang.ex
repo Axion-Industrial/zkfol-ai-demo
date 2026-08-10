@@ -276,6 +276,15 @@ defmodule Zkfol.Lang do
   end
 
   @doc """
+  I am the relations `root` reaches in `rels`, in call order: what a
+  question asks, before anyone asks whether it lowers. A call to a
+  relation outside `rels` refuses.
+  """
+  @spec members(Rel.t(), [Rel.t()]) :: {:ok, [atom()]} | {:error, Refusal.t()}
+  def members(%Rel{} = root, rels),
+    do: closure([root.name], Map.new(rels, &{&1.name, &1}), MapSet.new(), [])
+
+  @doc """
   I am a clause body's slack sites in order: a guard as it stands, a
   mod site as the bound its remainder is under. The k-th takes the
   k-th slack cell, whoever reads it -- the predicate, or the lay
