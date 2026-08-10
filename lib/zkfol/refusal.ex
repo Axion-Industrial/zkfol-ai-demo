@@ -20,9 +20,6 @@ defmodule Zkfol.Refusal do
     is wrong with the statement at all. Retry.
   """
 
-  @typedoc "What the caller should do about a refusal."
-  @type kind :: :restructure | :out_of_range | :false_statement | :transport
-
   @typedoc "The values the message needs, and a view can point at."
   @type detail :: map()
 
@@ -43,16 +40,18 @@ defmodule Zkfol.Refusal do
          step_head_not_indexed step_beyond_history
          step_needs_an_equation not_order_two step_not_linear no_relations
          unbound_variable relation_not_in_scope
-         call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
+         conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
-         row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
-         len_needs_a_bound_count
+         unliftable_term head_not_a_column arguments_exceed_rows
+         len_needs_a_bound_count residue modulus_not_literal
+         region_shape_mismatch region_uninterpreted existential_unfilled
          lookup_width_mismatch lookup_chunk_indivisible)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
-         heap_exhausted value_exceeds_cell constant_exceeds_cell)a,
-    false_statement: ~w(no_derivation no_derivation_at_count witness_invalid
-         witness_unsatisfies_schedule verifier_rejected)a,
+         heap_exhausted unresolved_within_budget value_exceeds_cell
+         constant_exceeds_cell)a,
+    false_statement: ~w(witness_invalid witness_unsatisfies_schedule verifier_rejected
+         no_answer)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }
 
@@ -199,9 +198,6 @@ defmodule Zkfol.Refusal do
       "row #{row} is both claimed and part of a composed read; " <>
         "the pointer query binds witness columns only"
 
-  def message({:row_undetermined, %{cell: cell}}),
-    do: "the derivation left a row free: nothing in the relation determines #{inspect(cell)}"
-
   def message({:unliftable_term, %{term: term}}),
     do: "no clause lowers the term #{inspect(term)}"
 
@@ -210,9 +206,6 @@ defmodule Zkfol.Refusal do
 
   def message({:relation_not_in_scope, %{relation: name}}),
     do: "the relation #{name} is not in scope"
-
-  def message({:call_output_not_fresh, %{output: out}}),
-    do: "a call output must be a fresh variable, got #{inspect(out)}"
 
   def message({:conflicting_schedule_offsets, %{row: row, offsets: offsets}}),
     do: "pointer row #{row} has conflicting schedule offsets #{inspect(offsets)}"
@@ -229,13 +222,26 @@ defmodule Zkfol.Refusal do
   def message({:witness_value_negative, %{value: value}}),
     do: "witness value #{value} is negative; cells carry no sign"
 
-  def message({:no_derivation, _detail}), do: "no derivation at any depth"
-
-  def message({:no_derivation_at_count, %{count: count, relation: name}}),
-    do: "nothing derives #{name} on #{count} columns"
-
   def message({:no_answer, %{relation: name}}),
     do: "the question found no answer: nothing derives #{name} at those values"
+
+  def message({:no_answer, %{}}),
+    do: "the question found no answer: nothing derives those values"
+
+  def message({:modulus_not_literal, %{modulus: m}}),
+    do: "mod needs a literal modulus, not #{inspect(m)}; pin a value with ^"
+
+  def message({:region_shape_mismatch, %{symbol: sym, rows: rows, region: width}}),
+    do: "region #{sym} holds #{width} rows; the interpretation lays #{rows}"
+
+  def message({:region_uninterpreted, %{symbol: sym}}),
+    do: "region #{sym} has no rows in the interpretation"
+
+  def message({:existential_unfilled, %{symbol: sym}}),
+    do: "#{sym} opens existential rows the lay never filled"
+
+  def message({:residue, %{answer: answer}}),
+    do: "the search answered with rows still open: #{inspect(answer)}; pin one and ask again"
 
   def message({:unresolved_within_budget, %{reductions: n}}),
     do: "no verdict within #{n} reductions; CLP or a bound count may reach it"

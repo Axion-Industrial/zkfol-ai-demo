@@ -4,19 +4,14 @@ defmodule Zkfol.Al do
   written, so the derivation is the witness. The clauses go down as
   plain AL, AL's journal of the committed derivation comes back, and
   the witness is its facts, laid by `Zkfol.Derivation` and judged by
-  the oracle. The act has two halves: `derived/3` runs -- prepare,
-  ask, extract, journal -- and `relaid/2` links and lays what it
-  established, no run of its own. `solved/3` is both in one call.
-
-  My satellites are the distance from the ideal: `Zkfol.Al.Consumption`
-  dies when the journal names the fired clause. Two have already closed
-  their distance: laying is the allocator's, held by `Zkfol.Derivation`
-  under `Zkfol.Alloc`, and the frozen expansion of an equation into its
-  directions is one CLP constraint goal.
+  the oracle. The act has two halves: `derived/3` prepares, asks,
+  extracts, and journals; `relaid/2` links and lays what it established,
+  no run of its own. `solved/3` is both in one call.
   """
 
   import Kernel, except: [apply: 3]
 
+  alias Zkfol.Al.Ask
   alias Zkfol.Derivation
   alias Zkfol.Lang
   alias Zkfol.Lay
@@ -54,10 +49,10 @@ defmodule Zkfol.Al do
 
       question(Examples.EUser.fib())
   """
-  @spec question(Rel.t() | [Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
-  def question(%Rel{} = root), do: question([root])
-  def question([%Rel{} | _rest] = rels), do: question_program(rels)
-  def question([]), do: {:error, {:no_relations, %{}}}
+  @spec question(Statement.t() | Rel.t() | [Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
+  def question(target) do
+    with {:ok, rels} <- rels(target), do: question_program(rels)
+  end
 
   @doc """
   I derive the witness at `arguments`, or refuse with the reason.
@@ -86,13 +81,9 @@ defmodule Zkfol.Al do
   """
   @spec derived(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Derivation.t()} | {:error, Refusal.t()}
-  def derived(target, arguments, opts \\ [])
-
-  def derived(%Statement{rels: [_ | _] = rels}, args, opts), do: derive_rels(rels, args, opts)
-  def derived(%Statement{}, _args, _opts), do: {:error, {:no_relations, %{}}}
-  def derived(%Rel{} = root, args, opts), do: derive_rels([root], args, opts)
-  def derived([%Rel{} | _rest] = rels, args, opts), do: derive_rels(rels, args, opts)
-  def derived([], _args, _opts), do: {:error, {:no_relations, %{}}}
+  def derived(target, arguments, opts \\ []) do
+    with {:ok, rels} <- rels(target), do: derive_rels(rels, arguments, opts)
+  end
 
   @doc """
   I am the solving act whole: the `Zkfol.Statement.Solved` stage, its
@@ -110,9 +101,9 @@ defmodule Zkfol.Al do
   end
 
   @doc """
-  I am the link half: I lay `derivation` as the statement's witness --
+  I am the link half: I lay `derivation` as the statement's witness,
   the shape compiled from its relations, the allocation assigned, the
-  predicate linked, the banks laid and judged -- one pure act, no run.
+  predicate linked, the banks laid and judged. One pure act, no run.
   A subderivation or a candidate layout lays through me.
   """
   @spec relaid(Statement.t(), Derivation.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
@@ -142,14 +133,99 @@ defmodule Zkfol.Al do
   """
   @spec apply(Statement.t() | Rel.t() | [Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, [%{atom() => integer()}]} | {:error, Refusal.t()}
-  def apply(target, arguments, opts \\ [])
-
-  def apply(%Statement{rels: [_ | _] = rels}, args, opts), do: apply_rels(rels, args, opts)
-  def apply(%Rel{} = root, args, opts), do: apply_rels([root], args, opts)
-  def apply([%Rel{} | _rest] = rels, args, opts), do: apply_rels(rels, args, opts)
-  def apply(_target, _args, _opts), do: {:error, {:no_relations, %{}}}
+  def apply(target, arguments, opts \\ []) do
+    with {:ok, rels} <- rels(target), do: apply_rels(rels, arguments, opts)
+  end
 
   # --- the flow: prepare, ask, extract, journal ---
+
+  @doc """
+  I open a stepping ask at `arguments`: the question of `target` as
+  plain AL, installed on a branch of my own, and the goal that runs
+  against it. Nothing derives yet.
+
+      {:ok, ask} = open(Examples.EAl.tab(), [:_, :_], [])
+
+  `arguments` address the root relation's head rows in order as
+  `solve/3` does, `:_` free. I prepare as `solve/3` prepares: only the
+  relations the root's closure reaches install, and a relation whose
+  clauses name len wants its count bound. Where `apply/3` collects
+  every answer at once, I hand them over one at a time: `step/1` takes
+  the next, `close/1` discards the branch. `:branch` says what to fork
+  from, `:heap` bounds the install.
+
+  The ask holds AL's search state, so the process that opens it is
+  the process that must step it.
+  """
+  @spec open(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
+          {:ok, Ask.t()} | {:error, Refusal.t()}
+  def open(target, arguments, opts) do
+    with {:ok, rels} <- rels(target),
+         {:ok, prep} <- prepared(rels, arguments, opts) do
+      branch = AL.Branch.fork(:tip, based(landing(prep.branch)))
+
+      case install(prep.program, branch, prep.heap || 256_000_000) do
+        :ok ->
+          {:ok,
+           %Ask{
+             name: prep.name,
+             rels: rels,
+             goal: plain(call(prep, goal(prep.root.arity, prep.bind, arguments))),
+             arguments: arguments,
+             branch: branch
+           }}
+
+        {:error, _reason} = refusal ->
+          AL.Branch.discard(branch)
+          refusal
+      end
+    end
+  end
+
+  @doc """
+  I take the ask's next answer, and the ask to step again: the
+  argument list with every free row ground. The search runs out as
+  `:exhausted`; a row it leaves open is residue, not an answer. The
+  ask advances whenever AL did, so a refused step is stepped past
+  rather than asked again.
+  """
+  @spec step(Ask.t()) :: {Ask.outcome(), Ask.t()}
+  def step(%Ask{state: nil} = ask), do: answered(AL.eval(ask.goal, nil, ask.branch, []), ask)
+  def step(%Ask{state: state} = ask), do: answered(AL.next_solution(state), ask)
+
+  @doc "I discard the ask's branch: the install and its journal go with it."
+  @spec close(Ask.t()) :: :ok
+  def close(%Ask{branch: branch}), do: AL.Branch.discard(branch)
+
+  # AL's outcome for one step. The state stays in this process; only
+  # the bindings are read, and they are the answer. A finite no is the
+  # end of the search, which is the ask's own policy on a no.
+  @spec answered(term(), Ask.t()) :: {Ask.outcome(), Ask.t()}
+  defp answered(evaluated, ask) do
+    case outcome(evaluated) do
+      {:ok, bindings, state} -> {ground(bindings, ask.arguments), %{ask | state: state}}
+      {:no, _reason} -> {:exhausted, ask}
+      {:error, _reason} = refusal -> {refusal, ask}
+    end
+  end
+
+  # The answer: a bound argument as it was asked, a free one as the
+  # search ground it. An answer is every asked row ground, so a row
+  # the search left open under its constraints refuses as residue.
+  @spec ground(AL.Var.store(), [integer() | :_]) ::
+          {:ok, [integer()]} | {:error, Refusal.t()}
+  defp ground(bindings, arguments) do
+    answer =
+      for {argument, row} <- Enum.with_index(arguments, 1) do
+        if argument == :_,
+          do: bindings |> AL.Var.deref(:"$qa#{row}") |> AL.Var.subst(bindings),
+          else: argument
+      end
+
+    if Enum.all?(answer, &is_integer/1),
+      do: {:ok, answer},
+      else: {:error, {:residue, %{answer: answer}}}
+  end
 
   @spec derive_rels([Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Derivation.t()} | {:error, Refusal.t()}
@@ -167,6 +243,14 @@ defmodule Zkfol.Al do
       end)
     end
   end
+
+  # A target as the relations it stands for, the root first; a target
+  # naming none refuses, which is every door's answer to nothing to run.
+  @spec rels(Statement.t() | Rel.t() | [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
+  defp rels(%Statement{rels: [_ | _] = rels}), do: {:ok, Lang.gathered(rels)}
+  defp rels(%Rel{} = root), do: {:ok, Lang.gathered([root])}
+  defp rels([%Rel{} | _rest] = list), do: {:ok, Lang.gathered(list)}
+  defp rels(_none), do: {:error, {:no_relations, %{}}}
 
   # A target as the statement it stands for: what the link half lays on.
   @spec statement(Statement.t() | Rel.t() | [Rel.t()]) :: Statement.t()
@@ -187,8 +271,8 @@ defmodule Zkfol.Al do
   @spec prepared([Rel.t()], [integer() | atom()], keyword()) ::
           {:ok, prep()} | {:error, Refusal.t()}
   defp prepared([root | _rest] = rels, args, opts) do
-    with {:ok, shape} <- Lang.compile(root, rels),
-         members = Enum.filter(rels, &(&1.name in shape.members)),
+    with {:ok, order} <- Lang.members(root, rels),
+         members = Enum.filter(rels, &(&1.name in order)),
          {:ok, program} <- question_program(members),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity), args, opts),
          len? = Enum.any?(members, &mentions_len?(&1.clauses)),
@@ -224,42 +308,32 @@ defmodule Zkfol.Al do
   defp len_bound(true, bind) when is_map_key(bind, 1), do: :ok
   defp len_bound(true, _bind), do: {:error, {:len_needs_a_bound_count, %{}}}
 
-  # A free row the answer grounds pins a replay: the search's journal
-  # carries redo scars, the ground re-run's is the derivation clean.
+  # One ask, and its journal is the derivation: AL keeps every call
+  # under the frame that made it, so a free row the answer grounds
+  # leaves no scar to run off.
   @spec derive(prep(), AL.Branch.t(), pos_integer()) ::
           {:ok, [map()]} | {:error, Refusal.t()}
-  defp derive(%{root: root, bind: bind, len?: len?, name: name}, branch, heap) do
-    args = goal(root.arity, bind, [])
-    lenp = if len?, do: [Map.fetch!(bind, 1)], else: []
-
+  defp derive(%{root: root, bind: bind, name: name} = prep, branch, heap) do
     tree =
       &(&1.domino.trace
         |> Enum.reverse()
         |> AL.Trace.derivation_tree(&1.active_choicepoint.store))
 
-    with {:ok, bindings, derived} <- ask(plain(root.name, args ++ lenp), branch, heap, name, tree) do
-      grounded =
-        Enum.map(args, fn
-          {nm, [], nil} = var ->
-            value = bindings |> AL.Var.deref(:"$#{nm}") |> AL.Var.subst(bindings)
-            if is_integer(value), do: value, else: var
-
-          ground ->
-            ground
-        end)
-
-      if grounded == args do
-        {:ok, derived}
-      else
-        with {:ok, _bindings, replayed} <-
-               ask(plain(root.name, grounded ++ lenp), branch, heap, name, tree),
-             do: {:ok, replayed}
-      end
-    end
+    with {:ok, _bindings, derived} <-
+           ask(plain(call(prep, goal(root.arity, bind, []))), branch, heap, name, tree),
+         do: {:ok, derived}
   end
 
-  @spec plain(atom(), [term()]) :: [struct()]
-  defp plain(rname, args), do: [AL.ast_to_pattern({rname, [], [@class | args]})]
+  # The root's call at `args`: len rides last where the clauses name
+  # it, the bound count that sizes the trace.
+  @spec call(prep(), [Macro.t() | integer()]) :: Macro.t()
+  defp call(%{root: root, len?: false}, args), do: {root.name, [], [@class | args]}
+
+  defp call(%{root: root, len?: true, bind: bind}, args),
+    do: {root.name, [], [@class | args ++ [Map.fetch!(bind, 1)]]}
+
+  @spec plain(Macro.t()) :: [struct()]
+  defp plain(goal), do: [AL.ast_to_pattern(goal)]
 
   # One eval against the installed question, refusals typed. The heap
   # cap is ours, not AL's: its guarded eval sheds the state to nothing,
@@ -269,22 +343,14 @@ defmodule Zkfol.Al do
           {:ok, AL.Var.store(), term()} | {:error, Refusal.t()}
   defp ask(query, branch, heap, name, digest) do
     case outcome(capped_eval(query, branch, heap, digest)) do
-      {:ok, bindings, derived} ->
-        {:ok, bindings, derived}
-
-      {:no, %{reason: {:resource_limit_exceeded, n}}} ->
-        {:error, {:unresolved_within_budget, %{reductions: n}}}
-
-      {:no, _reason} ->
-        {:error, {:no_answer, %{relation: name}}}
-
-      {:error, _reason} = refusal ->
-        refusal
+      {:ok, bindings, derived} -> {:ok, bindings, derived}
+      {:no, _reason} -> {:error, {:no_answer, %{relation: name}}}
+      {:error, _reason} = refusal -> refusal
     end
   end
 
   # AL's eval under our own heap cap. The state stays in the dying
-  # process -- an exit reason is copied onto the parent's uncapped heap,
+  # process: an exit reason is copied onto the parent's uncapped heap,
   # so what leaves is what `digest` made of it.
   @spec capped_eval([struct()], AL.Branch.t(), pos_integer(), (AL.t() -> term())) :: term()
   defp capped_eval(query, branch, heap, digest) do
@@ -319,10 +385,16 @@ defmodule Zkfol.Al do
     end)
   end
 
-  # AL's outcome, typed; the caller owns the policy on a no.
+  # AL's outcome, typed; the caller owns the policy on a finite no. A
+  # search stopped by the budget is nobody's policy: it never reached
+  # a no, so it refuses as itself.
   @spec outcome(term()) ::
           {:ok, AL.Var.store(), term()} | {:no, term()} | {:error, Refusal.t()}
   defp outcome({:atomic, {bindings, state}}), do: {:ok, bindings, state}
+
+  defp outcome({:aborted, %{reason: {:resource_limit_exceeded, n}}}),
+    do: {:error, {:unresolved_within_budget, %{reductions: n}}}
+
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
@@ -359,10 +431,9 @@ defmodule Zkfol.Al do
   defp apply_rels([root | _rest] = rels, args, opts) do
     with {:ok, prep} <- prepared(rels, args, opts) do
       names = for a <- args, is_atom(a) and a != :_, do: a
-      lenp = if prep.len?, do: [Map.fetch!(prep.bind, 1)], else: []
-      call = {root.name, [], [@class | goal(root.arity, prep.bind, args) ++ lenp]}
+      site = call(prep, goal(root.arity, prep.bind, args))
       template = Enum.map(names, &v/1)
-      query = [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote([call]), rs)))]
+      query = plain(quote(do: findall(unquote(template), unquote([site]), rs)))
 
       on_question(prep, 20_000_000, fn branch, heap ->
         with {:ok, bindings, _nothing} <-
@@ -404,6 +475,7 @@ defmodule Zkfol.Al do
   defp question_clause(rname, {head, body}, i, len?) do
     case Enum.find(head, &(not (match?({:var, _}, &1) or is_integer(&1)))) do
       nil ->
+        body = surfaced(body, i)
         env = [head | Enum.map(body, &Tuple.to_list/1)] |> qvars() |> Map.new(&{&1, &1})
         lenp = if len?, do: [v(:len)], else: []
         params = Enum.map(head, &qterm/1) ++ lenp
@@ -417,6 +489,32 @@ defmodule Zkfol.Al do
       bad ->
         {:error, {:head_not_a_column, %{head: bad}}}
     end
+  end
+
+  # A mod site as the goals it means, the quotient a name of ours: the
+  # defining equation, the remainder under the modulus, and the two
+  # signs the Z-side derivation cannot read off the committed rows the
+  # predicate stands on. The equation is linear at a literal modulus,
+  # so it posts at clause entry and the fixpoint binds both once the
+  # dividend grounds.
+  @spec surfaced([term()], non_neg_integer()) :: [term()]
+  defp surfaced(body, i) do
+    body
+    |> Enum.with_index()
+    |> Enum.flat_map(fn
+      {{:mod, r, e, m}, j} ->
+        q = {:var, :"m#{i}q#{j}"}
+
+        [
+          {:eq, e, {:add, {:mul, q, m}, r}},
+          {:cmp, :<, r, m},
+          {:cmp, :>, {:add, r, 1}, 0},
+          {:cmp, :>, {:add, q, 1}, 0}
+        ]
+
+      {goal, _j} ->
+        [goal]
+    end)
   end
 
   # The body's statements, each call carrying its place among the calls:
@@ -433,8 +531,8 @@ defmodule Zkfol.Al do
 
   # What posts at clause entry: a constraint AL's fixpoint carries with
   # every variable of it still open, so where the surface wrote it stops
-  # mattering. A product of two unknowns is not one -- AL refuses it where
-  # it stands -- so it waits where it was written, as does every call.
+  # mattering. A product of two unknowns is not one: AL refuses it where
+  # it stands, so it waits where it was written, as does every call.
   @spec postable?({term(), non_neg_integer()}) :: boolean()
   defp postable?({{:eq, t, u}, _j}), do: linear?(t) and linear?(u)
   defp postable?({{:cmp, _op, t, u}, _j}), do: linear?(t) and linear?(u)
@@ -559,9 +657,14 @@ defmodule Zkfol.Al do
     end
   end
 
+  # What a fresh branch forks from: the session's head unless one is named.
+  @spec based(term() | nil) :: AL.Branch.t()
+  defp based(nil), do: AL.Branch.head()
+  defp based(id), do: %AL.Branch{id: id}
+
   # :head reads as wherever the session is checked out, for the viewer;
-  # nothing named falls to the configured branch, if one is configured
-  # -- the test suite lands every solve on one branch this way.
+  # nothing named falls to the configured branch, which is how the test
+  # suite lands every solve on one branch.
   @spec landing(term() | nil) :: term() | nil
   defp landing(:head), do: AL.Branch.head().id
   defp landing(nil), do: Application.get_env(:zkfol, :branch)

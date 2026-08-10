@@ -49,3 +49,7 @@ end
 defmodule Examples.EMatrixTest do
   use ExExample.ExUnit, for: Examples.EMatrix
 end
+
+defmodule Examples.EQueryTest do
+  use ExExample.ExUnit, for: Examples.EQuery
+end
