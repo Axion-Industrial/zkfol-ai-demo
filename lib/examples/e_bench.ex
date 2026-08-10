@@ -55,6 +55,18 @@ defmodule Examples.EBench do
     )
   end
 
+  @spec measured_doubled_fibonacci_mod(pos_integer(), pos_integer()) :: map()
+  example measured_doubled_fibonacci_mod(n \\ 10_000, mod \\ 7919) do
+    statement = EDoubling.rewritten_fibonacci_mod(n, mod)
+
+    measurement(
+      "fibonacci n=#{n} mod #{mod}, doubled",
+      Statement.pred(statement),
+      Statement.witness(statement),
+      statement.claims
+    )
+  end
+
   # Value-addressed reads through zinc+'s pointer query, end to end.
   @spec measured_hop(pos_integer()) :: map()
   example measured_hop(n \\ 64) do
@@ -76,6 +88,7 @@ defmodule Examples.EBench do
       measured_registers_fibonacci(),
       measured_registers_fibonacci_mod(),
       measured_doubled_fibonacci(),
+      measured_doubled_fibonacci_mod(),
       measured_hop()
     ]
   end

@@ -175,7 +175,8 @@ defmodule Zkfol.Face do
   end
 
   # The rows a shape names beyond its members: the tag row, the
-  # pointers by callee and address, the slack cells its guards bind.
+  # pointers by callee and address, the slack cells its guards bind,
+  # the quotients its reductions divide out.
   @spec derived_rows(Lang.shape(), Zkfol.Alloc.t()) :: %{pos_integer() => String.t()}
   defp derived_rows(shape, alloc) do
     tag = Map.new(region_rows(alloc, :tag), &{&1, "tag"})
@@ -185,10 +186,16 @@ defmodule Zkfol.Face do
         {r, {callee, at}} -> {r, "ptr #{callee} " <> term_text(at)}
       end)
 
-    slack =
-      Map.new(Enum.with_index(region_rows(alloc, :slack), 1), fn {r, k} -> {r, "slack #{k}"} end)
+    tag
+    |> Map.merge(pointers)
+    |> Map.merge(counted(alloc, :slack))
+    |> Map.merge(counted(alloc, :quot))
+  end
 
-    tag |> Map.merge(pointers) |> Map.merge(slack)
+  # A bank whose rows say only their place in a clause's sites.
+  @spec counted(Zkfol.Alloc.t(), atom()) :: %{pos_integer() => String.t()}
+  defp counted(alloc, sym) do
+    Map.new(Enum.with_index(region_rows(alloc, sym), 1), fn {r, k} -> {r, "#{sym} #{k}"} end)
   end
 
   # A region's rows where the alloc has one, none where it does not.
@@ -606,6 +613,9 @@ defmodule Zkfol.Face do
   defp goal_text({:call, name, args}), do: call_text(name, args)
   defp goal_text({:eq, t, u}), do: surface_text(t) <> " = " <> surface_text(u)
   defp goal_text({:cmp, op, t, u}), do: surface_text(t) <> " #{op} " <> surface_text(u)
+
+  defp goal_text({:mod, r, e, m}),
+    do: surface_text(r) <> " = mod(" <> surface_text(e) <> ", " <> surface_text(m) <> ")"
 
   @spec surface_text(term()) :: String.t()
   defp surface_text(q) when is_integer(q), do: Integer.to_string(q)
