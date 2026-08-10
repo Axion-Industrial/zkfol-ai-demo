@@ -243,7 +243,7 @@ ZkfolUairGrid >> plainDataFrom: aUair [
 	 why instead of quietly not appearing."
 	| answer |
 	aUair isDictionary ifTrue: [ ^ aUair ].
-	answer := ZkfolProxy on: aUair fetch: 'Zkfol.Face.grid(' , aUair resolve , ')'.
+	answer := aUair plainFetch: 'Zkfol.Face.grid(' , aUair resolve , ')'.
 	(answer isKindOf: ZkfolRefusal) ifTrue: [
 		refusal := ZkfolRefusal because: 'no uair payload: ' , answer reason.
 		^ Dictionary new ].

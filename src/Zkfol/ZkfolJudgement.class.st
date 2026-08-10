@@ -41,10 +41,11 @@ ZkfolJudgement class >> onFeed: aDictionary [
 { #category : 'instance creation' }
 ZkfolJudgement class >> through: anApplication source: anElixirSource [
 	"The node computes the judgement table; one wire trip. The source
-	 must answer %{labels: [...], evals: [[...]]}."
+	 must answer %{labels: [...], evals: [[...]]}. A refusal keeps what
+	 the node said."
 	| answer |
-	answer := ZkfolProxy fetch: anElixirSource through: anApplication.
-	answer ifNil: [ ^ self new refuse: 'the node did not answer'; yourself ].
+	answer := BeamProxyObject plainFetch: anElixirSource through: anApplication.
+	(answer isKindOf: ZkfolRefusal) ifTrue: [ ^ self new refuse: answer reason; yourself ].
 	^ self labels: (answer at: 'labels') evals: (answer at: 'evals')
 ]
 

@@ -1,6 +1,6 @@
 Class {
 	#name : 'ZkfolLay',
-	#superclass : 'ZkfolProxy',
+	#superclass : 'BeamProxyObject',
 	#category : 'Zkfol-Proxies',
 	#package : 'Zkfol',
 	#tag : 'Proxies'
@@ -20,7 +20,7 @@ ZkfolLay >> gtGridFor: aView [
 	<gtView>
 	<gtBeamView>
 	| feed |
-	feed := ZkfolProxy on: self fetch: 'Zkfol.Face.lay(' , self resolve , ')'.
+	feed := self plainFetch: 'Zkfol.Face.lay(' , self resolve , ')'.
 	((feed isKindOf: Dictionary)
 		and: [ (feed at: #witness ifAbsent: [ #() ]) notEmpty ])
 			ifFalse: [ ^ aView empty ].

@@ -1,6 +1,6 @@
 Class {
 	#name : 'ZkfolRan',
-	#superclass : 'ZkfolProxy',
+	#superclass : 'BeamProxyObject',
 	#category : 'Zkfol-Proxies',
 	#package : 'Zkfol',
 	#tag : 'Proxies'
@@ -126,14 +126,12 @@ ZkfolRan >> stageAt: aStageIndex [
 { #category : 'accessing' }
 ZkfolRan >> viewModel [
 	"My act off the log, one feed from the face. A stale proxy answers
-	 the fetch nil, which reads as an empty act, not a raise. Stage
-	 states re-run live through Log.stage so a click spawns the real
-	 bridged statement, the emit re-emitted through the face so it wears
-	 the pointer grid, the report fetched as its struct."
+	 the fetch a refusal, which reads as an empty act, not a raise.
+	 Stage states re-run live through Log.stage so a click spawns the
+	 real bridged statement, the emit re-emitted through the face so it
+	 wears the pointer grid, the report fetched as its struct."
 	| feed |
-	feed := ZkfolProxy
-		on: self
-		fetch: 'Zkfol.Face.act(Zkfol.Log.snapshot(), ' , self resolve , ')'.
+	feed := self plainFetch: 'Zkfol.Face.act(Zkfol.Log.snapshot(), ' , self resolve , ')'.
 	(feed isKindOf: ZkfolRefusal) ifTrue: [ feed := nil ].
 	^ (ZkfolPipelineModel onAct: feed)
 		stageSpawner: [ :k | self stageAt: k ];

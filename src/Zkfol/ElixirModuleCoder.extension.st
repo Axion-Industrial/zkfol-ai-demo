@@ -10,7 +10,7 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 	 log and should look broken."
 	<gtElixirModuleView>
 	| fetch feed |
-	fetch := [ :source | ZkfolProxy fetch: source through: self application ].
+	fetch := [ :source | BeamProxyObject plainFetch: source through: self application ].
 	feed := fetch value: 'Zkfol.Face.pass(Zkfol.Log.snapshot(), ' , self moduleName , ')'.
 	((feed isKindOf: Dictionary) and: [ (feed at: #implements) == true ])
 		ifFalse: [ ^ aView empty ].
@@ -25,6 +25,9 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 				ifNil: [ (a at: #settled) asString ]
 				ifNotNil: [ :verdict | verdict asString , ' · ' , (a at: #settled) asString ] ];
 		send: [ :a |
-			ZkfolPipelineModel onAct: (fetch value:
-				'Zkfol.Face.act_at(Zkfol.Log.snapshot(), ' , (a at: #defined) printString , ')') ]
+			| act |
+			act := fetch value:
+				'Zkfol.Face.act_at(Zkfol.Log.snapshot(), ' , (a at: #defined) printString , ')'.
+			ZkfolPipelineModel onAct:
+				((act isKindOf: Dictionary) ifTrue: [ act ] ifFalse: [ nil ]) ]
 ]
