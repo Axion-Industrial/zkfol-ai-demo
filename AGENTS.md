@@ -43,7 +43,7 @@ its stage a sum-type — `Raw` → `Lowered` → `Solved`:
   witness (judged by the oracle). A free count asks the *question* first — the clauses
   as plain AL (`Al.question/1`), no trace, no size — then the structural ask; refusals
   are typed (`no_answer` is a finite no, `unresolved_within_budget` outran AL's fixed
-  200k-reduction budget) and nothing searches by witness size. Predicates that call
+  reduction budget) and nothing searches by witness size. Predicates that call
   predicates compile to one chain, each column wearing its relation's tag. Surface
   guards (`x > 2`) steer the derivation but do not reach the emitted predicate.
   `Zkfol.Facts` reads order-2 descriptors; `Zkfol.Doubling` rewrites recurrences to a
