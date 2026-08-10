@@ -1,39 +1,39 @@
 defmodule Zkfol.Al.Consumption do
   @moduledoc """
-  I put each consumption edge on the pointer it went through: the
-  derivation says what a fact's calls consumed, and the clause that
-  fired -- the first whose head admits the tuple and whose calls line
-  up with what was consumed -- says through which pointer each came.
-  I exist because the journal does not yet name the fired clause;
-  when each call node carries it, I am a lookup, deleted.
+  I name the clause that fired: the derivation says what a fact's
+  calls consumed, and the first clause whose head admits the tuple and
+  whose calls line up with what was consumed is the one that ran. From
+  it come the pointers each consumption went through, and the guards
+  whose slack the placement fills. I exist because the journal does
+  not yet name the fired clause; when each call node carries it, I am
+  a lookup, deleted.
   """
 
   alias Zkfol.Derivation
   alias Zkfol.Lang.Rel
 
-  @doc "I am each fact's consumption: its call sites' pointer names beside the facts they used."
-  @spec of(Derivation.t(), [Rel.t()], Zkfol.Lang.shape()) ::
-          %{Derivation.fact() => [{Zkfol.Ast.row_ref(), Derivation.fact()}]}
-  def of(%Derivation{} = derivation, members, shape) do
+  @typedoc "A clause as a call site: its head, its body, and its calls' pointer names in body order."
+  @type site :: {[term()], [term()], [Zkfol.Ast.row_ref()]}
+
+  @doc """
+  I am each fact's fired clause beside the facts it consumed: the
+  first clause whose head admits the tuple and whose calls line up
+  with what was consumed, nothing when no clause of the relation does.
+  """
+  @spec fired(Derivation.t(), [Rel.t()], Zkfol.Lang.shape()) ::
+          %{Derivation.fact() => {site(), [Derivation.fact()]} | nil}
+  def fired(%Derivation{} = derivation, members, shape) do
     sites = clause_sites(members, shape)
 
     derivation
     |> Derivation.consumption()
-    |> Map.new(fn {fact, used} -> {fact, consumed(fact, sites, used)} end)
-  end
-
-  # The fired clause pairs its pointers with the consumed facts in
-  # body order; a fact clause consumed nothing and needs no pairing.
-  @spec consumed(Derivation.fact(), map(), [Derivation.fact()]) ::
-          [{Zkfol.Ast.row_ref(), Derivation.fact()}]
-  defp consumed(_fact, _sites, []), do: []
-
-  defp consumed({name, tuple}, sites, used) do
-    sites
-    |> Map.fetch!(name)
-    |> Enum.find_value([], fn {head, calls} ->
-      if admits?(head, tuple) and calls_line_up?(calls, used),
-        do: Enum.zip(Enum.map(calls, &elem(&1, 1)), used)
+    |> Map.new(fn {{name, tuple} = fact, used} ->
+      {fact,
+       sites
+       |> Map.fetch!(name)
+       |> Enum.find_value(fn {head, body, _ptrs} = site ->
+         if admits?(head, tuple) and calls_line_up?(body, used), do: {site, used}
+       end)}
     end)
   end
 
@@ -55,24 +55,22 @@ defmodule Zkfol.Al.Consumption do
     |> Kernel.!=(:mismatch)
   end
 
-  @spec calls_line_up?([{atom(), Zkfol.Ast.row_ref()}], [Derivation.fact()]) :: boolean()
-  defp calls_line_up?(calls, used) do
-    length(calls) == length(used) and
-      calls |> Enum.zip(used) |> Enum.all?(fn {{callee, _ptr}, {name, _t}} -> callee == name end)
+  @spec calls_line_up?([term()], [Derivation.fact()]) :: boolean()
+  defp calls_line_up?(body, used) do
+    callees = for {:call, callee, _cargs} <- body, do: callee
+
+    length(callees) == length(used) and
+      callees |> Enum.zip(used) |> Enum.all?(fn {callee, {name, _t}} -> callee == name end)
   end
 
   # Each member's clauses beside their pointers, calls in body order.
-  @spec clause_sites([Rel.t()], Zkfol.Lang.shape()) ::
-          %{atom() => [{[term()], [{atom(), Zkfol.Ast.row_ref()}]}]}
+  @spec clause_sites([Rel.t()], Zkfol.Lang.shape()) :: %{atom() => [site()]}
   defp clause_sites(members, shape) do
     Map.new(members, fn rel ->
       per_clause =
         rel.clauses
         |> Enum.zip(Map.fetch!(shape.calls, rel.name))
-        |> Enum.map(fn {{head, body}, ptrs} ->
-          callees = for {:call, callee, _cargs} <- body, do: callee
-          {head, Enum.zip(callees, ptrs)}
-        end)
+        |> Enum.map(fn {{head, body}, ptrs} -> {head, body, ptrs} end)
 
       {rel.name, per_clause}
     end)

@@ -198,22 +198,35 @@ defmodule Zkfol.Face do
           into: %{},
           do: {r, "#{name} #{i}"}
 
-    named =
-      if shape.tags == %{},
-        do: named,
-        else: Map.put(named, Zkfol.Alloc.offset(alloc, :tag) + 1, "tag")
+    numbered(Map.merge(named, derived_rows(shape, alloc)), alloc)
+  end
 
-    named =
-      if shape.pointers == [],
-        do: named,
-        else:
-          Map.merge(
-            named,
-            Map.new(Enum.zip(Zkfol.Alloc.rows(alloc, :ptr), shape.pointers), fn
-              {r, {callee, at}} -> {r, "ptr #{callee} " <> term_text(at)}
-            end)
-          )
+  # The rows a shape names beyond its members: the tag row, the
+  # pointers by callee and address, the slack cells its guards bind.
+  @spec derived_rows(Lang.shape(), Zkfol.Alloc.t()) :: %{pos_integer() => String.t()}
+  defp derived_rows(shape, alloc) do
+    tag = Map.new(region_rows(alloc, :tag), &{&1, "tag"})
 
+    pointers =
+      Map.new(Enum.zip(region_rows(alloc, :ptr), shape.pointers), fn
+        {r, {callee, at}} -> {r, "ptr #{callee} " <> term_text(at)}
+      end)
+
+    slack =
+      Map.new(Enum.with_index(region_rows(alloc, :slack), 1), fn {r, k} -> {r, "slack #{k}"} end)
+
+    tag |> Map.merge(pointers) |> Map.merge(slack)
+  end
+
+  # A region's rows where the alloc has one, none where it does not.
+  @spec region_rows(Zkfol.Alloc.t(), atom()) :: [pos_integer()]
+  defp region_rows(%Zkfol.Alloc{regions: regions} = alloc, sym) do
+    if List.keymember?(regions, sym, 0), do: Enum.to_list(Zkfol.Alloc.rows(alloc, sym)), else: []
+  end
+
+  # Every committed row by its number, the named ones saying what they are.
+  @spec numbered(%{pos_integer() => String.t()}, Zkfol.Alloc.t()) :: [String.t()]
+  defp numbered(named, alloc) do
     for r <- 1..Zkfol.Alloc.width(alloc) do
       case named do
         %{^r => label} -> "C#{r} · #{label}"
@@ -648,7 +661,8 @@ defmodule Zkfol.Face do
   defp surface_text(_pinned), do: "^"
 
   # Every row of the interpretation named: a member's rows by its head
-  # variables, the tag row as itself, a pointer row by its target.
+  # variables, the tag row as itself, a pointer row by its target, a
+  # slack row by its place in a clause's guards.
   @spec row_labels([Lang.Rel.t()], map() | nil) :: [String.t()]
   defp row_labels(_rels, nil), do: []
 
@@ -662,28 +676,7 @@ defmodule Zkfol.Face do
           into: %{},
           do: {r, member_row(scope[name], name, i)}
 
-    named =
-      if shape.tags == %{},
-        do: named,
-        else: Map.put(named, Zkfol.Alloc.offset(alloc, :tag) + 1, "tag")
-
-    named =
-      if shape.pointers == [],
-        do: named,
-        else:
-          Map.merge(
-            named,
-            Map.new(Enum.zip(Zkfol.Alloc.rows(alloc, :ptr), shape.pointers), fn
-              {r, {callee, at}} -> {r, "ptr #{callee} " <> term_text(at)}
-            end)
-          )
-
-    for r <- 1..Zkfol.Alloc.width(alloc) do
-      case named do
-        %{^r => label} -> "C#{r} · #{label}"
-        _named -> "C#{r}"
-      end
-    end
+    numbered(Map.merge(named, derived_rows(shape, alloc)), alloc)
   end
 
   @spec member_row(Lang.Rel.t(), atom(), pos_integer()) :: String.t()

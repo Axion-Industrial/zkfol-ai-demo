@@ -35,8 +35,8 @@ defmodule Zkfol.Lang do
   What a compiled root stands on, all of it symbolic: the predicate
   over named rows, the members in closure order beside their widths,
   each clause's call sites by pointer name, what each pointer aims
-  at in naming order, and each member's tag value (empty when a lone
-  relation needs no tag).
+  at in naming order, each member's tag value (empty when a lone
+  relation needs no tag), and how many slack cells a column holds.
   """
   @type shape :: %{
           pred: Ast.pred(),
@@ -45,7 +45,8 @@ defmodule Zkfol.Lang do
           slots: %{atom() => [atom()]},
           calls: %{atom() => [[Ast.row_ref()]]},
           pointers: [{atom(), Ast.term_t()}],
-          tags: %{atom() => pos_integer()}
+          tags: %{atom() => pos_integer()},
+          slack: non_neg_integer()
         }
 
   defmodule Rel do
@@ -261,10 +262,25 @@ defmodule Zkfol.Lang do
          slots: Map.new(order, &{&1, slots(scope[&1])}),
          calls: calls,
          pointers: aimed(targets),
-         tags: tags || %{}
+         tags: tags || %{},
+         slack: slack_rows(order, scope)
        }}
     end
   end
+
+  # How many slack cells a column holds: guards in one clause bind
+  # together and each takes its own, while clauses share them, since at
+  # most one clause binds a column.
+  @spec slack_rows([atom()], %{atom() => Rel.t()}) :: non_neg_integer()
+  defp slack_rows(order, scope) do
+    counts =
+      for name <- order, {_head, body} <- scope[name].clauses, do: Enum.count(body, &guard?/1)
+
+    Enum.max(counts, fn -> 0 end)
+  end
+
+  @spec guard?(term()) :: boolean()
+  defp guard?(goal), do: match?({:cmp, _op, _t, _u}, goal)
 
   # A member's slots by name: its head variables where a clause binds
   # them all, positional names otherwise. Freshened locals join here
@@ -387,7 +403,8 @@ defmodule Zkfol.Lang do
 
     with {:ok, goals, ptrs, env, pointers} <- calls(body, scope, tags, env, pointers),
          {:ok, equations} <- equations(body, env),
-         do: {:ok, {Ast.conj(heads ++ goals ++ equations), ptrs}, pointers}
+         {:ok, guards} <- guards(body, env),
+         do: {:ok, {Ast.conj(heads ++ goals ++ equations ++ guards), ptrs}, pointers}
   end
 
   # Calls resolving to one target share their pointer row: a pointer
@@ -477,6 +494,29 @@ defmodule Zkfol.Lang do
            do: {:ok, Ast.eq(t, u)}
     end)
   end
+
+  # An inequality is an equation with room in it: `a > b` says that some
+  # natural s has a = b + s + 1, and the k-th guard of a clause takes
+  # the k-th slack cell to be that s. The cell is committed, so its
+  # bit decomposition is the obligation that s is a natural, and the
+  # guard needs nothing else.
+  @spec guards([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
+  defp guards(body, env) do
+    body
+    |> Enum.filter(&guard?/1)
+    |> Enum.with_index(1)
+    |> Refusal.map(fn {{:cmp, op, t, u}, k} ->
+      with {:ok, t} <- resolve(t, env),
+           {:ok, u} <- resolve(u, env),
+           do: {:ok, slack(op, t, u, Ast.cell({:slack, k}))}
+    end)
+  end
+
+  @spec slack(atom(), Ast.term_t(), Ast.term_t(), Ast.term_t()) :: Ast.pred()
+  defp slack(:>, a, b, s), do: Ast.eq(a, Ast.add(Ast.add(b, 1), s))
+  defp slack(:>=, a, b, s), do: Ast.eq(a, Ast.add(b, s))
+  defp slack(:<, a, b, s), do: slack(:>, b, a, s)
+  defp slack(:<=, a, b, s), do: slack(:>=, b, a, s)
 
   @spec resolve(term(), env()) :: {:ok, Ast.term_t()} | {:error, Refusal.t()}
   defp resolve(q, _env) when is_integer(q), do: {:ok, q}
