@@ -80,6 +80,23 @@ defmodule Examples.EBench do
     )
   end
 
+  @doc "I am the fib table: one function four ways, reduced and not, rewritten and not."
+  @spec measured_fibonacci_four_ways(pos_integer()) :: [map()]
+  example measured_fibonacci_four_ways(n \\ 1000) do
+    [
+      measured_doubled_fibonacci(n),
+      measured_registers_fibonacci(n),
+      measured_doubled_fibonacci_mod(n),
+      measured_registers_fibonacci_mod(n)
+    ]
+  end
+
+  @doc "I am the whole fib grid: four ways at every n, one call."
+  @spec measured_fibonacci_grid([pos_integer()]) :: [map()]
+  example measured_fibonacci_grid(sizes \\ [1_000, 10_000]) do
+    Enum.flat_map(sizes, &measured_fibonacci_four_ways/1)
+  end
+
   @spec report() :: [map()]
   example report do
     [
@@ -93,10 +110,19 @@ defmodule Examples.EBench do
     ]
   end
 
-  @doc "I prove `phi` under `witness` through the journal and keep the numbers."
+  @doc """
+  I prove `phi` under `witness` through the journal and keep the numbers.
+  The rss pair brackets emit-prove-verify only: the peak resets at entry,
+  after the caller has already derived the witness, so solving never
+  counts. Peaks at the baseline mean the prover fit under the noise.
+  The measure dispatches on the host: Linux resets and reads the kernel's
+  high-water mark; elsewhere the peak is read as the rss when the prove
+  returns, a floor rather than a peak.
+  """
   @spec measurement(String.t(), Zkfol.Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           map()
   def measurement(statement, phi, witness, claims \\ []) do
+    rss_baseline_mb = reset_peak_rss()
     {:ok, uair} = Uair.emit(phi, witness, claims)
     {:ok, report, _id} = Prover.prove_uair(uair, name: statement, timeout: :infinity)
 
@@ -106,7 +132,43 @@ defmodule Examples.EBench do
       prove_ms: report.prove_ms,
       verify_ms: report.verify_ms,
       proof_bytes: report.proof_bytes,
-      program: length(uair.program)
+      program: length(uair.program),
+      rss_baseline_mb: rss_baseline_mb,
+      rss_peak_mb: peak_mb(:os.type())
     }
+  end
+
+  # Reset the high-water mark where the host keeps one and return
+  # current rss in MB.
+  @spec reset_peak_rss() :: non_neg_integer()
+  defp reset_peak_rss do
+    Enum.each(Process.list(), &:erlang.garbage_collect/1)
+    with {:unix, :linux} <- :os.type(), do: File.write!("/proc/self/clear_refs", "5")
+    rss_mb(:os.type())
+  end
+
+  @typep host() :: {:unix | :win32, atom()}
+
+  @spec rss_mb(host()) :: non_neg_integer()
+  defp rss_mb({:unix, :linux}), do: div(proc_status("VmRSS:"), 1024)
+
+  defp rss_mb({:unix, _os}) do
+    {rss, 0} = System.cmd("ps", ["-o", "rss=", "-p", System.pid()])
+    rss |> String.trim() |> String.to_integer() |> div(1024)
+  end
+
+  @spec peak_mb(host()) :: non_neg_integer()
+  defp peak_mb({:unix, :linux}), do: div(proc_status("VmHWM:"), 1024)
+  defp peak_mb(host), do: rss_mb(host)
+
+  @spec proc_status(String.t()) :: non_neg_integer()
+  defp proc_status(key) do
+    "/proc/self/status"
+    |> File.read!()
+    |> String.split("\n")
+    |> Enum.find(&String.starts_with?(&1, key))
+    |> String.split()
+    |> Enum.at(1)
+    |> String.to_integer()
   end
 end
