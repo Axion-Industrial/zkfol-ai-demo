@@ -31,6 +31,15 @@ defmodule Examples.EFacts do
     v = a - b
   end
 
+  defrel reduced(1, 1)
+  defrel reduced(2, 1)
+
+  defrel reduced(x, v) do
+    reduced(x - 1, a)
+    reduced(x - 2, b)
+    v = mod(a + b, 1000)
+  end
+
   defrel lopsided(1, 1)
   defrel lopsided(2, 1)
 
@@ -62,6 +71,20 @@ defmodule Examples.EFacts do
     {:ok, descriptor} = Facts.recurrence(sub())
 
     assert %{p: 1, q: -1} = Map.from_struct(descriptor)
+    descriptor
+  end
+
+  @doc """
+  I read the modulus off the structure: the same coefficients as the
+  unreduced recurrence, and the bound the step reduces by, so nobody
+  has to be told it.
+  """
+  @spec a_reduced_step_carries_its_modulus() :: Facts.t()
+  example a_reduced_step_carries_its_modulus do
+    {:ok, descriptor} = Facts.recurrence(reduced())
+
+    assert %{p: 1, q: 1, mod: 1000} = Map.from_struct(descriptor)
+    assert %{mod: nil} = Map.from_struct(fibonacci_descriptor())
     descriptor
   end
 

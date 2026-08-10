@@ -18,7 +18,7 @@ defmodule Examples.EFace do
   example a_statement_summarises_to_its_facts do
     summary = Face.summary(EUser.fibonacci())
 
-    assert %{rels: 1, arity: 2, branches: 3, claims: 0, witness: "4 rows", args: [8]} = summary
+    assert %{rels: 1, arity: 2, branches: 3, claims: 0, witness: "5 rows", args: [8]} = summary
     summary
   end
 
@@ -43,7 +43,9 @@ defmodule Examples.EFace do
     # n row counts 1..len, and every row's kind named off the shifts.
     assert feed.traces_order
     assert hd(feed.columns) == Enum.to_list(1..8)
-    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :scheduled, :scheduled]
+    # The slack row is committed like any other, so it is plain: it
+    # takes no shift and carries no read of its own.
+    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :plain, :scheduled, :scheduled]
     assert Enum.all?(feed.columns, &(length(&1) == 8))
     assert feed.num_vars == 3
 
@@ -117,9 +119,10 @@ defmodule Examples.EFace do
   example judgement_labels_named_pointers do
     feed = Face.judgement(EUser.fibonacci())
 
-    assert length(feed.rows) == 4
+    assert length(feed.rows) == 5
     assert Enum.take(feed.rows, 2) == ["C1 · fib x", "C2 · fib v"]
-    assert Enum.all?(Enum.drop(feed.rows, 2), &(&1 =~ ~r/^C\d+ · ptr /))
+    assert Enum.all?(Enum.slice(feed.rows, 2..3), &(&1 =~ ~r/^C\d+ · ptr /))
+    assert List.last(feed.rows) == "C5 · slack 1"
     feed
   end
 
@@ -151,7 +154,8 @@ defmodule Examples.EFace do
 
     assert feed.regions == [
              %{name: :fib, first: 1, last: 2},
-             %{name: :ptr, first: 3, last: 4}
+             %{name: :ptr, first: 3, last: 4},
+             %{name: :slack, first: 5, last: 5}
            ]
 
     assert length(feed.arrows) == 12

@@ -19,6 +19,9 @@ defmodule Zkfol.Lang do
       end
 
       Lang.compile(fib(), [fib()])
+
+  A body statement may also reduce: `r = mod(e, m)` at a literal `m`
+  is `exists q in N. e = m*q + r and r < m`, and I own the quotient.
   """
 
   @behaviour Zkfol.Pipeline
@@ -35,8 +38,9 @@ defmodule Zkfol.Lang do
   What a compiled root stands on, all of it symbolic: the predicate
   over named rows, the members in closure order beside their widths,
   each clause's call sites by pointer name, what each pointer aims
-  at in naming order, and each member's tag value (empty when a lone
-  relation needs no tag).
+  at in naming order, each member's tag value (empty when a lone
+  relation needs no tag), and how many slack and quotient cells a
+  column holds.
   """
   @type shape :: %{
           pred: Ast.pred(),
@@ -45,7 +49,9 @@ defmodule Zkfol.Lang do
           slots: %{atom() => [atom()]},
           calls: %{atom() => [[Ast.row_ref()]]},
           pointers: [{atom(), Ast.term_t()}],
-          tags: %{atom() => pos_integer()}
+          tags: %{atom() => pos_integer()},
+          slack: non_neg_integer(),
+          quot: non_neg_integer()
         }
 
   defmodule Rel do
@@ -100,6 +106,8 @@ defmodule Zkfol.Lang do
 
   @spec rel_clause(atom(), Macro.t()) :: {[term()], [term()]}
   defp rel_clause(name, {name, _meta, args}) do
+    args = anonymous(args)
+
     case List.last(args) do
       [do: block] ->
         {args |> Enum.drop(-1) |> Enum.map(&term/1), block |> lines() |> Enum.map(&goal/1)}
@@ -112,9 +120,22 @@ defmodule Zkfol.Lang do
   defp rel_clause(name, {other, _meta, _args}),
     do: raise(ArgumentError, "the clause #{other} does not belong to the relation #{name}")
 
+  # `_` is an I-don't-care: each occurrence its own fresh name.
+  @spec anonymous(Macro.t()) :: Macro.t()
+  defp anonymous(ast) do
+    {renamed, _n} =
+      Macro.prewalk(ast, 0, fn
+        {:_, meta, ctx}, n when is_atom(ctx) -> {{:"_gensym#{n}", meta, ctx}, n + 1}
+        other, n -> {other, n}
+      end)
+
+    renamed
+  end
+
   @spec store(Macro.t(), [Macro.t()]) :: Macro.t()
   defp store(head, body) do
     {name, _meta, args} = head
+    {args, body} = anonymous({args, body})
     clause = {Enum.map(args, &term/1), Enum.map(body, &goal/1)}
 
     quote do
@@ -182,8 +203,9 @@ defmodule Zkfol.Lang do
   defp term({:-, _meta, [a, b]}) when is_integer(b), do: {:add, term(a), -b}
   defp term({:-, _meta, [a, b]}), do: {:add, term(a), {:mul, term(b), -1}}
 
-  # Surface goals: equations, guards, and calls.
+  # Surface goals: equations, reductions, guards, and calls.
   @spec goal(Macro.t()) :: term()
+  defp goal({:=, _meta, [r, {:mod, _site, [e, m]}]}), do: {:mod, term(r), term(e), term(m)}
   defp goal({:=, _meta, [a, b]}), do: {:eq, term(a), term(b)}
 
   defp goal({op, _meta, [a, b]}) when op in [:<, :>, :<=, :>=],
@@ -246,9 +268,68 @@ defmodule Zkfol.Lang do
          slots: Map.new(order, &{&1, slots(scope[&1])}),
          calls: calls,
          pointers: aimed(targets),
-         tags: tags || %{}
+         tags: tags || %{},
+         slack: widest(order, scope, &slacks/1),
+         quot: widest(order, scope, &mods/1)
        }}
     end
+  end
+
+  @doc """
+  I am a clause body's slack sites in order: a guard as it stands, a
+  mod site as the bound its remainder is under. The k-th takes the
+  k-th slack cell, whoever reads it -- the predicate, or the lay
+  that fills it.
+  """
+  @spec slacks([term()]) :: [{atom(), term(), term()}]
+  def slacks(body), do: Enum.flat_map(body, &slacked/1)
+
+  @doc """
+  I am a clause body's mod sites in order: each remainder, dividend,
+  and modulus. The k-th quotient takes the k-th quotient cell.
+  """
+  @spec mods([term()]) :: [{term(), term(), term()}]
+  def mods(body), do: for({:mod, r, e, m} <- body, do: {r, e, m})
+
+  @doc """
+  I am a surface term's value under an environment binding its
+  variables, and `:error` when the term is open: a name the
+  environment does not carry, or a form that is not arithmetic. A
+  reader that must tell ground from open reads me; one that knows its
+  site is ground asserts on the `:ok`.
+  """
+  @spec value(term(), %{atom() => term()}) :: {:ok, integer()} | :error
+  def value(q, _env) when is_integer(q), do: {:ok, q}
+  def value({:add, t, u}, env), do: combined(&+/2, t, u, env)
+  def value({:mul, t, u}, env), do: combined(&*/2, t, u, env)
+
+  def value({:var, nm}, env) do
+    case env do
+      %{^nm => q} when is_integer(q) -> {:ok, q}
+      _open -> :error
+    end
+  end
+
+  def value(_open, _env), do: :error
+
+  @spec combined((integer(), integer() -> integer()), term(), term(), %{atom() => term()}) ::
+          {:ok, integer()} | :error
+  defp combined(op, t, u, env) do
+    with {:ok, a} <- value(t, env), {:ok, b} <- value(u, env), do: {:ok, op.(a, b)}
+  end
+
+  @spec slacked(term()) :: [{atom(), term(), term()}]
+  defp slacked({:cmp, op, t, u}), do: [{op, t, u}]
+  defp slacked({:mod, r, _e, m}), do: [{:<, r, m}]
+  defp slacked(_goal), do: []
+
+  # How many cells of a kind a column holds: the sites of one clause
+  # bind together and each takes its own, while clauses share them,
+  # since at most one clause binds a column.
+  @spec widest([atom()], %{atom() => Rel.t()}, ([term()] -> list())) :: non_neg_integer()
+  defp widest(order, scope, sites) do
+    counts = for name <- order, {_head, body} <- scope[name].clauses, do: length(sites.(body))
+    Enum.max(counts, fn -> 0 end)
   end
 
   # A member's slots by name: its head variables where a clause binds
@@ -372,7 +453,9 @@ defmodule Zkfol.Lang do
 
     with {:ok, goals, ptrs, env, pointers} <- calls(body, scope, tags, env, pointers),
          {:ok, equations} <- equations(body, env),
-         do: {:ok, {Ast.conj(heads ++ goals ++ equations), ptrs}, pointers}
+         {:ok, guards} <- guards(body, env),
+         {:ok, quotients} <- quotients(body, env),
+         do: {:ok, {Ast.conj(heads ++ goals ++ equations ++ guards ++ quotients), ptrs}, pointers}
   end
 
   # Calls resolving to one target share their pointer row: a pointer
@@ -388,10 +471,9 @@ defmodule Zkfol.Lang do
 
       with {:ok, target} <- resolve(at, env),
            {row, pointers} = point(pointers, name, target),
-           {:ok, env} <- outputs(outs, value_rows, row, env),
-           do:
-             {:ok, {[schedule(index, row, target) | check(tags, name, row)], row},
-              {env, pointers}}
+           {:ok, identities, env} <- outputs(outs, value_rows, row, env),
+           goals = [schedule(index, row, target) | check(tags, name, row)],
+           do: {:ok, {goals ++ identities, row}, {env, pointers}}
     end)
     |> case do
       {:ok, compiled, {env, pointers}} ->
@@ -430,19 +512,27 @@ defmodule Zkfol.Lang do
 
   defp schedule(index, pointer, target), do: Ast.eq(Ast.cell(index, pointer), target)
 
-  # A call's outputs are the callee's value rows read through the pointer.
+  # A call's outputs are the callee's value rows read through the
+  # pointer; a non-fresh output is identified with its cell by equation.
   @spec outputs([term()], [Ast.row_ref()], Ast.row_ref(), env()) ::
-          {:ok, env()} | {:error, Refusal.t()}
+          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
   defp outputs(outs, value_rows, pointer, env) do
     outs
     |> Enum.zip(value_rows)
-    |> Enum.reduce_while({:ok, env}, fn
-      {{:var, name}, row}, {:ok, env} when not is_map_key(env, name) ->
-        {:cont, {:ok, Map.put(env, name, Ast.cell(row, pointer))}}
+    |> Refusal.map_reduce(env, fn {out, row}, env -> output(out, Ast.cell(row, pointer), env) end)
+    |> case do
+      {:ok, identities, env} -> {:ok, Enum.concat(identities), env}
+      refusal -> refusal
+    end
+  end
 
-      {out, _row}, _acc ->
-        {:halt, {:error, {:call_output_not_fresh, %{output: out}}}}
-    end)
+  @spec output(term(), Ast.term_t(), env()) ::
+          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
+  defp output({:var, name}, cell, env) when not is_map_key(env, name),
+    do: {:ok, [], Map.put(env, name, cell)}
+
+  defp output(out, cell, env) do
+    with {:ok, term} <- resolve(out, env), do: {:ok, [Ast.eq(term, cell)], env}
   end
 
   @spec equations([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
@@ -455,6 +545,51 @@ defmodule Zkfol.Lang do
            do: {:ok, Ast.eq(t, u)}
     end)
   end
+
+  # An inequality is an equation with room in it: `a > b` says that some
+  # natural s has a = b + s + 1, and the k-th slack site of a clause
+  # takes the k-th slack cell to be that s. The cell is committed, so
+  # its bit decomposition is the obligation that s is a natural, and
+  # the site needs nothing else.
+  @spec guards([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
+  defp guards(body, env) do
+    body
+    |> slacks()
+    |> Enum.with_index(1)
+    |> Refusal.map(fn {{op, t, u}, k} ->
+      with {:ok, t} <- resolve(t, env),
+           {:ok, u} <- resolve(u, env),
+           do: {:ok, slack(op, t, u, Ast.cell({:slack, k}))}
+    end)
+  end
+
+  @spec slack(atom(), Ast.term_t(), Ast.term_t(), Ast.term_t()) :: Ast.pred()
+  defp slack(:>, a, b, s), do: Ast.eq(a, Ast.add(Ast.add(b, 1), s))
+  defp slack(:>=, a, b, s), do: Ast.eq(a, Ast.add(b, s))
+  defp slack(:<, a, b, s), do: slack(:>, b, a, s)
+  defp slack(:<=, a, b, s), do: slack(:>=, b, a, s)
+
+  # `r = mod(e, m)` is the division it means: the k-th quotient cell is
+  # the q of e = m*q + r, committed, so its bits are the q in N, while
+  # `r < m` rides the slack every site takes. A modulus that is not a
+  # literal makes m*q a product of two unknowns, which nothing here
+  # can suspend.
+  @spec quotients([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
+  defp quotients(body, env) do
+    body
+    |> mods()
+    |> Enum.with_index(1)
+    |> Refusal.map(fn {{r, e, m}, k} ->
+      with :ok <- literal(m),
+           {:ok, r} <- resolve(r, env),
+           {:ok, e} <- resolve(e, env),
+           do: {:ok, Ast.eq(e, Ast.add(Ast.mul(Ast.cell({:quot, k}), m), r))}
+    end)
+  end
+
+  @spec literal(term()) :: :ok | {:error, Refusal.t()}
+  defp literal(m) when is_integer(m), do: :ok
+  defp literal(m), do: {:error, {:modulus_not_literal, %{modulus: m}}}
 
   @spec resolve(term(), env()) :: {:ok, Ast.term_t()} | {:error, Refusal.t()}
   defp resolve(q, _env) when is_integer(q), do: {:ok, q}

@@ -41,6 +41,20 @@ defmodule Examples.EUser do
     b = a1
   end
 
+  # Mod 7919 by existential witness: the quotient rides the head until
+  # fresh body names get columns, and the sign guards are Z-side only.
+  defrel regsm(1, 1, 1, 0)
+
+  defrel regsm(x, a, b, q) do
+    x > 1
+    regsm(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
   # The base rides as a value: prover's knowledge enters at construction.
   @spec power_rel(integer()) :: Lang.Rel.t()
   def power_rel(base) do
@@ -102,6 +116,15 @@ defmodule Examples.EUser do
     statement
   end
 
+  @spec registers_mod(pos_integer()) :: Statement.t()
+  example registers_mod(n \\ 1000) do
+    source = %Statement{rels: [regsm()], args: [n, :_, :_, :_]}
+    {:ok, statement, _trace} = Pipeline.run(plain(), source)
+
+    assert Interpretation.at(Statement.witness(statement), 2, n) == rem(fib(n + 1), 7919)
+    statement
+  end
+
   @spec power(non_neg_integer()) :: Statement.t()
   example power(exponent \\ 3) do
     source = %Statement{rels: [power_rel(2)], args: [exponent + 1]}
@@ -153,15 +176,16 @@ defmodule Examples.EUser do
     scaled
   end
 
-  # Two recursive clauses put the answer behind an infinite DFS
-  # subtree, and unification cannot invert ee + ee; we fail as AL
-  # fails. CLP reads the same equation as 2*ee = e and inverts it.
-  @spec squaring_backward_awaits_clp() :: Zkfol.Refusal.t()
-  example squaring_backward_awaits_clp do
-    {:error, {kind, _} = reason} = Al.solve(epower(), [:_, 10], heap: 200_000)
+  # Two recursive clauses put the answer behind an infinite DFS subtree
+  # for unification, which cannot invert ee + ee. CLP reads the same
+  # equation as 2*ee = e and runs the exponent backward.
+  @spec squaring_runs_backward() :: Interpretation.t()
+  example squaring_runs_backward do
+    {:ok, witness} = Al.solve(epower(), [:_, 10])
 
-    assert kind in [:heap_exhausted, :unresolved_within_budget]
-    reason
+    assert witness |> Interpretation.rows() |> Enum.at(1) |> List.last() == 10
+    assert witness |> Interpretation.rows() |> Enum.at(2) |> List.last() == 1024
+    witness
   end
 
   @spec squaring_solves_at_the_base() :: Interpretation.t()
@@ -186,7 +210,7 @@ defmodule Examples.EUser do
     [root | _scope] = program = program(:fib)
 
     assert root.name == :fib
-    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs]
+    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs, :regsm]
 
     # The closure walk takes what it calls and ignores the rest.
     {:ok, shape} = Lang.compile(root, program)

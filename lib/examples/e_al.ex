@@ -47,16 +47,45 @@ defmodule Examples.EAl do
 
   defrel odd(x, v) do
     x > 1
-    even(x - 1, w)
-    v = w
+    even(x - 1, v)
   end
 
   defrel even(1, 0)
 
   defrel even(x, v) do
     x > 1
-    odd(x - 1, w)
+    odd(x - 1, v)
+  end
+
+  defrel named_odd(1, 1)
+
+  defrel named_odd(x, v) do
+    x > 1
+    named_even(x - 1, w)
     v = w
+  end
+
+  defrel named_even(1, 0)
+
+  defrel named_even(x, v) do
+    x > 1
+    named_odd(x - 1, w)
+    v = w
+  end
+
+  defrel pairs(1, 3, 5)
+  defrel pairs(2, 4, 4)
+
+  defrel twinned(x, v) do
+    pairs(x, v, v)
+  end
+
+  defrel mate(x, v) do
+    pairs(x, 3, v)
+  end
+
+  defrel loose(x) do
+    pairs(x, _, _)
   end
 
   defrel step(1, 2)
@@ -366,6 +395,175 @@ defmodule Examples.EAl do
     band
   end
 
+  defrel capped(x, v) do
+    x < 4
+    v = x + 1
+  end
+
+  @doc """
+  I hold a guard nothing structural implies: `x < 4` reaches the
+  predicate as the room it leaves, and a cell claiming other room is
+  no witness.
+  """
+  @spec a_guard_binds_its_slack() :: Interpretation.t()
+  example a_guard_binds_its_slack do
+    {:ok, shape} = Zkfol.Lang.compile(capped(), [capped()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.slack == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :slack)) == [3]
+
+    {:ok, pred} = Zkfol.Lang.lower(capped(), [capped()])
+    {:ok, witness} = Al.solve(capped(), [2])
+
+    assert Interpretation.rows(witness) == [[2], [3], [1]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+
+    refute Zkfol.Semantics.valid?(pred, Interpretation.new([[2], [3], [0]]))
+    witness
+  end
+
+  defrel forked(1, 0)
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 1
+    v < 100
+  end
+
+  defrel forked(x, v) do
+    x > 1
+    forked(x - 1, w)
+    v = w + 10
+    v < 1000
+  end
+
+  @doc """
+  I differ between my two step clauses only in what their bodies
+  equate: both heads admit the same tuple and both call once, so the
+  room a column carries is the second clause's only if the equations
+  name the clause that ran.
+  """
+  @spec the_fired_clause_is_named_by_its_equations() :: Interpretation.t()
+  example the_fired_clause_is_named_by_its_equations do
+    {:ok, pred} = Zkfol.Lang.lower(forked(), [forked()])
+    {:ok, witness} = Al.solve(forked(), [2, 10])
+
+    assert Interpretation.rows(witness) == [[1, 2], [0, 10], [1, 1], [0, 0], [0, 989]]
+    assert Zkfol.Semantics.valid?(pred, witness)
+    witness
+  end
+
+  defrel regsm(1, 1, 1)
+
+  defrel regsm(x, a, c) do
+    x > 1
+    regsm(x - 1, b, a)
+    c = mod(a + b, 7919)
+  end
+
+  # The same reduction spelled out, the quotient smuggled through the
+  # head because a hand cannot freshen a row.
+  defrel regsh(1, 1, 1, 0)
+
+  defrel regsh(x, a, b, q) do
+    x > 1
+    regsh(x - 1, a1, b1, q1)
+    a1 + b1 = q * 7919 + a
+    a < 7919
+    a + 1 > 0
+    q + 1 > 0
+    b = a1
+  end
+
+  @doc """
+  I recur under a modulus: the head is three wide, the quotient
+  nowhere in it, and the value at each column is the fibonacci number
+  reduced. Two reduced summands cross the modulus at most once, so
+  the quotient bank the compiler opened is a bit.
+  """
+  @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
+  example a_mod_relation_reduces(n \\ 25) do
+    {:ok, shape} = Zkfol.Lang.compile(regsm(), [regsm()])
+    alloc = Zkfol.Alloc.assign(shape)
+
+    assert shape.quot == 1
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :quot)) == [7]
+
+    {:ok, witness} = Al.solve(regsm(), [n])
+
+    assert Interpretation.at(witness, 3, n) == rem(EUser.fib(n + 1), 7919)
+
+    [quotients] = Interpretation.rows(Zkfol.Alloc.region(witness, alloc, :quot))
+    assert quotients |> Enum.uniq() |> Enum.sort() == [0, 1]
+
+    witness
+  end
+
+  @doc """
+  I am one derivation reached two ways: `mod` as sugar, and spelled
+  out by hand. Every row the sugar stands on the hand also has -- its
+  quotient bank holding what the hand's head row held -- and the hand
+  pays two slack columns more for the signs the sugar never asks the
+  predicate to carry.
+  """
+  @spec the_sugar_and_the_hand_agree(pos_integer()) :: Interpretation.t()
+  example the_sugar_and_the_hand_agree(n \\ 25) do
+    {:ok, sugar} = Zkfol.Lang.compile(regsm(), [regsm()])
+    {:ok, spelled} = Zkfol.Lang.compile(regsh(), [regsh()])
+
+    {:ok, sugared} = Al.solve(regsm(), [n])
+    {:ok, by_hand} = Al.solve(regsh(), [n])
+
+    bank = fn witness, shape, sym ->
+      Interpretation.rows(Zkfol.Alloc.region(witness, Zkfol.Alloc.assign(shape), sym))
+    end
+
+    head = bank.(by_hand, spelled, :regsh)
+
+    # The sugar names its head (x, a, c) with the sum last; the hand
+    # wrote (x, sum, prev, q), so the value rows cross.
+    assert bank.(sugared, sugar, :regsm) ==
+             [Enum.at(head, 0), Enum.at(head, 2), Enum.at(head, 1)]
+
+    assert bank.(sugared, sugar, :quot) == Enum.drop(head, 3)
+    assert bank.(sugared, sugar, :ptr) == bank.(by_hand, spelled, :ptr)
+    assert bank.(sugared, sugar, :slack) == Enum.take(bank.(by_hand, spelled, :slack), 2)
+    assert spelled.slack - sugar.slack == 2
+
+    sugared
+  end
+
+  @doc "I prove a reduction on zinc+ through the front door."
+  @spec a_mod_relation_proves(pos_integer()) :: Zkfol.Log.Ran.t()
+  example a_mod_relation_proves(n \\ 25) do
+    ran =
+      Zkfol.compile(%Statement{rels: [regsm()], args: [n]},
+        pipeline: EUser.plain(),
+        name: :registers_mod
+      )
+
+    assert %Prover.Report{} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
+    ran
+  end
+
+  defrel shifty(m, x, v) do
+    v = mod(x, m)
+  end
+
+  @doc """
+  I refuse a modulus the clause does not know: m times the quotient is
+  a product of two unknowns, which nothing here can suspend.
+  """
+  @spec a_variable_modulus_is_refused() :: Refusal.t()
+  example a_variable_modulus_is_refused do
+    {:error, refusal} = Zkfol.Lang.compile(shifty(), [shifty()])
+
+    assert {:modulus_not_literal, %{modulus: {:var, :m}}} = refusal
+    refusal
+  end
+
   # A call between relations derives on one trace: pick reads tab
   # through the pointer row, the fact it reaches takes a column of its
   # own, and the three facts nothing reached never materialize.
@@ -453,6 +651,46 @@ defmodule Examples.EAl do
     {:ok, odd4} = Al.solve([odd(), even()], [4, :_])
     assert Interpretation.at(odd4, 2, 4) == 0
     odd5
+  end
+
+  @doc "I thread the head through the call, and the intermediary I spared says the same."
+  @spec threading_a_head_names_no_intermediary() :: Interpretation.t()
+  example threading_a_head_names_no_intermediary do
+    {:ok, threaded} = Zkfol.Lang.lower(odd(), [odd(), even()])
+    {:ok, spelled} = Zkfol.Lang.lower(named_odd(), [named_odd(), named_even()])
+    {:ok, witness} = Al.solve([named_odd(), named_even()], [5, :_])
+
+    assert threaded == spelled
+    assert witness == recursion_between_relations_derives()
+    witness
+  end
+
+  @doc "I name one row twice in a call, so the two reads meet as a join."
+  @spec one_name_in_two_outputs_joins() :: Interpretation.t()
+  example one_name_in_two_outputs_joins do
+    {:ok, [%{x: 2, v: 4}]} = Al.apply([twinned(), pairs()], [:x, :v])
+
+    {:ok, witness} = Al.solve([twinned(), pairs()], [2, :_])
+    assert Interpretation.at(witness, 2, 2) == 4
+    witness
+  end
+
+  @doc "I do not care twice, and each underscore keeps to itself: no join."
+  @spec an_underscore_is_anonymous_each_time() :: [%{atom() => integer()}]
+  example an_underscore_is_anonymous_each_time do
+    {:ok, answers} = Al.apply([loose(), pairs()], [:x])
+
+    assert Enum.sort_by(answers, & &1.x) == [%{x: 1}, %{x: 2}]
+    answers
+  end
+
+  @doc "I pin an output to a value, so the call reads only the row that carries it."
+  @spec a_literal_output_pins_the_row() :: [%{atom() => integer()}]
+  example a_literal_output_pins_the_row do
+    {:ok, answers} = Al.apply([mate(), pairs()], [:x, :v])
+
+    assert answers == [%{x: 1, v: 5}]
+    answers
   end
 
   @doc "I refuse an unanswerable question by its finite failure, fast."

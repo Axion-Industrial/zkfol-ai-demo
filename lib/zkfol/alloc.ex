@@ -89,7 +89,8 @@ defmodule Zkfol.Alloc do
 
   @doc """
   I am the rows a statement stands on: each member's arguments in
-  closure order, the tag row behind them, the pointer bank, then the
+  closure order, the tag row behind them, the pointer bank, the slack
+  its guards bind, the quotients its reductions divide out, then the
   objects it declares, publicity read off their layouts.
   `Zkfol.Lang` names the derivation's rows; the numbering is mine,
   and an object's bank is as much mine as a member's.
@@ -101,6 +102,8 @@ defmodule Zkfol.Alloc do
         for(name <- shape.members, do: {name, shape.arities[name]}) ++
           if(shape.tags == %{}, do: [], else: [{:tag, 1}]) ++
           if(shape.pointers == [], do: [], else: [{:ptr, length(shape.pointers)}]) ++
+          region(:slack, Map.get(shape, :slack, 0)) ++
+          region(:quot, Map.get(shape, :quot, 0)) ++
           for(rel <- objects, do: {rel.name, rel.layout.rows}),
         public: for(rel <- objects, rel.layout.public, do: rel.name)
       )
@@ -140,6 +143,11 @@ defmodule Zkfol.Alloc do
   ############################################################
   #                   Private Implementation                 #
   ############################################################
+
+  # A bank the shape asks for, nothing where it asks for none.
+  @spec region(atom(), non_neg_integer()) :: [{atom(), pos_integer()}]
+  defp region(_sym, 0), do: []
+  defp region(sym, rows), do: [{sym, rows}]
 
   @spec width(t(), atom()) :: pos_integer()
   defp width(%__MODULE__{regions: regions}, sym) do
