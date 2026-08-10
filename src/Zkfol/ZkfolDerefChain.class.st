@@ -27,12 +27,6 @@ ZkfolDerefChain class >> onGrid: aGrid position: aPosition read: aRead index: aO
 ]
 
 { #category : 'accessing' }
-ZkfolDerefChain >> addressRow [
-	"The grid row my pointer lives on, off the read itself."
-	^ read at: #row ifAbsent: [ nil ]
-]
-
-{ #category : 'accessing' }
 ZkfolDerefChain >> address [
 	"The number the pointer bits spell, 0-based in the reversed
 	 committed layout."
@@ -46,6 +40,12 @@ ZkfolDerefChain >> addressCells [
 	| bitRows |
 	bitRows := (read at: #bit_rows ifAbsent: [ nil ]) ifNil: [ #() ].
 	^ bitRows collect: [ :r | grid cellAtRow: r position: position ]
+]
+
+{ #category : 'accessing' }
+ZkfolDerefChain >> addressRow [
+	"The grid row my pointer lives on, off the read itself."
+	^ read at: #row ifAbsent: [ nil ]
 ]
 
 { #category : 'queries' }
@@ -69,21 +69,6 @@ ZkfolDerefChain >> cells [
 	^ (self addressCells asOrderedCollection
 		addAll: { self targetCell. self resultCell };
 		yourself) reject: [ :each | each isNil ]
-]
-
-{ #category : 'drawing' }
-ZkfolDerefChain >> threads [
-	"One thread from each address bit into the cell those bits spell,
-	 then one from that cell to the result it must equal."
-	| colour |
-	self targetCell ifNil: [ ^ #() ].
-	colour := self displayColor.
-	^ (self bitRowIndices collect: [ :bitRow |
-		(bitRow @ position -> (valueRow @ target)) -> colour ]) ,
-		(self resultCell
-			ifNil: [ #() ]
-			ifNotNil: [ :ignored |
-				{ (valueRow @ target -> (resultRow @ position)) -> colour } ])
 ]
 
 { #category : 'accessing' }
@@ -142,6 +127,12 @@ ZkfolDerefChain >> failureSummary [
 		  nextPutAll: ' here holds '; print: self resultHere ]
 ]
 
+{ #category : 'accessing' }
+ZkfolDerefChain >> grid [
+	"The trace I walk, so whoever draws several of us can lay it out once."
+	^ grid
+]
+
 { #category : 'views' }
 ZkfolDerefChain >> gtCellsFor: aView [
 	"Both ends of the chain and the address bits between, as cells: the
@@ -178,12 +169,6 @@ ZkfolDerefChain >> gtWalkFor: aView [
 		connectors: self threads;
 		yourself)
 		canvasOn: aView title: 'Walk' priority: 3
-]
-
-{ #category : 'accessing' }
-ZkfolDerefChain >> grid [
-	"The trace I walk, so whoever draws several of us can lay it out once."
-	^ grid
 ]
 
 { #category : 'accessing' }
@@ -259,6 +244,21 @@ ZkfolDerefChain >> target [
 ZkfolDerefChain >> targetCell [
 	"The cell my address points at: the far end of the chain."
 	^ valueRow ifNotNil: [ :r | grid cellAtRow: r position: target ]
+]
+
+{ #category : 'drawing' }
+ZkfolDerefChain >> threads [
+	"One thread from each address bit into the cell those bits spell,
+	 then one from that cell to the result it must equal."
+	| colour |
+	self targetCell ifNil: [ ^ #() ].
+	colour := self displayColor.
+	^ (self bitRowIndices collect: [ :bitRow |
+		(bitRow @ position -> (valueRow @ target)) -> colour ]) ,
+		(self resultCell
+			ifNil: [ #() ]
+			ifNotNil: [ :ignored |
+				{ (valueRow @ target -> (resultRow @ position)) -> colour } ])
 ]
 
 { #category : 'queries' }

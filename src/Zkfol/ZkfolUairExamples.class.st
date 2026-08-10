@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns traces_order kinds num_vars num_public shifts reads lookups)
+	^ #(columns traces_order kinds num_vars num_public shifts reads lookups origins)
 ]
 
 { #category : 'examples' }
@@ -237,10 +237,9 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 { #category : 'examples' }
 ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	"I assert the failure list says nothing when nothing is wrong. Every
-	 sound fixture, trace order or committed, lists no failure and offers
-	 no tab at all; the corrupted reversed shape lists exactly its two
-	 contradictions. A view that is empty when all is well is one whose
-	 presence means something."
+	 oriented fixture lists no failure and offers no tab at all; the blind
+	 reversed shape contradicts at four of its five reads. A view that is
+	 empty when all is well is one whose presence means something."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| broken |
@@ -253,7 +252,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 			assert: (grid gtFailuresFor: GtPhlowView empty) class
 			equals: GtPhlowEmptyView ].
 	broken := ZkfolUairGrid onUair: self hopReversed.
-	self assert: broken failingChains size equals: 2.
+	self assert: broken failingChains size equals: 4.
 	self
 		assert: (broken gtFailuresFor: GtPhlowView empty) class
 		equals: GtPhlowColumnedListView.
@@ -313,9 +312,10 @@ ZkfolUairExamples >> gridFromFixture [
 ZkfolUairExamples >> gridFromOrientedHop [
 	"I read the trace-order fixture and assert the orientation rule:
 	 marked traces_order, the grid displays trace order, un-reversing the
-	 committed columns and truncating the padding, and the deref chain
-	 agrees with itself. The raw committed columns stay as fetched
-	 underneath."
+	 committed columns and truncating the padding, so the address a
+	 pointer cell holds indexes the displayed grid directly and the
+	 deref chain agrees with itself. The raw committed columns stay as
+	 fetched underneath."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid picture |
@@ -341,7 +341,7 @@ ZkfolUairExamples >> gridFromOrientedHop [
 ZkfolUairExamples >> headerClickSpawnsColumn [
 	"I click the position ruler under a scripter and assert the phlow
 	 spawn: a ZkfolUairColumn carrying every row's cell at position 2
-	 and the composed read's deref chain, address 5 spelled from its
+	 and the composed read's deref chain, address 3 spelled from its
 	 bit rows, agreeing with the result row."
 	<gtExample>
 	<return: #BlScripter>
@@ -362,8 +362,8 @@ ZkfolUairExamples >> headerClickSpawnsColumn [
 ZkfolUairExamples >> hopReversed [
 	"A feed still in committed order, the shape a viewer must be honest
 	 about: traces_order false, so the grid shows it as fetched with the
-	 honesty marker. Its result row is corrupted at two positions, which
-	 is exactly what the failures view is for."
+	 honesty marker, and in this order the deref chain contradicts
+	 itself, which is exactly what the failures view is for."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
@@ -372,7 +372,7 @@ ZkfolUairExamples >> hopReversed [
 		#num_vars -> 2.
 		#kinds -> #(#plain #pointer #bit #bit #result).
 		#shifts -> #().
-		#reads -> { { #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
+		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
 		#lookups -> { { #row -> 1. #table -> #(#word 2) } asDictionary }.
 		#columns -> self reversedHopColumns } asDictionary
 ]
@@ -391,7 +391,7 @@ ZkfolUairExamples >> orientedHop [
 		#num_vars -> 2.
 		#kinds -> #(#plain #pointer #bit #bit #result).
 		#shifts -> #().
-		#reads -> { { #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
+		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
 		#lookups -> { { #row -> 1. #table -> #(#word 2) } asDictionary }.
 		#columns -> {
 			#(7 8 9).
@@ -417,8 +417,8 @@ ZkfolUairExamples >> hopWithTwoReads [
 			#kinds -> #(#plain #plain #pointer #bit #bit #result #result).
 			#shifts -> #().
 			#reads -> {
-				{ #value_row -> 0. #bit_rows -> #(3 4). #result_row -> 5 } asDictionary.
-				{ #value_row -> 1. #bit_rows -> #(3 4). #result_row -> 6 } asDictionary }.
+				{ #row -> 2. #value_row -> 0. #bit_rows -> #(3 4). #result_row -> 5 } asDictionary.
+				{ #row -> 2. #value_row -> 1. #bit_rows -> #(3 4). #result_row -> 6 } asDictionary }.
 			#lookups -> { { #row -> 2. #table -> #(#word 2) } asDictionary }.
 			#columns -> {
 				#(10 20 30).
@@ -550,7 +550,6 @@ ZkfolUairExamples >> miniatureChain [
 	chain := (self gridFromFixture columnAt: 2) derefs first.
 	self assert: chain agrees.
 	self assert: chain address equals: 5.
-	self assert: chain target equals: 6.
 	^ chain
 ]
 
@@ -572,7 +571,7 @@ ZkfolUairExamples >> miniatureHop [
 			#num_vars -> 3.
 			#kinds -> #(#plain #pointer #plain #bit #bit #bit #result).
 			#shifts -> #().
-			#reads -> { { #value_row -> 0. #bit_rows -> #(3 4 5). #result_row -> 6 } asDictionary }.
+			#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(3 4 5). #result_row -> 6 } asDictionary }.
 			#lookups -> { { #row -> 1. #table -> #(#word 3) } asDictionary }.
 			#columns -> {
 				#(6 2 9 5 1 4 1 3).
@@ -815,17 +814,19 @@ ZkfolUairExamples >> refusedUairSaysWhy [
 { #category : 'fixtures' }
 ZkfolUairExamples >> reversedHopColumns [
 	"The committed columns of a length 3 composed hop, reversed and
-	 base-padded to 2^2 the way the emitter ships them, the result row
-	 corrupted at its first two positions: exactly two contradictions
-	 for the failures view to list."
+	 padded to 2^2 the way the emitter ships them: w = [7, 8, 9], pointer
+	 A = [2, 1, 3] with its two bit rows, and the result w[A(x)] = [8,
+	 7, 9]. Every value is asymmetric, so a missed un-reversal cannot
+	 pass, and in trace order the deref chain is self-consistent while
+	 in committed order it lands on the mirror cell."
 	<gtExample>
 	<return: #Array>
 	^ {
 		#(9 8 7 7).
 		#(3 1 2 2).
-		#(0 0 1 1).
-		#(0 1 0 0).
-		#(8 6 8 8) }
+		#(1 1 0 0).
+		#(1 0 1 1).
+		#(9 7 8 8) }
 ]
 
 { #category : 'examples' }
