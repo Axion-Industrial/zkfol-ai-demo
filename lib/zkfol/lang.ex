@@ -101,6 +101,8 @@ defmodule Zkfol.Lang do
 
   @spec rel_clause(atom(), Macro.t()) :: {[term()], [term()]}
   defp rel_clause(name, {name, _meta, args}) do
+    args = anonymous(args)
+
     case List.last(args) do
       [do: block] ->
         {args |> Enum.drop(-1) |> Enum.map(&term/1), block |> lines() |> Enum.map(&goal/1)}
@@ -113,9 +115,22 @@ defmodule Zkfol.Lang do
   defp rel_clause(name, {other, _meta, _args}),
     do: raise(ArgumentError, "the clause #{other} does not belong to the relation #{name}")
 
+  # `_` is an I-don't-care: each occurrence its own fresh name.
+  @spec anonymous(Macro.t()) :: Macro.t()
+  defp anonymous(ast) do
+    {renamed, _n} =
+      Macro.prewalk(ast, 0, fn
+        {:_, meta, ctx}, n when is_atom(ctx) -> {{:"_gensym#{n}", meta, ctx}, n + 1}
+        other, n -> {other, n}
+      end)
+
+    renamed
+  end
+
   @spec store(Macro.t(), [Macro.t()]) :: Macro.t()
   defp store(head, body) do
     {name, _meta, args} = head
+    {args, body} = anonymous({args, body})
     clause = {Enum.map(args, &term/1), Enum.map(body, &goal/1)}
 
     quote do
@@ -409,10 +424,9 @@ defmodule Zkfol.Lang do
 
       with {:ok, target} <- resolve(at, env),
            {row, pointers} = point(pointers, name, target),
-           {:ok, env} <- outputs(outs, value_rows, row, env),
-           do:
-             {:ok, {[schedule(index, row, target) | check(tags, name, row)], row},
-              {env, pointers}}
+           {:ok, identities, env} <- outputs(outs, value_rows, row, env),
+           goals = [schedule(index, row, target) | check(tags, name, row)],
+           do: {:ok, {goals ++ identities, row}, {env, pointers}}
     end)
     |> case do
       {:ok, compiled, {env, pointers}} ->
@@ -451,19 +465,27 @@ defmodule Zkfol.Lang do
 
   defp schedule(index, pointer, target), do: Ast.eq(Ast.cell(index, pointer), target)
 
-  # A call's outputs are the callee's value rows read through the pointer.
+  # A call's outputs are the callee's value rows read through the
+  # pointer; a non-fresh output is identified with its cell by equation.
   @spec outputs([term()], [Ast.row_ref()], Ast.row_ref(), env()) ::
-          {:ok, env()} | {:error, Refusal.t()}
+          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
   defp outputs(outs, value_rows, pointer, env) do
     outs
     |> Enum.zip(value_rows)
-    |> Enum.reduce_while({:ok, env}, fn
-      {{:var, name}, row}, {:ok, env} when not is_map_key(env, name) ->
-        {:cont, {:ok, Map.put(env, name, Ast.cell(row, pointer))}}
+    |> Refusal.map_reduce(env, fn {out, row}, env -> output(out, Ast.cell(row, pointer), env) end)
+    |> case do
+      {:ok, identities, env} -> {:ok, Enum.concat(identities), env}
+      refusal -> refusal
+    end
+  end
 
-      {out, _row}, _acc ->
-        {:halt, {:error, {:call_output_not_fresh, %{output: out}}}}
-    end)
+  @spec output(term(), Ast.term_t(), env()) ::
+          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
+  defp output({:var, name}, cell, env) when not is_map_key(env, name),
+    do: {:ok, [], Map.put(env, name, cell)}
+
+  defp output(out, cell, env) do
+    with {:ok, term} <- resolve(out, env), do: {:ok, [Ast.eq(term, cell)], env}
   end
 
   @spec equations([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
