@@ -21,6 +21,49 @@ defmodule Examples.EQuery do
   # A fact that names a value it does not fix: the row stays open.
   defrel loose(1, v)
 
+  # A relation whose clauses name len: the flag is the squared gap to
+  # the end, so the count has to be there before the first answer is.
+  defrel gap(1, v) do
+    v = reify(1 = len)
+  end
+
+  defrel gap(x, v) do
+    x > 1
+    gap(x - 1, _w)
+    v = reify(x = len)
+  end
+
+  # The collatz step: a fresh body name in each clause, nowhere in the
+  # head, which only the prove road needs placed.
+  defrel collatz_next(x, y) do
+    x = 2 * k
+    y = k
+  end
+
+  defrel collatz_next(x, y) do
+    x = 2 * k + 1
+    y = 3 * x + 1
+  end
+
+  @doc """
+  Evaluation never lowers: a fresh body name derives, and only the
+  prove road wants it on a row.
+  """
+  @spec a_fresh_name_evaluates() :: Refusal.t()
+  example a_fresh_name_evaluates do
+    {:ok, odd} = Zkfol.eval(collatz_next(), [7, :_], [])
+    assert Query.taken(odd) == [[7, 22]]
+    Query.close(odd)
+
+    {:ok, even} = Zkfol.eval(collatz_next(), [8, :_], [])
+    assert Query.taken(even) == [[8, 4]]
+    Query.close(even)
+
+    {:error, reason} = Al.solved(collatz_next(), [7], [])
+    assert {:unbound_variable, %{variable: :k}} = reason
+    reason
+  end
+
   @doc "Every answer of a finite relation, in the order its clauses stand."
   @spec table_streams_every_answer() :: [[pos_integer()]]
   example table_streams_every_answer do
@@ -74,6 +117,38 @@ defmodule Examples.EQuery do
     assert {:residue, %{answer: [1, open]}} = reason
     refute is_integer(open)
     reason
+  end
+
+  @doc """
+  len names the trace, and only a bound count sizes it ahead of the
+  first answer: a query that leaves the count free refuses as `solve/3`
+  refuses, and one that pins it answers at that length.
+  """
+  @spec a_len_query_wants_its_count() :: Refusal.t()
+  example a_len_query_wants_its_count do
+    assert {:error, reason} = Query.open(gap(), [:_, :_], [])
+    assert reason == {:len_needs_a_bound_count, %{}}
+
+    {:ok, query} = Query.open(gap(), [5, :_], [])
+    assert Query.next(query) == {:ok, [5, 0]}
+    Query.close(query)
+    reason
+  end
+
+  @doc """
+  The root's closure says what installs. gap is nobody's call here, so
+  its len never reaches tab's clauses, which the question over both
+  relations shows it would.
+  """
+  @spec an_unreachable_relation_stays_out() :: [[pos_integer()]]
+  example an_unreachable_relation_stays_out do
+    {:ok, query} = Query.open([EAl.tab(), gap()], [:_, :_], [])
+    answers = Enum.map(1..4, fn _ -> Query.next(query) end)
+    Query.close(query)
+
+    assert answers == Enum.map(table_streams_every_answer(), &{:ok, &1})
+    assert Al.question([EAl.tab(), gap()]) != Al.question(EAl.tab())
+    for {:ok, answer} <- answers, do: answer
   end
 
   @doc """
