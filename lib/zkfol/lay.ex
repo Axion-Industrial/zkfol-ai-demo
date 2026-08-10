@@ -10,17 +10,17 @@ defmodule Zkfol.Lay do
   `Zkfol.Statement.Solved`, so what a viewer draws is what a value
   holds.
 
-  Everything cross-position is index-form -- the i-th entry speaks of
-  the derivation's i-th fact -- so I ride the bridge whole. Reading
-  me: `columns` says which trace column the i-th fact was dealt onto;
-  `consumption` says, per fact, `{ptr_row, callee_index}` -- it
+  Everything cross-position is index-form, the i-th entry speaking of
+  the derivation's i-th fact, so I ride the bridge whole. Reading me:
+  `columns` says which trace column the i-th fact was dealt onto;
+  `consumption` says, per fact, `{ptr_row, callee_index}`: it
   consumed the callee-th fact through that committed pointer row;
-  `slack` says, per fact, the room its fired clause's guards left --
-  the k-th entry is what the k-th slack row holds at that fact's
-  column, and a clause with fewer guards says less, so the rest pads;
+  `slack` says, per fact, the room its fired clause's guards left,
+  the k-th entry what the k-th slack row holds at that fact's column,
+  a clause with fewer guards saying less and the rest padding;
   `quot` says the same of its reductions, the k-th entry the quotient
   the k-th mod site divided out;
-  `welds` says `{ptr_row, k}` -- every consumption through that row
+  `welds` says `{ptr_row, k}`: every consumption through that row
   lands exactly k columns back, so the pointer becomes a shift. The
   columns are arranged precisely so the welds hold: one is the
   choice, the other the property it achieves. The shape earns its
@@ -65,27 +65,25 @@ defmodule Zkfol.Lay do
   """
   @spec of(Derivation.t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) :: t()
   def of(%Derivation{facts: facts} = derivation, alloc, shape, members) do
-    row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
     index = facts |> Enum.with_index() |> Map.new()
     fired = Consumption.fired(derivation, members, shape)
+    fired = Enum.map(facts, &Map.fetch!(fired, &1))
 
     consumption =
-      Map.new(fired, fn {fact, ran} -> {fact, for({p, c} <- consumed(ran), do: {row.(p), c})} end)
+      for ran <- fired do
+        for {p, callee} <- consumed(ran), do: {row(alloc, p), Map.fetch!(index, callee)}
+      end
 
-    schedules = measured(consumption)
-    position = facts |> arrange(consumption, schedules) |> Enum.with_index(1) |> Map.new()
-    filled = for fact <- facts, do: filled(fact, Map.fetch!(fired, fact))
+    schedules = measured(consumption, List.to_tuple(facts))
+    filled = Enum.zip_with(facts, fired, &filled/2)
 
     %__MODULE__{
       shape: shape,
       alloc: alloc,
       derivation: derivation,
-      columns: Enum.map(facts, &Map.fetch!(position, &1)),
+      columns: arrange(consumption, schedules),
       welds: Enum.sort(schedules),
-      consumption:
-        for fact <- facts do
-          for {ptr, callee} <- Map.fetch!(consumption, fact), do: {ptr, Map.fetch!(index, callee)}
-        end,
+      consumption: consumption,
       slack: Enum.map(filled, &elem(&1, 0)),
       quot: Enum.map(filled, &elem(&1, 1))
     }
@@ -95,31 +93,31 @@ defmodule Zkfol.Lay do
   I am my matrix: each fact's tuple on its member's rows at its
   column, the tag row wearing its relation, each pointer holding the
   consumed column, each slack cell the room its guard left, each
-  quotient cell what its reduction divided out, unread cells padding
-  -- zero, or one on a pointer row, since an unread pointer still
-  names a column. A cell unification left free reads zero.
+  quotient cell what its reduction divided out. An unread cell pads
+  zero, or one on a pointer row, since an unread pointer still names
+  a column. A cell unification left free reads zero.
   """
   @spec witness(t()) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
   def witness(%__MODULE__{alloc: alloc, shape: shape, derivation: derivation} = lay) do
-    row = &(Alloc.offset(alloc, elem(&1, 0)) + elem(&1, 1))
     pointer_rows = pointer_rows(alloc, shape)
     slack_rows = region_rows(alloc, shape, :slack)
     quot_rows = region_rows(alloc, shape, :quot)
+    placed = List.to_tuple(lay.columns)
 
     columns =
-      [derivation.facts, lay.consumption, lay.slack, lay.quot]
+      [derivation.facts, lay.consumption, lay.slack, lay.quot, lay.columns]
       |> Enum.zip()
-      |> Enum.sort_by(fn {fact, _used, _spare, _quots} -> position_of(lay, fact) end)
-      |> Enum.map(fn {{name, tuple} = _fact, used, spare, quots} ->
+      |> Enum.sort_by(fn {_fact, _used, _spare, _quots, column} -> column end)
+      |> Enum.map(fn {{name, tuple}, used, spare, quots, _column} ->
         cells = alloc |> Alloc.rows(name) |> Enum.zip(tuple) |> Map.new()
 
         cells =
           if shape.tags == %{},
             do: cells,
-            else: Map.put(cells, row.({:tag, 1}), Map.fetch!(shape.tags, name))
+            else: Map.put(cells, row(alloc, {:tag, 1}), Map.fetch!(shape.tags, name))
 
         cells
-        |> Map.merge(Map.new(used, fn {ptr, callee} -> {ptr, Enum.at(lay.columns, callee)} end))
+        |> Map.merge(Map.new(used, fn {ptr, callee} -> {ptr, elem(placed, callee)} end))
         |> Map.merge(Map.new(Enum.zip(slack_rows, spare)))
         |> Map.merge(Map.new(Enum.zip(quot_rows, quots)))
       end)
@@ -158,13 +156,15 @@ defmodule Zkfol.Lay do
         ]
   def arrows(%__MODULE__{alloc: alloc, derivation: derivation} = lay) do
     schedules = Map.new(lay.welds)
+    placed = List.to_tuple(lay.columns)
+    facts = List.to_tuple(derivation.facts)
 
     for {used, i} <- Enum.with_index(lay.consumption), {ptr, callee} <- used do
       %{
         ptr: ptr,
-        from: Enum.at(lay.columns, i),
-        to: Enum.at(lay.columns, callee),
-        to_row: Alloc.offset(alloc, derivation.facts |> Enum.at(callee) |> elem(0)) + 1,
+        from: elem(placed, i),
+        to: elem(placed, callee),
+        to_row: Alloc.offset(alloc, facts |> elem(callee) |> elem(0)) + 1,
         weld: Map.get(schedules, ptr)
       }
     end
@@ -235,9 +235,9 @@ defmodule Zkfol.Lay do
   defp gap(:<, a, b), do: b - a - 1
   defp gap(:<=, a, b), do: b - a
 
-  @spec position_of(t(), Derivation.fact()) :: pos_integer()
-  defp position_of(%__MODULE__{derivation: derivation} = lay, fact),
-    do: Enum.at(lay.columns, Enum.find_index(derivation.facts, &(&1 == fact)))
+  # The absolute row a {symbol, offset} reference lands on.
+  @spec row(Alloc.t(), {atom(), pos_integer()}) :: pos_integer()
+  defp row(alloc, {sym, i}), do: Alloc.offset(alloc, sym) + i
 
   # The matrix cut along the regions it was laid on.
   @spec banks([[non_neg_integer()]], Alloc.t()) :: %{atom() => Interpretation.t()}
@@ -261,14 +261,15 @@ defmodule Zkfol.Lay do
   # A pointer welds when every consumption through it is the same
   # relation descending its first argument by one constant: measured
   # off the edges.
-  @spec measured(%{Derivation.fact() => [{pos_integer(), Derivation.fact()}]}) ::
+  @spec measured([[{pos_integer(), non_neg_integer()}]], tuple()) ::
           %{pos_integer() => pos_integer()}
-  defp measured(consumption) do
+  defp measured(consumption, facts) do
     consumption
-    |> Enum.flat_map(fn {consumer, used} ->
-      for {ptr, callee} <- used, do: {ptr, consumer, callee}
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {used, i} ->
+      for {ptr, callee} <- used, do: {ptr, i, callee}
     end)
-    |> Enum.group_by(&elem(&1, 0), fn {_ptr, consumer, callee} -> delta(consumer, callee) end)
+    |> Enum.group_by(&elem(&1, 0), fn {_ptr, i, j} -> delta(elem(facts, i), elem(facts, j)) end)
     |> Enum.flat_map(fn {ptr, deltas} ->
       case Enum.uniq(deltas) do
         [k] when is_integer(k) and k > 0 -> [{ptr, k}]
@@ -285,44 +286,60 @@ defmodule Zkfol.Lay do
   defp delta(_consumer, _callee), do: nil
 
   # A scheduled read welds its consumer exactly k above its callee;
-  # the rest keeps callees below their callers.
-  @spec arrange(
-          [Derivation.fact()],
-          %{Derivation.fact() => [{pos_integer(), Derivation.fact()}]},
-          %{pos_integer() => pos_integer()}
-        ) :: [Derivation.fact()]
-  defp arrange(facts, consumption, schedules) do
-    welds =
-      for fact <- facts,
-          {row, callee} <- Map.fetch!(consumption, fact),
-          k = Map.get(schedules, row),
-          is_integer(k),
-          do: {fact, callee, k}
+  # the rest keeps callees below their callers. The i-th answer is the
+  # i-th fact's column.
+  @spec arrange([[{pos_integer(), non_neg_integer()}]], %{pos_integer() => pos_integer()}) ::
+          [pos_integer()]
+  defp arrange(consumption, schedules) do
+    forest =
+      Map.new(
+        for {used, i} <- Enum.with_index(consumption),
+            {ptr, callee} <- used,
+            k = Map.get(schedules, ptr),
+            is_integer(k),
+            do: {callee, {i, -k}}
+      )
 
-    forest = Map.new(welds, fn {consumer, callee, k} -> {callee, {consumer, -k}} end)
+    {walked, _seen} =
+      Enum.map_reduce(0..(length(consumption) - 1)//1, %{}, fn i, seen ->
+        {place, seen} = walk(forest, i, seen)
+        {{place, i}, seen}
+      end)
 
-    walked = Enum.map(facts, &{walk(forest, &1), &1})
-    roots = for {{root, _delta}, _fact} <- walked, uniq: true, do: root
-    grouped = Enum.group_by(walked, fn {{root, _delta}, _fact} -> root end)
+    roots = for {{root, _delta}, _i} <- walked, uniq: true, do: root
+    grouped = Enum.group_by(walked, fn {{root, _delta}, _i} -> root end)
 
-    Enum.flat_map(roots, fn root ->
-      grouped
-      |> Map.fetch!(root)
-      |> Enum.sort_by(fn {{_root, delta}, _fact} -> delta end)
-      |> Enum.map(fn {_walked, fact} -> fact end)
-    end)
+    position =
+      roots
+      |> Enum.flat_map(fn root ->
+        grouped |> Map.fetch!(root) |> Enum.sort_by(fn {{_root, delta}, _i} -> delta end)
+      end)
+      |> Enum.with_index(1)
+      |> Map.new(fn {{_place, i}, column} -> {i, column} end)
+
+    Enum.map(0..(length(consumption) - 1)//1, &Map.fetch!(position, &1))
   end
 
-  # pos(fact) = pos(root) + delta, the forest carrying the deltas.
-  @spec walk(map(), Derivation.fact()) :: {Derivation.fact(), integer()}
-  defp walk(forest, fact) do
-    case forest do
-      %{^fact => {parent, delta}} ->
-        {root, above} = walk(forest, parent)
-        {root, delta + above}
+  # pos(i) = pos(root) + delta, the forest carrying the deltas and
+  # `seen` each place once, so a chain walks its length, not its
+  # square.
+  @spec walk(map(), non_neg_integer(), map()) ::
+          {{non_neg_integer(), integer()}, map()}
+  defp walk(forest, i, seen) do
+    case seen do
+      %{^i => place} ->
+        {place, seen}
 
-      _forest ->
-        {fact, 0}
+      _seen ->
+        case forest do
+          %{^i => {parent, delta}} ->
+            {{root, above}, seen} = walk(forest, parent, seen)
+            place = {root, delta + above}
+            {place, Map.put(seen, i, place)}
+
+          _forest ->
+            {{i, 0}, seen}
+        end
     end
   end
 end
