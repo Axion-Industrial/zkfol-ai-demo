@@ -6,15 +6,15 @@ defmodule Zkfol.Al do
   the witness is its facts, laid by `Zkfol.Derivation` and judged by
   the oracle. The flow: prepare, ask, extract, lay, judge, journal.
 
-  My satellites are the distance from the ideal: `Zkfol.Al.Freeze`
-  dies when CLPFD lands, `Zkfol.Al.Consumption` dies when the journal
-  names the fired clause. Laying has already left me: it is the
-  allocator's, and `Zkfol.Derivation` holds it under `Zkfol.Alloc`.
+  My satellites are the distance from the ideal: `Zkfol.Al.Consumption`
+  dies when the journal names the fired clause. Two have already closed
+  their distance: laying is the allocator's, held by `Zkfol.Derivation`
+  under `Zkfol.Alloc`, and the frozen expansion of an equation into its
+  directions is one CLP constraint goal.
   """
 
   import Kernel, except: [apply: 3]
 
-  alias Zkfol.Al.Freeze
   alias Zkfol.Derivation
   alias Zkfol.Lang
   alias Zkfol.Lay
@@ -386,9 +386,9 @@ defmodule Zkfol.Al do
 
   # --- the question: the clauses as plain AL, no witness laid out ---
 
-  # The clauses as written, calls in body order, equations and guards
-  # through `Zkfol.Al.Freeze`; len rides as one more parameter when
-  # mentioned.
+  # The clauses as written, every constraint AL can hold open posted at
+  # clause entry and the rest of the body in the order written; len rides
+  # as one more parameter when mentioned.
   @spec question_program([Rel.t()]) :: {:ok, program()} | {:error, Refusal.t()}
   defp question_program(rels) do
     len? = Enum.any?(rels, &mentions_len?(&1.clauses))
@@ -412,24 +412,105 @@ defmodule Zkfol.Al do
         lenp = if len?, do: [v(:len)], else: []
         params = Enum.map(head, &qterm/1) ++ lenp
 
-        {calls, defs} =
-          body
-          |> Enum.filter(&match?({:call, _n, _a}, &1))
-          |> Enum.with_index()
-          |> Enum.map_reduce([], fn {{:call, n, args}, j}, defs ->
-            {args, defs} = Freeze.args(args, i, j, env, defs)
-            {{n, [], [v(:self) | args] ++ lenp}, defs}
-          end)
+        {entry, written} = Enum.split_with(numbered(body), &postable?/1)
 
-        with {:ok, guards} <- Freeze.guards(body, env),
-             {:ok, equations} <- Freeze.equations(body, i, env) do
-          goals = {:__block__, [], defs ++ guards ++ equations ++ calls}
-          {:ok, defmethod(rname, [v(:self) | params], goals)}
+        with {:ok, goals} <- Refusal.flat_map(entry ++ written, &goals(&1, i, env, lenp)) do
+          {:ok, defmethod(rname, [v(:self) | params], {:__block__, [], goals})}
         end
 
       bad ->
         {:error, {:head_not_a_column, %{head: bad}}}
     end
+  end
+
+  # The body's statements, each call carrying its place among the calls:
+  # what tells one call's fresh argument names from another's.
+  @spec numbered([term()]) :: [{term(), non_neg_integer()}]
+  defp numbered(body) do
+    body
+    |> Enum.map_reduce(0, fn
+      {:call, _n, _a} = call, j -> {{call, j}, j + 1}
+      other, j -> {{other, j}, j}
+    end)
+    |> elem(0)
+  end
+
+  # What posts at clause entry: a constraint AL's fixpoint carries with
+  # every variable of it still open, so where the surface wrote it stops
+  # mattering. A product of two unknowns is not one -- AL refuses it where
+  # it stands -- so it waits where it was written, as does every call.
+  @spec postable?({term(), non_neg_integer()}) :: boolean()
+  defp postable?({{:eq, t, u}, _j}), do: linear?(t) and linear?(u)
+  defp postable?({{:cmp, _op, t, u}, _j}), do: linear?(t) and linear?(u)
+  defp postable?({_statement, _j}), do: false
+
+  @spec linear?(term()) :: boolean()
+  defp linear?({:mul, t, u}), do: (is_integer(t) or is_integer(u)) and linear?(t) and linear?(u)
+  defp linear?({:add, t, u}), do: linear?(t) and linear?(u)
+  defp linear?({:reify, {:eq, t, u}}), do: linear?(Ast.arithmetize(Ast.eq(t, u)))
+  defp linear?(_term), do: true
+
+  # A statement of clause `i`'s body: an equation is CLP's `eq`, a guard the
+  # comparison itself, each sound with either side still open and each
+  # narrowing the rest through AL's fixpoint. A call sends, its computed
+  # arguments equated to fresh names first.
+  @spec goals({term(), non_neg_integer()}, non_neg_integer(), %{atom() => atom()}, [Macro.t()]) ::
+          {:ok, [Macro.t()]} | {:error, Refusal.t()}
+  defp goals({{:eq, t, u}, _j}, _i, env, _lenp) do
+    with {:ok, goal} <- binary(:eq, t, u, env), do: {:ok, [goal]}
+  end
+
+  defp goals({{:cmp, op, t, u}, _j}, _i, env, _lenp) do
+    with {:ok, goal} <- binary(op, t, u, env), do: {:ok, [goal]}
+  end
+
+  defp goals({{:call, name, args}, j}, i, env, lenp) do
+    with {:ok, passed} <- Refusal.map(Enum.with_index(args), &argument(&1, i, j, env)) do
+      {defs, args} = Enum.unzip(passed)
+      {:ok, Enum.concat(defs) ++ [{name, [], [v(:self) | args] ++ lenp}]}
+    end
+  end
+
+  # A variable or literal rides as itself; anything computed goes through
+  # a fresh name one equation binds it to.
+  @spec argument({term(), non_neg_integer()}, non_neg_integer(), non_neg_integer(), %{
+          atom() => atom()
+        }) :: {:ok, {[Macro.t()], Macro.t()}} | {:error, Refusal.t()}
+  defp argument({{:var, nm}, _k}, _i, _j, _env), do: {:ok, {[], v(nm)}}
+  defp argument({q, _k}, _i, _j, _env) when is_integer(q), do: {:ok, {[], q}}
+
+  defp argument({expr, k}, i, j, env) do
+    fresh = v(:"q#{i}c#{j}a#{k}")
+
+    with {:ok, term} <- arith(expr, env),
+         do: {:ok, {[{:eq, [], [fresh, term]}], fresh}}
+  end
+
+  # A surface term as AL arithmetic over the clause's variables.
+  @spec arith(term(), %{atom() => atom()}) :: {:ok, Macro.t()} | {:error, Refusal.t()}
+  defp arith(q, _env) when is_integer(q), do: {:ok, q}
+  defp arith(:len, _env), do: {:ok, v(:len)}
+
+  defp arith({:reify, {:eq, t, u}}, env), do: arith(Ast.arithmetize(Ast.eq(t, u)), env)
+
+  defp arith({:add, t, u}, env), do: binary(:+, t, u, env)
+  defp arith({:mul, t, u}, env), do: binary(:*, t, u, env)
+
+  defp arith({:var, nm}, env) do
+    case env do
+      %{^nm => carrier} -> {:ok, v(carrier)}
+      _env -> {:error, {:unbound_variable, %{variable: nm}}}
+    end
+  end
+
+  defp arith(term, _env), do: {:error, {:unliftable_term, %{term: term}}}
+
+  @spec binary(atom(), term(), term(), %{atom() => atom()}) ::
+          {:ok, Macro.t()} | {:error, Refusal.t()}
+  defp binary(op, t, u, env) do
+    with {:ok, a} <- arith(t, env),
+         {:ok, b} <- arith(u, env),
+         do: {:ok, {op, [], [a, b]}}
   end
 
   @spec qterm(term()) :: Macro.t()
