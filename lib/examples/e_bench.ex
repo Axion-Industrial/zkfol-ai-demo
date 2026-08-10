@@ -32,6 +32,17 @@ defmodule Examples.EBench do
     measurement("fibonacci n=#{n}, registers", Statement.pred(EUser.registers(n)), witness)
   end
 
+  @spec measured_registers_fibonacci_mod(pos_integer()) :: map()
+  example measured_registers_fibonacci_mod(n \\ 1000) do
+    statement = EUser.registers_mod(n)
+
+    measurement(
+      "fibonacci n=#{n}, registers mod 7919",
+      Statement.pred(statement),
+      Statement.witness(statement)
+    )
+  end
+
   @spec measured_doubled_fibonacci(pos_integer()) :: map()
   example measured_doubled_fibonacci(n \\ 10_000) do
     statement = EDoubling.rewritten_fibonacci(n)
@@ -63,6 +74,7 @@ defmodule Examples.EBench do
       measured_power(),
       measured_fibonacci(),
       measured_registers_fibonacci(),
+      measured_registers_fibonacci_mod(),
       measured_doubled_fibonacci(),
       measured_hop()
     ]
