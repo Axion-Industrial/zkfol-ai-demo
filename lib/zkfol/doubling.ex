@@ -40,12 +40,13 @@ defmodule Zkfol.Doubling do
 
   @doc """
   I am the rewrite as a pass, and always a try: statements the facts
-  do not certify, or carrying no argument to claim, pass through
-  unchanged. Past certification a refusal is loud.
+  do not certify, or carrying no integer to claim. A free count runs
+  backward
   """
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{rels: [root | _rest], args: [n | _args]} = statement, opts) do
+  def run(%Statement{rels: [root | _rest], args: [n | _args]} = statement, opts)
+      when is_integer(n) do
     case Facts.recurrence(root) do
       {:error, _outside} -> {:ok, statement}
       {:ok, descriptor} -> rewritten(descriptor, n, named(statement, opts))

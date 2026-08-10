@@ -93,6 +93,20 @@ defmodule Examples.EDoubling do
     statement
   end
 
+  @spec a_free_count_passes_the_try() :: Statement.t()
+  example a_free_count_passes_the_try do
+    # No kernel walk exists for an unknown n, so the try declines and
+    # the plain relation solves backward through the front door.
+    source = %Statement{rels: [EUser.fib()], args: [:_, 21]}
+
+    {:ok, statement, _trace} = Pipeline.run(Pipeline.default(), source)
+    witness = Statement.witness(statement)
+
+    assert Interpretation.len(witness) == 8
+    assert Interpretation.at(witness, 2, 8) == 21
+    statement
+  end
+
   @spec unclaimed_position_keeps_n_private() :: map()
   example unclaimed_position_keeps_n_private do
     pipeline = %Pipeline{passes: [{Doubling, private: true}]}
