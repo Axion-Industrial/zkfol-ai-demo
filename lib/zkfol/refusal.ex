@@ -43,7 +43,7 @@ defmodule Zkfol.Refusal do
          step_head_not_indexed step_beyond_history
          step_needs_an_equation not_order_two step_not_linear no_relations
          unbound_variable relation_not_in_scope
-         call_output_not_fresh conflicting_schedule_offsets lookup_column_unshadowed
+         conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
          row_undetermined unliftable_term head_not_a_column arguments_exceed_rows
          len_needs_a_bound_count
@@ -210,9 +210,6 @@ defmodule Zkfol.Refusal do
 
   def message({:relation_not_in_scope, %{relation: name}}),
     do: "the relation #{name} is not in scope"
-
-  def message({:call_output_not_fresh, %{output: out}}),
-    do: "a call output must be a fresh variable, got #{inspect(out)}"
 
   def message({:conflicting_schedule_offsets, %{row: row, offsets: offsets}}),
     do: "pointer row #{row} has conflicting schedule offsets #{inspect(offsets)}"

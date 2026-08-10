@@ -47,16 +47,45 @@ defmodule Examples.EAl do
 
   defrel odd(x, v) do
     x > 1
-    even(x - 1, w)
-    v = w
+    even(x - 1, v)
   end
 
   defrel even(1, 0)
 
   defrel even(x, v) do
     x > 1
-    odd(x - 1, w)
+    odd(x - 1, v)
+  end
+
+  defrel named_odd(1, 1)
+
+  defrel named_odd(x, v) do
+    x > 1
+    named_even(x - 1, w)
     v = w
+  end
+
+  defrel named_even(1, 0)
+
+  defrel named_even(x, v) do
+    x > 1
+    named_odd(x - 1, w)
+    v = w
+  end
+
+  defrel pairs(1, 3, 5)
+  defrel pairs(2, 4, 4)
+
+  defrel twinned(x, v) do
+    pairs(x, v, v)
+  end
+
+  defrel mate(x, v) do
+    pairs(x, 3, v)
+  end
+
+  defrel loose(x) do
+    pairs(x, _, _)
   end
 
   defrel step(1, 2)
@@ -453,6 +482,46 @@ defmodule Examples.EAl do
     {:ok, odd4} = Al.solve([odd(), even()], [4, :_])
     assert Interpretation.at(odd4, 2, 4) == 0
     odd5
+  end
+
+  @doc "I thread the head through the call, and the intermediary I spared says the same."
+  @spec threading_a_head_names_no_intermediary() :: Interpretation.t()
+  example threading_a_head_names_no_intermediary do
+    {:ok, threaded} = Zkfol.Lang.lower(odd(), [odd(), even()])
+    {:ok, spelled} = Zkfol.Lang.lower(named_odd(), [named_odd(), named_even()])
+    {:ok, witness} = Al.solve([named_odd(), named_even()], [5, :_])
+
+    assert threaded == spelled
+    assert witness == recursion_between_relations_derives()
+    witness
+  end
+
+  @doc "I name one row twice in a call, so the two reads meet as a join."
+  @spec one_name_in_two_outputs_joins() :: Interpretation.t()
+  example one_name_in_two_outputs_joins do
+    {:ok, [%{x: 2, v: 4}]} = Al.apply([twinned(), pairs()], [:x, :v])
+
+    {:ok, witness} = Al.solve([twinned(), pairs()], [2, :_])
+    assert Interpretation.at(witness, 2, 2) == 4
+    witness
+  end
+
+  @doc "I do not care twice, and each underscore keeps to itself: no join."
+  @spec an_underscore_is_anonymous_each_time() :: [%{atom() => integer()}]
+  example an_underscore_is_anonymous_each_time do
+    {:ok, answers} = Al.apply([loose(), pairs()], [:x])
+
+    assert Enum.sort_by(answers, & &1.x) == [%{x: 1}, %{x: 2}]
+    answers
+  end
+
+  @doc "I pin an output to a value, so the call reads only the row that carries it."
+  @spec a_literal_output_pins_the_row() :: [%{atom() => integer()}]
+  example a_literal_output_pins_the_row do
+    {:ok, answers} = Al.apply([mate(), pairs()], [:x, :v])
+
+    assert answers == [%{x: 1, v: 5}]
+    answers
   end
 
   @doc "I refuse an unanswerable question by its finite failure, fast."
