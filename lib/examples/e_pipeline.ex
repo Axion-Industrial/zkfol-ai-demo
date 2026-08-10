@@ -91,10 +91,10 @@ defmodule Examples.EPipeline do
            end) == [{Zkfol.Lang, :lowers}, {Doubling, :rewrites}]
 
     # A stage is a re-run, never a record: 0 the source, 1 lowered, 2 doubled.
-    assert Log.stage(ran, 0) == {:ok, ran.source}
-    assert {:ok, %Statement{stage: %Statement.Lowered{}} = lowered} = Log.stage(ran, 1)
+    assert Log.Ran.stage(ran, 0) == {:ok, ran.source}
+    assert {:ok, %Statement{stage: %Statement.Lowered{}} = lowered} = Log.Ran.stage(ran, 1)
     assert Statement.pred(lowered) != nil
-    assert {:ok, %Statement{claims: [_exact, _position]}} = Log.stage(ran, 2)
+    assert {:ok, %Statement{claims: [_exact, _position]}} = Log.Ran.stage(ran, 2)
 
     trail
   end

@@ -12,6 +12,7 @@ defmodule Examples.EFace do
   alias Examples.EAl
   alias Examples.EUser
   alias Zkfol.Face
+  alias Zkfol.Log
   alias Zkfol.Statement
 
   @spec a_statement_summarises_to_its_facts() :: %{atom() => term()}
@@ -141,7 +142,7 @@ defmodule Examples.EFace do
   @spec the_derivation_reads_off_the_log() :: %{atom() => term()}
   example the_derivation_reads_off_the_log do
     ran = Zkfol.emit(%Statement{rels: [EUser.regs()], args: [5]})
-    feed = ran |> Face.final_stage() |> Face.derivation()
+    feed = ran |> Log.Ran.final_stage() |> Face.derivation()
 
     assert length(feed.rows) == 5
     assert %{fact: [:regs, 5, _a, _b], consumes: [[:regs, 4, _, _]]} = List.last(feed.rows)
@@ -168,19 +169,19 @@ defmodule Examples.EFace do
 
   @spec a_fact_carries_its_own_lay() :: Statement.t()
   example a_fact_carries_its_own_lay do
-    sub = Face.under(EUser.fibonacci(), 4)
+    sub = Statement.under(EUser.fibonacci(), 4)
 
     assert %Statement{stage: %Zkfol.Statement.Solved{}} = sub
     assert length(Statement.derivation(sub).facts) == 4
     assert Zkfol.Interpretation.len(Statement.witness(sub)) == 4
     assert Zkfol.Semantics.valid?(Statement.pred(sub), Statement.witness(sub))
 
-    assert Face.under(EUser.fibonacci(), 99) == nil
+    assert Statement.under(EUser.fibonacci(), 99) == nil
 
     {:ok, picked, _trace} =
       Zkfol.Pipeline.run(EUser.plain(), %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]})
 
-    leaf = Face.under(picked, 1)
+    leaf = Statement.under(picked, 1)
 
     assert hd(leaf.rels).name == :tab
     assert Zkfol.Alloc.width(Statement.alloc(leaf)) == 2
