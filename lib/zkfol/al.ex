@@ -236,7 +236,12 @@ defmodule Zkfol.Al do
     args = goal(root.arity, bind, [])
     lenp = if len?, do: [Map.fetch!(bind, 1)], else: []
 
-    with {:ok, bindings, shed} <- ask(plain(root.name, args ++ lenp), branch, heap, name) do
+    tree =
+      &(&1.domino.trace
+        |> Enum.reverse()
+        |> AL.Trace.derivation_tree(&1.active_choicepoint.store))
+
+    with {:ok, bindings, derived} <- ask(plain(root.name, args ++ lenp), branch, heap, name, tree) do
       grounded =
         Enum.map(args, fn
           {nm, [], nil} = var ->
@@ -248,11 +253,11 @@ defmodule Zkfol.Al do
         end)
 
       if grounded == args do
-        {:ok, tree(shed)}
+        {:ok, derived}
       else
-        with {:ok, _bindings, shed} <-
-               ask(plain(root.name, grounded ++ lenp), branch, heap, name),
-             do: {:ok, tree(shed)}
+        with {:ok, _bindings, replayed} <-
+               ask(plain(root.name, grounded ++ lenp), branch, heap, name, tree),
+             do: {:ok, replayed}
       end
     end
   end
@@ -260,16 +265,16 @@ defmodule Zkfol.Al do
   @spec plain(atom(), [term()]) :: [struct()]
   defp plain(rname, args), do: [AL.ast_to_pattern({rname, [], [@class | args]})]
 
-  @spec tree(%{domino: AL.Domino.t()}) :: [map()]
-  defp tree(shed), do: shed.domino.trace |> Enum.reverse() |> AL.Trace.derivation_tree()
-
-  # One eval against the installed question, refusals typed.
-  @spec ask([struct()], AL.Branch.t(), pos_integer(), atom()) ::
-          {:ok, AL.Var.bindings(), %{domino: AL.Domino.t()}} | {:error, Refusal.t()}
-  defp ask(query, branch, heap, name) do
-    case outcome(AL.eval(query, nil, branch, heap: heap)) do
-      {:ok, bindings, shed} ->
-        {:ok, bindings, shed}
+  # One eval against the installed question, refusals typed. The heap
+  # cap is ours, not AL's: its guarded eval sheds the state to nothing,
+  # and the derivation is what we came for. `digest` reads the state
+  # inside the cap, so only its answer crosses the boundary.
+  @spec ask([struct()], AL.Branch.t(), pos_integer(), atom(), (AL.t() -> term())) ::
+          {:ok, AL.Var.store(), term()} | {:error, Refusal.t()}
+  defp ask(query, branch, heap, name, digest) do
+    case outcome(capped_eval(query, branch, heap, digest)) do
+      {:ok, bindings, derived} ->
+        {:ok, bindings, derived}
 
       {:no, %{reason: {:resource_limit_exceeded, n}}} ->
         {:error, {:unresolved_within_budget, %{reductions: n}}}
@@ -281,6 +286,31 @@ defmodule Zkfol.Al do
         refusal
     end
   end
+
+  # AL's eval under our own heap cap. The state stays in the dying
+  # process -- an exit reason is copied onto the parent's uncapped heap,
+  # so what leaves is what `digest` made of it.
+  @spec capped_eval([struct()], AL.Branch.t(), pos_integer(), (AL.t() -> term())) :: term()
+  defp capped_eval(query, branch, heap, digest) do
+    {pid, ref} =
+      spawn_monitor(fn ->
+        Process.flag(:max_heap_size, %{size: heap, kill: true, error_logger: false})
+        exit({:derived, digested(AL.eval(query, nil, branch, []), digest)})
+      end)
+
+    receive do
+      {:DOWN, ^ref, :process, ^pid, {:derived, result}} ->
+        result
+
+      {:DOWN, ^ref, :process, ^pid, _killed} ->
+        {:error, "the derivation exceeded #{heap} heap words"}
+    end
+  end
+
+  # An answer sheds to its digest; anything else is already small.
+  @spec digested(term(), (AL.t() -> term())) :: term()
+  defp digested({:atomic, {bindings, state}}, digest), do: {:atomic, {bindings, digest.(state)}}
+  defp digested(other, _digest), do: other
 
   # The call's arguments: a named row rides its name, a bound row its
   # value, anything else a fresh variable.
@@ -295,8 +325,8 @@ defmodule Zkfol.Al do
 
   # AL's outcome, typed; the caller owns the policy on a no.
   @spec outcome(term()) ::
-          {:ok, AL.Var.bindings(), term()} | {:no, term()} | {:error, Refusal.t()}
-  defp outcome({:atomic, {bindings, shed}}), do: {:ok, bindings, shed}
+          {:ok, AL.Var.store(), term()} | {:no, term()} | {:error, Refusal.t()}
+  defp outcome({:atomic, {bindings, state}}), do: {:ok, bindings, state}
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
@@ -339,7 +369,8 @@ defmodule Zkfol.Al do
       query = [AL.ast_to_pattern(quote(do: findall(unquote(template), unquote([call]), rs)))]
 
       on_question(prep, 20_000_000, fn branch, heap ->
-        with {:ok, bindings, _shed} <- ask(query, branch, heap, root.name) do
+        with {:ok, bindings, _nothing} <-
+               ask(query, branch, heap, root.name, fn _state -> nil end) do
           rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
 
           {:ok,
@@ -445,7 +476,7 @@ defmodule Zkfol.Al do
   @spec install(program(), AL.Branch.t(), pos_integer()) :: :ok | {:error, Refusal.t()}
   defp install(program, branch, heap) do
     case outcome(AL.eval(program, nil, branch, heap: heap)) do
-      {:ok, _bindings, _shed} -> :ok
+      {:ok, _bindings, _state} -> :ok
       {:no, reason} -> {:error, {:send_failed, %{reason: reason}}}
       {:error, _reason} = refusal -> refusal
     end
