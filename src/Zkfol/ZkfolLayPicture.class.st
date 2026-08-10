@@ -87,14 +87,16 @@ ZkfolLayPicture >> asElement [
 { #category : 'accessing' }
 ZkfolLayPicture >> colorOfRow: aRow [
 	"The shared palette by what the row's region is: the pointer bank
-	 wears the pointer orange, the tag the scheduled violet, a member's
-	 index row the index tan, its value rows the quiet default."
+	 wears the pointer orange, the tag the scheduled violet, the slack
+	 a guard binds the quiet bit blue, a member's index row the index
+	 tan, its value rows the quiet default."
 	| region name |
 	region := self regionOf: aRow.
 	region ifNil: [ ^ ZkfolPalette kindColor: #plain ].
 	name := (region at: #name) asString.
 	name = 'ptr' ifTrue: [ ^ ZkfolPalette kindColor: #pointer ].
 	name = 'tag' ifTrue: [ ^ ZkfolPalette kindColor: #scheduled ].
+	name = 'slack' ifTrue: [ ^ ZkfolPalette kindColor: #bit ].
 	aRow = (region at: #first) ifTrue: [ ^ ZkfolPalette kindColor: #index ].
 	^ ZkfolPalette kindColor: #plain
 ]
