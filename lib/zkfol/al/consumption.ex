@@ -1,113 +1,77 @@
 defmodule Zkfol.Al.Consumption do
   @moduledoc """
-  I recover who consumed what, by value: the clause that fired is
-  the first whose head admits the fact's tuple and whose every call
-  finds its fact, unambiguous because the facts are committed-only.
-  I exist because the journal does not yet say which clause fired;
-  when each call node carries its clause and locals, I am a lookup,
-  deleted.
+  I put each consumption edge on the pointer it went through: the
+  derivation says what a fact's calls consumed, and the clause that
+  fired -- the first whose head admits the tuple and whose calls line
+  up with what was consumed -- says through which pointer each came.
+  I exist because the journal does not yet name the fired clause;
+  when each call node carries it, I am a lookup, deleted.
   """
 
+  alias Zkfol.Derivation
   alias Zkfol.Lang.Rel
 
-  @typep fact :: {atom(), [term()]}
+  @doc "I am each fact's consumption: its call sites' pointer names beside the facts they used."
+  @spec of(Derivation.t(), [Rel.t()], Zkfol.Lang.shape()) ::
+          %{Derivation.fact() => [{Zkfol.Ast.row_ref(), Derivation.fact()}]}
+  def of(%Derivation{} = derivation, members, shape) do
+    sites = clause_sites(members, shape)
 
-  @doc "I am each fact's consumption: its call sites' pointer rows beside the facts they used."
-  @spec of([fact()], [Rel.t()], map()) :: %{fact() => [{pos_integer(), fact()}]}
-  def of(facts, members, table) do
-    sites = clause_sites(members, table)
-    by_name = Enum.group_by(facts, &elem(&1, 0))
-    Map.new(facts, &{&1, consumed(&1, sites, by_name)})
+    derivation
+    |> Derivation.consumption()
+    |> Map.new(fn {fact, used} -> {fact, consumed(fact, sites, used)} end)
   end
 
-  @spec consumed(fact(), map(), %{atom() => [fact()]}) :: [{pos_integer(), fact()}]
-  defp consumed({name, tuple}, sites, by_name) do
+  # The fired clause pairs its pointers with the consumed facts in
+  # body order; a fact clause consumed nothing and needs no pairing.
+  @spec consumed(Derivation.fact(), map(), [Derivation.fact()]) ::
+          [{Zkfol.Ast.row_ref(), Derivation.fact()}]
+  defp consumed(_fact, _sites, []), do: []
+
+  defp consumed({name, tuple}, sites, used) do
     sites
     |> Map.fetch!(name)
     |> Enum.find_value([], fn {head, calls} ->
-      case head_env(head, tuple) do
-        {:ok, env} -> match_calls(calls, env, by_name)
-        :mismatch -> nil
-      end
+      if admits?(head, tuple) and calls_line_up?(calls, used),
+        do: Enum.zip(Enum.map(calls, &elem(&1, 1)), used)
     end)
   end
 
-  @spec head_env([term()], [term()]) :: {:ok, %{atom() => term()}} | :mismatch
-  defp head_env(head, tuple) do
+  @spec admits?([term()], [term()]) :: boolean()
+  defp admits?(head, tuple) do
     head
     |> Enum.zip(tuple)
-    |> Enum.reduce_while({:ok, %{}}, fn
-      {{:var, nm}, value}, {:ok, env} ->
+    |> Enum.reduce_while(%{}, fn
+      {{:var, nm}, value}, env ->
         case env do
-          %{^nm => ^value} -> {:cont, {:ok, env}}
+          %{^nm => ^value} -> {:cont, env}
           %{^nm => _other} -> {:halt, :mismatch}
-          _env -> {:cont, {:ok, Map.put(env, nm, value)}}
+          _env -> {:cont, Map.put(env, nm, value)}
         end
 
-      {literal, value}, {:ok, env} ->
-        if literal == value, do: {:cont, {:ok, env}}, else: {:halt, :mismatch}
+      {literal, value}, env ->
+        if literal == value, do: {:cont, env}, else: {:halt, :mismatch}
     end)
+    |> Kernel.!=(:mismatch)
   end
 
-  @spec match_calls([{atom(), [term()], pos_integer()}], map(), %{atom() => [fact()]}) ::
-          [{pos_integer(), fact()}] | nil
-  defp match_calls(calls, env, by_name) do
-    pairs =
-      Enum.map(calls, fn {callee, cargs, row} -> {row, find_fact(callee, cargs, env, by_name)} end)
-
-    if Enum.all?(pairs, fn {_row, fact} -> fact end), do: pairs
+  @spec calls_line_up?([{atom(), Zkfol.Ast.row_ref()}], [Derivation.fact()]) :: boolean()
+  defp calls_line_up?(calls, used) do
+    length(calls) == length(used) and
+      calls |> Enum.zip(used) |> Enum.all?(fn {{callee, _ptr}, {name, _t}} -> callee == name end)
   end
 
-  @spec find_fact(atom(), [term()], map(), %{atom() => [fact()]}) :: fact() | nil
-  defp find_fact(callee, cargs, env, by_name) do
-    pins =
-      cargs
-      |> Enum.with_index()
-      |> Enum.flat_map(fn {carg, at} ->
-        case eval_arg(carg, env) do
-          {:ok, value} -> [{at, value}]
-          :free -> []
-        end
-      end)
-
-    by_name
-    |> Map.get(callee, [])
-    |> Enum.find(fn {_name, tuple} ->
-      Enum.all?(pins, fn {at, value} -> Enum.at(tuple, at) == value end)
-    end)
-  end
-
-  @spec eval_arg(term(), %{atom() => term()}) :: {:ok, integer()} | :free
-  defp eval_arg(q, _env) when is_integer(q), do: {:ok, q}
-
-  defp eval_arg({:var, nm}, env) do
-    case env do
-      %{^nm => value} when is_integer(value) -> {:ok, value}
-      _env -> :free
-    end
-  end
-
-  defp eval_arg({op, t, u}, env) when op in [:add, :mul] do
-    with {:ok, a} <- eval_arg(t, env),
-         {:ok, b} <- eval_arg(u, env),
-         do: {:ok, if(op == :add, do: a + b, else: a * b)},
-         else: (_free -> :free)
-  end
-
-  defp eval_arg(_q, _env), do: :free
-
-  # Each member's clauses beside their pointer rows, calls in body
-  # order, as Lang allocated them.
-  @spec clause_sites([Rel.t()], map()) ::
-          %{atom() => [{[term()], [{atom(), [term()], pos_integer()}]}]}
-  defp clause_sites(members, table) do
+  # Each member's clauses beside their pointers, calls in body order.
+  @spec clause_sites([Rel.t()], Zkfol.Lang.shape()) ::
+          %{atom() => [{[term()], [{atom(), Zkfol.Ast.row_ref()}]}]}
+  defp clause_sites(members, shape) do
     Map.new(members, fn rel ->
       per_clause =
         rel.clauses
-        |> Enum.zip(Map.fetch!(table.calls, rel.name))
-        |> Enum.map(fn {{head, body}, rows} ->
-          calls = for {:call, callee, cargs} <- body, do: {callee, cargs}
-          {head, Enum.zip_with(calls, rows, fn {callee, cargs}, row -> {callee, cargs, row} end)}
+        |> Enum.zip(Map.fetch!(shape.calls, rel.name))
+        |> Enum.map(fn {{head, body}, ptrs} ->
+          callees = for {:call, callee, _cargs} <- body, do: callee
+          {head, Enum.zip(callees, ptrs)}
         end)
 
       {rel.name, per_clause}

@@ -41,3 +41,11 @@ end
 defmodule Examples.EAlTest do
   use ExExample.ExUnit, for: Examples.EAl
 end
+
+defmodule Examples.EAllocTest do
+  use ExExample.ExUnit, for: Examples.EAlloc
+end
+
+defmodule Examples.EMatrixTest do
+  use ExExample.ExUnit, for: Examples.EMatrix
+end

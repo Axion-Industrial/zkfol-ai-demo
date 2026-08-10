@@ -53,3 +53,102 @@ ZkfolElements class >> swatch: aColorOrNil [
 		background: (aColorOrNil ifNil: [ Color transparent ]);
 		yourself
 ]
+
+{ #category : 'building' }
+ZkfolElements class >> compactValue: aNumber upTo: aCount [
+	"A value that cannot say itself in aCount characters says its two
+	 leading digits and its magnitude, honest and terse: 1.2e20 is a
+	 21 digit number. The full value stays a hover or a click away,
+	 wherever the caller keeps it."
+	| s |
+	s := aNumber printString.
+	s size <= aCount ifTrue: [ ^ s ].
+	aNumber isInteger ifFalse: [ ^ (s first: aCount - 1) , '…' ].
+	^ s first asString , '.' , s second asString , 'e' , (s size - 1) printString
+]
+
+{ #category : 'building' }
+ZkfolElements class >> connectorFrom: aSource to: aTarget color: aColor [
+	"One connector, anchored to both cells so the layout places it;
+	 callers restyle the border or add heads for their own dialect."
+	^ BlLineElement new
+		fromAnchor: (BlElementCenterAnchor element: aSource);
+		toAnchor: (BlElementCenterAnchor element: aTarget);
+		border: (BlBorder paint: aColor width: 2);
+		constraintsDo: [ :c | c ignoreByLayout ];
+		yourself
+]
+
+{ #category : 'building' }
+ZkfolElements class >> gridContainer: anId [
+	"The vertical container every grid picture stacks its ruler and
+	 rows in: fit-content both ways, unclipped so overlay connectors
+	 may leave the frame."
+	^ BlElement new
+		id: anId;
+		layout: BlLinearLayout vertical;
+		padding: (BlInsets all: 10);
+		clipChildren: false;
+		constraintsDo: [ :c |
+			c horizontal fitContent.
+			c vertical fitContent ];
+		yourself
+]
+
+{ #category : 'building' }
+ZkfolElements class >> gridRow [
+	"One horizontal grid row, sized by what it holds."
+	^ BlElement new
+		layout: BlLinearLayout horizontal;
+		constraintsDo: [ :c |
+			c horizontal fitContent.
+			c vertical fitContent ];
+		yourself
+]
+
+{ #category : 'building' }
+ZkfolElements class >> headerBox: aPosition [
+	"One muted position number of the ruler over a grid."
+	^ self
+		box: 24 @ 16
+		color: nil
+		text: (aPosition printString asRopedText
+			foreground: ZkfolPalette mutedTextColor;
+			yourself)
+		fontSize: 9
+]
+
+{ #category : 'building' }
+ZkfolElements class >> labelWidthFor: someStrings [
+	"One width for every row label, sized to the longest so the grid's
+	 cells align whatever the labels say."
+	^ 74 max: 16 + ((someStrings inject: 0 into: [ :max :each | max max: each size ]) * 6)
+]
+
+{ #category : 'building' }
+ZkfolElements class >> overlay: anId [
+	"The layer connectors draw on: ignored by the grid's layout,
+	 unclipped, added last so its lines ride over the cells."
+	^ BlElement new
+		id: anId;
+		clipChildren: false;
+		constraintsDo: [ :c | c ignoreByLayout ];
+		yourself
+]
+
+{ #category : 'building' }
+ZkfolElements class >> rowLabel: aString width: aNumber [
+	"A row's introduction, left-aligned at the grid's one label width."
+	| layout |
+	layout := BlLinearLayout horizontal.
+	layout alignCenterLeft.
+	^ BlElement new
+		size: aNumber @ 20;
+		margin: (BlInsets all: 1);
+		padding: (BlInsets left: 4);
+		layout: layout;
+		addChild: (BlTextElement new
+			text: (aString asRopedText fontSize: 10);
+			yourself);
+		yourself
+]

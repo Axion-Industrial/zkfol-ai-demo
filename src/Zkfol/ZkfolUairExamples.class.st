@@ -24,8 +24,8 @@ ZkfolUairExamples >> bignumCells [
 	| grid big element cell |
 	big := 573147844013817084101.
 	grid := ZkfolUairGrid onUair: Dictionary new.
-	self assert: (grid compactValue: big) equals: '5.7e20'.
-	self assert: (grid compactValue: 12345) equals: '12345'.
+	self assert: (ZkfolElements compactValue: big upTo: 5) equals: '5.7e20'.
+	self assert: (ZkfolElements compactValue: 12345 upTo: 5) equals: '12345'.
 	element := grid picture cellElementFor: big row: 0 position: 1 kind: #plain.
 	self
 		assert: ((self textsUnder: element) includes: '5.7e20')

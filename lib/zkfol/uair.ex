@@ -28,6 +28,7 @@ defmodule Zkfol.Uair do
 
   @typedoc "One composed read: where the address bits live and where the dereference lands."
   @type read :: %{
+          row: non_neg_integer(),
           value_row: non_neg_integer(),
           bit_rows: [non_neg_integer()],
           result_row: non_neg_integer()

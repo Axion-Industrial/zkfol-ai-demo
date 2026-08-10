@@ -32,10 +32,28 @@ defmodule Examples.EPipeline do
     statement
   end
 
+  @spec the_solve_links_the_shape_the_stage_carries() :: Statement.t()
+  example the_solve_links_the_shape_the_stage_carries do
+    source = %Statement{rels: [EUser.regs()], args: [5]}
+
+    {:ok, statement, trace} = Pipeline.run(Pipeline.default(), source)
+
+    assert [{Zkfol.Lang, %Statement{stage: %Statement.Lowered{shape: shape}}} | _rest] = trace
+    assert shape.members == [:regs]
+
+    assert %Statement.Solved{lay: %Zkfol.Lay{alloc: alloc}, pred: linked} = statement.stage
+    assert Statement.alloc(statement) == alloc
+    assert Enum.to_list(Zkfol.Alloc.rows(alloc, :regs)) == [1, 2, 3]
+    assert alloc.slots == %{regs: [:x, :a, :b]}
+    assert {:ok, ^linked} = Zkfol.Alloc.link(shape.pred, alloc)
+    statement
+  end
+
   @spec claimless_no_relations_refuses_uniformly() :: Refusal.t()
   example claimless_no_relations_refuses_uniformly do
     pred = Zkfol.Ast.eq(Zkfol.Ast.cell(1), Zkfol.Ast.cell(1))
-    statement = %Statement{rels: [], stage: %Statement.Lowered{pred: pred}}
+    shape = %{pred: pred, members: [], arities: %{}, calls: %{}, pointers: [], tags: %{}}
+    statement = %Statement{rels: [], stage: %Statement.Lowered{shape: shape}}
 
     {:error, reason} = Witness.run(statement, [])
 
