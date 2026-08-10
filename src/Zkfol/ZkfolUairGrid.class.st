@@ -118,7 +118,7 @@ ZkfolUairGrid >> failingChains [
 			c agrees not
 				and: [ c valueRow notNil
 				and: [ c resultRow notNil
-				and: [ c address between: 1 and: self displayedPositions ] ] ] ]) ].
+				and: [ c target between: 1 and: self displayedPositions ] ] ] ]) ].
 	^ chains
 ]
 

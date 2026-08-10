@@ -174,7 +174,7 @@ ZkfolUairExamples >> derefWalkDrawsItsClaims [
 	| chain target threads |
 	chain := self miniatureChain.
 	self assert: chain agrees.
-	target := chain valueRow @ chain address.
+	target := chain valueRow @ chain target.
 	threads := chain threads.
 	self
 		assert: (threads collect: [ :each | each key ]) asArray
@@ -237,9 +237,10 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 { #category : 'examples' }
 ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	"I assert the failure list says nothing when nothing is wrong. Every
-	 oriented fixture lists no failure and offers no tab at all; the blind
-	 reversed shape lists exactly its two contradictions. A view that is
-	 empty when all is well is one whose presence means something."
+	 sound fixture, trace order or committed, lists no failure and offers
+	 no tab at all; the corrupted reversed shape lists exactly its two
+	 contradictions. A view that is empty when all is well is one whose
+	 presence means something."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| broken |
@@ -261,7 +262,7 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 		"its ends are the trace's own cells, by value: what lets a graph
 		 pair them up, and what the drawing silently needs"
 		self
-			assert: (broken cellAtRow: chain valueRow position: chain address)
+			assert: (broken cellAtRow: chain valueRow position: chain target)
 			equals: chain targetCell ].
 	self
 		assert: (broken hoverPairsOf: 1 position: 1 value: 3) first key
@@ -312,10 +313,9 @@ ZkfolUairExamples >> gridFromFixture [
 ZkfolUairExamples >> gridFromOrientedHop [
 	"I read the trace-order fixture and assert the orientation rule:
 	 marked traces_order, the grid displays trace order, un-reversing the
-	 committed columns and truncating the padding, so the address a
-	 pointer cell holds indexes the displayed grid directly and the
-	 deref chain agrees with itself. The raw committed columns stay as
-	 fetched underneath."
+	 committed columns and truncating the padding, and the deref chain
+	 agrees with itself. The raw committed columns stay as fetched
+	 underneath."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid picture |
@@ -341,7 +341,7 @@ ZkfolUairExamples >> gridFromOrientedHop [
 ZkfolUairExamples >> headerClickSpawnsColumn [
 	"I click the position ruler under a scripter and assert the phlow
 	 spawn: a ZkfolUairColumn carrying every row's cell at position 2
-	 and the composed read's deref chain, address 3 spelled from its
+	 and the composed read's deref chain, address 5 spelled from its
 	 bit rows, agreeing with the result row."
 	<gtExample>
 	<return: #BlScripter>
@@ -362,8 +362,8 @@ ZkfolUairExamples >> headerClickSpawnsColumn [
 ZkfolUairExamples >> hopReversed [
 	"A feed still in committed order, the shape a viewer must be honest
 	 about: traces_order false, so the grid shows it as fetched with the
-	 honesty marker, and in this order the deref chain contradicts
-	 itself, which is exactly what the failures view is for."
+	 honesty marker. Its result row is corrupted at two positions, which
+	 is exactly what the failures view is for."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
@@ -396,8 +396,8 @@ ZkfolUairExamples >> orientedHop [
 		#columns -> {
 			#(7 8 9).
 			#(2 1 3).
-			#(0 1 1).
-			#(1 0 1).
+			#(1 0 0).
+			#(0 1 0).
 			#(8 7 9) } } asDictionary
 ]
 
@@ -424,8 +424,8 @@ ZkfolUairExamples >> hopWithTwoReads [
 				#(10 20 30).
 				#(40 50 60).
 				#(2 1 3).
-				#(0 1 1).
-				#(1 0 1).
+				#(1 0 0).
+				#(0 1 0).
 				#(20 10 30).
 				#(50 40 60) } } asDictionary
 ]
@@ -550,7 +550,8 @@ ZkfolUairExamples >> miniatureChain [
 	| chain |
 	chain := (self gridFromFixture columnAt: 2) derefs first.
 	self assert: chain agrees.
-	self assert: chain address equals: 3.
+	self assert: chain address equals: 5.
+	self assert: chain target equals: 6.
 	^ chain
 ]
 
@@ -579,9 +580,9 @@ ZkfolUairExamples >> miniatureHop [
 				#(1 3 2 5 4 1 2 1).
 				#(0 1 1 2 3 5 8 13).
 				#(1 1 0 1 0 1 0 1).
-				#(0 1 1 0 0 0 1 0).
-				#(0 0 0 1 1 0 0 0).
-				#(6 9 2 1 5 6 2 6) } } asDictionary
+				#(1 0 1 1 0 1 1 1).
+				#(1 1 1 0 1 1 1 1).
+				#(3 4 1 5 1 3 1 3) } } asDictionary
 ]
 
 
@@ -815,19 +816,17 @@ ZkfolUairExamples >> refusedUairSaysWhy [
 { #category : 'fixtures' }
 ZkfolUairExamples >> reversedHopColumns [
 	"The committed columns of a length 3 composed hop, reversed and
-	 padded to 2^2 the way the emitter ships them: w = [7, 8, 9], pointer
-	 A = [2, 1, 3] with its two bit rows, and the result w[A(x)] = [8,
-	 7, 9]. Every value is asymmetric, so a missed un-reversal cannot
-	 pass, and in trace order the deref chain is self-consistent while
-	 in committed order it lands on the mirror cell."
+	 base-padded to 2^2 the way the emitter ships them, the result row
+	 corrupted at its first two positions: exactly two contradictions
+	 for the failures view to list."
 	<gtExample>
 	<return: #Array>
 	^ {
 		#(9 8 7 7).
 		#(3 1 2 2).
-		#(1 1 0 0).
-		#(1 0 1 1).
-		#(9 7 8 8) }
+		#(0 0 1 1).
+		#(0 1 0 0).
+		#(8 6 8 8) }
 ]
 
 { #category : 'examples' }
