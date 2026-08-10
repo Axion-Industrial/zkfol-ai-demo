@@ -22,7 +22,7 @@ use zinc_primality::MillerRabin;
 use zinc_protocol::ZincTypes;
 use zinc_utils::inner_product::{MBSInnerProduct, ScalarProduct};
 use zip_plus::{
-    code::iprs::{IprsCode, PnttConfigF65537},
+    code::iprs::{IprsCode, PnttConfig7340033},
     pcs::structs::{ZipPlus, ZipPlusParams, ZipTypes},
 };
 
@@ -126,20 +126,20 @@ macro_rules! tier {
             type ArbitraryZt = $arbitrary;
             type IntZt = $int_cfg;
 
-            type BinaryLc = IprsCode<$binary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>;
-            type ArbitraryLc = IprsCode<$arbitrary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>;
-            type IntLc = IprsCode<$int_cfg, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>;
+            type BinaryLc = IprsCode<$binary, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>;
+            type ArbitraryLc = IprsCode<$arbitrary, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>;
+            type IntLc = IprsCode<$int_cfg, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>;
         }
 
         pub type $pp = (
-            ZipPlusParams<$binary, IprsCode<$binary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>>,
+            ZipPlusParams<$binary, IprsCode<$binary, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>>,
             ZipPlusParams<
                 $arbitrary,
-                IprsCode<$arbitrary, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>,
+                IprsCode<$arbitrary, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>,
             >,
             ZipPlusParams<
                 $int_cfg,
-                IprsCode<$int_cfg, PnttConfigF65537, REP_FACTOR, PERFORM_CHECKS>,
+                IprsCode<$int_cfg, PnttConfig7340033, REP_FACTOR, PERFORM_CHECKS>,
             >,
         );
 
