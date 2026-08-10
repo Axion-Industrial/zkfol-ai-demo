@@ -1,3 +1,30 @@
+* V0.4.0
+** Features
+- Guards compile: ~x > 2~ reaches the predicate as a committed slack row
+- The lay is a value: link-and-lay yields ~Zkfol.Lay~, the witness its
+  matrix; the pipeline runs Doubling, Witness, Lang, and evaluation
+  never lowers
+- ~Zkfol.eval~ answers without proofs; ~Zkfol.Query~ steps answers
+  like prolog's ~;~, ~statement/2~ fills a prove, ~stream~ is the
+  lazy spelling
+- ~mod/2~ is a relation: a quotient region and a slack bound; ~Facts~
+  reads the modulus off the clause, the doubled walk runs Z_m, and
+  the kernel is written in the sugar
+- The scope is carried: a relation knows its home; compile takes the
+  root alone
+- The journal names the fired clause: Consumption deleted, and a free
+  ask derives without the ground replay
+- GT: query views (~;~, findall, click-to-statement); a forward hides
+  when its target cannot feed
+** Changes
+- Examples, docs and comments cut to what earns its place
+- The lay speaks index-form: the Lang pass at 10k columns, 28s to 0.2s
+- ~Matrix~ drops unproduced constructors; the refusal index closes
+- Call outputs desugar like inputs; ~_~ is anonymous per occurrence
+** Dependencies
+- AL to the 0.2.1 preview, carrying our six accepted fixes
+- ~gt_bridge~ 0.19.4
+- Zinc+ pntt wall at 2^20 codewords
 * V0.3.0
 ** Features
 - ~Al.solve~ searches in any direction: bind any rows, leave any free
