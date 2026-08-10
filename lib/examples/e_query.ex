@@ -64,6 +64,29 @@ defmodule Examples.EQuery do
     reason
   end
 
+  @doc """
+  A relation handed alone brings its scope: the callee pulls by name
+  from the home its defrel compiled in. A name no home answers still
+  refuses.
+  """
+  @spec a_lone_relation_brings_its_scope() :: Refusal.t()
+  example a_lone_relation_brings_its_scope do
+    query = Zkfol.eval!(EAl.hop_rel(), [2, :_], [])
+    assert Query.taken(query) == [[2, 2]]
+    Query.close(query)
+
+    stray =
+      Zkfol.Lang.rel :stray do
+        stray(x) do
+          nowhere(x)
+        end
+      end
+
+    {:error, reason} = Zkfol.eval(stray, [1], [])
+    assert {:relation_not_in_scope, %{relation: :nowhere}} = reason
+    reason
+  end
+
   @doc "Every answer of a finite relation, in the order its clauses stand."
   @spec table_streams_every_answer() :: [[pos_integer()]]
   example table_streams_every_answer do

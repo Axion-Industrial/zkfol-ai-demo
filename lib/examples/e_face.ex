@@ -179,7 +179,7 @@ defmodule Examples.EFace do
     assert Statement.under(EUser.fibonacci(), 99) == nil
 
     {:ok, picked, _trace} =
-      Zkfol.Pipeline.run(EUser.plain(), %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]})
+      Zkfol.Pipeline.run(EUser.plain(), %Statement{rels: [EAl.pick()], args: [:_, 41]})
 
     leaf = Statement.under(picked, 1)
 
@@ -192,7 +192,7 @@ defmodule Examples.EFace do
   @doc "I label every branch off the relations and judge every column."
   @spec the_judgement_is_derived() :: %{atom() => term()}
   example the_judgement_is_derived do
-    source = %Statement{rels: [EAl.pick(), EAl.tab()], args: [:_, 41]}
+    source = %Statement{rels: [EAl.pick()], args: [:_, 41]}
     {:ok, statement, _trace} = Zkfol.Pipeline.run(EUser.plain(), source)
 
     %{labels: labels, evals: evals} = feed = Face.judgement(statement)

@@ -61,7 +61,7 @@ defmodule Examples.EMatrix do
 
   @spec an_object_takes_its_bank_behind_the_derivation() :: Alloc.t()
   example an_object_takes_its_bank_behind_the_derivation do
-    {:ok, shape} = Zkfol.Lang.compile(EUser.fib(), [EUser.fib()])
+    {:ok, shape} = Zkfol.Lang.compile(EUser.fib())
     alloc = Alloc.assign(shape, [clue_corner()])
 
     derivation = Alloc.assign(shape)
