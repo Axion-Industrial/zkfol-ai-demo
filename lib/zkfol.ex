@@ -7,7 +7,8 @@ defmodule Zkfol do
   prove the result under the claims `:public` opens. The `Zkfol.Log.Ran` I
   return replays the whole act, its report riding the trail's proved
   event; a pass that errs leaves its refusal among the piped verdicts,
-  and the receipt still walks the trail. `opts` takes `:pipeline`,
+  a settle that refuses leaves its own on the trail, and the receipt
+  still walks it. `opts` takes `:pipeline`,
   `:name`, and `:public`, which names the parameters the act opens, by
   head variable or by position; the rest ride through to the prover.
 
@@ -153,10 +154,12 @@ defmodule Zkfol do
     outcome = Pipeline.run(pipeline, statement, basedon: define)
     piped = Log.push({:piped, Pipeline.verdicts(pipeline, statement, outcome)}, define)
 
-    # Whatever settles, settles onto the trail; the receipt is the same.
-    with {:ok, final, _trace} <- outcome,
-         {:ok, opened} <- Statement.opened(final, public),
-         do: settle.(opened, Keyword.merge(opts, name: name, basedon: piped))
+    settled =
+      with {:ok, final, _trace} <- outcome,
+           {:ok, opened} <- Statement.opened(final, public),
+           do: settle.(opened, Keyword.merge(opts, name: name, basedon: piped))
+
+    with {:error, refusal} <- settled, do: Log.push({:refused, refusal}, piped)
 
     %Log.Ran{pipeline: pipeline, source: statement, defined: define, public: public}
   end

@@ -94,6 +94,7 @@ defmodule Zkfol.Log.Ran do
   defp read({:prove_requested, name}, feed), do: %{feed | intent: name}
   defp read({:proved, report}, feed), do: %{feed | report: Map.from_struct(report)}
   defp read({:prove_failed, reason}, feed), do: %{feed | failure: inspect(reason)}
+  defp read({:refused, refusal}, feed), do: %{feed | failure: Refusal.message(refusal)}
 
   defp read({:piped, verdicts}, feed) do
     passes =
@@ -121,6 +122,7 @@ defmodule Zkfol.Log.Ran do
     cond do
       Enum.any?(thread, &match?(%Log.Event{body: {:proved, _report}}, &1)) -> "proved"
       Enum.any?(thread, &match?(%Log.Event{body: {:prove_failed, _reason}}, &1)) -> "failed"
+      Enum.any?(thread, &match?(%Log.Event{body: {:refused, _refusal}}, &1)) -> "refused"
       Enum.any?(thread, &match?(%Log.Event{body: {:prove_requested, _name}}, &1)) -> "unsettled"
       Enum.any?(thread, &erred?/1) -> "erred"
       Enum.any?(thread, &match?(%Log.Event{body: {:piped, _verdicts}}, &1)) -> "emitted"

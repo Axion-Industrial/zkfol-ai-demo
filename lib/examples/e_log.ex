@@ -32,6 +32,18 @@ defmodule Examples.ELog do
     ran
   end
 
+  @doc "An act refused at its settle leaves the refusal on its trail: the story carries it."
+  @spec a_refused_act_journals_its_refusal() :: Zkfol.Refusal.t()
+  example a_refused_act_journals_its_refusal do
+    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]}, public: [:nope])
+    snap = Log.snapshot()
+
+    assert {:unbound_variable, %{variable: :nope}} = refusal = Log.refusal(snap, ran)
+    assert Log.Ran.story(snap, ran).failure == Zkfol.Refusal.message(refusal)
+    assert Log.report(snap, ran) == nil
+    refusal
+  end
+
   # A verdict lingering from an abandoned wait is not this wait's.
   @spec stale_verdicts_are_not_heard() :: Prover.Report.t()
   example stale_verdicts_are_not_heard do

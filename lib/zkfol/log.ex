@@ -106,6 +106,19 @@ defmodule Zkfol.Log do
     end)
   end
 
+  @doc "I am the first refusal on `ran`'s trail, nil where none stopped it."
+  @spec refusal(t(), Ran.t()) :: Zkfol.Refusal.t() | nil
+  def refusal(log, %Ran{defined: defined}),
+    do: log |> thread(defined) |> Enum.flat_map(&refusals/1) |> List.first()
+
+  @spec refusals(Event.t()) :: [Zkfol.Refusal.t()]
+  defp refusals(%Event{body: {:piped, verdicts}}),
+    do: for({_pass, {:errors, refusal}} <- verdicts, do: refusal)
+
+  defp refusals(%Event{body: {:refused, refusal}}), do: [refusal]
+  defp refusals(%Event{body: {:prove_failed, refusal}}), do: [refusal]
+  defp refusals(_event), do: []
+
   # Oldest to newest, an event joins the thread when it is a root or is
   # based on one already in it; its own id then becomes a root too.
   @spec descend(t(), MapSet.t()) :: [Event.t()]

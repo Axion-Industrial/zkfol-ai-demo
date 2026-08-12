@@ -304,21 +304,19 @@ defmodule Examples.EProgramSpace do
          :ok <- columns(statement),
          :ok <- swept(statement),
          :ok <- placed(statement),
-         :ok <- proved(statement, rels, args, proving),
+         :ok <- proved(rels, args, proving),
          do: nil
   end
 
-  # The act runs the program once: a run that derived nothing wrote a
-  # program of the grammar nothing answers, and lays nothing; a run that
-  # answered and stopped short of a statement is the lowering's to say why.
+  # A run that derived nothing is the one refusal the space expects; any other is a fault.
   @spec solved([Rel.t()], [Statement.datum() | :_]) :: Statement.t() | nil | {:unsolved, term()}
   defp solved(rels, args) do
     ran = Zkfol.emit(rels, args: args)
 
-    case Log.Ran.final_stage(ran) do
-      %Statement{stage: %Statement.Solved{}} = statement -> statement
-      nil -> nil
-      _derived -> {:unsolved, Log.Ran.story(Log.snapshot(), ran)[:failure]}
+    case {Log.Ran.final_stage(ran), Log.refusal(Log.snapshot(), ran)} do
+      {%Statement{stage: %Statement.Solved{}} = statement, _none} -> statement
+      {_short, {:no_answer, _detail}} -> nil
+      {_short, refusal} -> {:unsolved, refusal}
     end
   end
 
@@ -349,27 +347,18 @@ defmodule Examples.EProgramSpace do
     end
   end
 
-  # The act journals no refusal the prover itself made, so an act that
-  # proved nothing is asked again for its reason.
-  @spec proved(Statement.t(), [Rel.t()], [Statement.datum() | :_], boolean()) ::
-          :ok | {:unproved, term()}
-  defp proved(_statement, _rels, _args, false), do: :ok
+  @spec proved([Rel.t()], [Statement.datum() | :_], boolean()) :: :ok | {:unproved, term()}
+  defp proved(_rels, _args, false), do: :ok
 
-  defp proved(statement, rels, args, true) do
+  defp proved(rels, args, true) do
     ran = Zkfol.compile(rels, args: args)
+    snap = Log.snapshot()
 
-    case Log.report(Log.snapshot(), ran) do
+    case Log.report(snap, ran) do
       %Prover.Report{} -> :ok
-      _none -> {:unproved, refused(statement)}
+      _none -> {:unproved, Log.refusal(snap, ran)}
     end
   end
-
-  @spec refused(Statement.t()) :: {:ok, Prover.Report.t(), pos_integer()} | {:error, term()}
-  defp refused(statement),
-    do:
-      Prover.prove(Statement.pred(statement), Statement.witness(statement),
-        claims: Statement.claims(statement)
-      )
 
   @spec said([{String.t(), [Rel.t()], term()}]) :: String.t()
   defp said(failing) do
