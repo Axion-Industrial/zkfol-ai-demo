@@ -75,15 +75,15 @@ defmodule Examples.EUser do
 
   defrel epower(x, e, v) do
     x > 1
-    epower(x - 1, ee, h)
     e = ee + ee
+    epower(x - 1, ee, h)
     v = h * h
   end
 
   defrel epower(x, e, v) do
     x > 1
-    epower(x - 1, ee, h)
     e = ee + ee + 1
+    epower(x - 1, ee, h)
     v = 2 * (h * h)
   end
 

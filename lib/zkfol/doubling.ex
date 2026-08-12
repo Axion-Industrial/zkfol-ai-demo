@@ -205,20 +205,20 @@ defmodule Zkfol.Doubling do
 
       kernel(x, u, w, e, r) do
         x > 1
-        kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 0
+        r = ^x2 * w + ^(q * x1) * u
+        kernel(x - 1, uu, ww, ee, _rr)
         u = uu * (2 * ww + ^(-p) * uu)
         w = ^q * (uu * uu) + ww * ww
-        r = ^x2 * w + ^(q * x1) * u
       end
 
       kernel(x, u, w, e, r) do
         x > 1
-        kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 1
+        r = ^x2 * w + ^(q * x1) * u
+        kernel(x - 1, uu, ww, ee, _rr)
         u = ^q * (uu * uu) + ww * ww
         w = ^p * u + ^q * (uu * (2 * ww + ^(-p) * uu))
-        r = ^x2 * w + ^(q * x1) * u
       end
     end
   end
@@ -234,8 +234,8 @@ defmodule Zkfol.Doubling do
 
       kernel(x, u, w, e, r) do
         x > 1
-        kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 0
+        kernel(x - 1, uu, ww, ee, _rr)
         u = mod(uu * (2 * ww + ^(p * mod) + ^(-p) * uu), ^mod)
         w = mod(^q * (uu * uu) + ww * ww, ^mod)
         r = mod(^x2 * w + ^(q * x1) * u, ^mod)
@@ -243,8 +243,8 @@ defmodule Zkfol.Doubling do
 
       kernel(x, u, w, e, r) do
         x > 1
-        kernel(x - 1, uu, ww, ee, _rr)
         e = 2 * ee + 1
+        kernel(x - 1, uu, ww, ee, _rr)
         u = mod(^q * (uu * uu) + ww * ww, ^mod)
         w = mod(^p * u + ^q * (uu * (2 * ww + ^(p * mod) + ^(-p) * uu)), ^mod)
         r = mod(^x2 * w + ^(q * x1) * u, ^mod)

@@ -243,10 +243,10 @@ defmodule Examples.EAl do
 
         mixed(x, v, w) do
           x > 1
-          mixed(x - 1, a, _b)
-          mixed(v - 1, _c, d)
           v = a + 1
           w = d
+          mixed(x - 1, a, _b)
+          mixed(v - 1, _c, d)
         end
       end
 
