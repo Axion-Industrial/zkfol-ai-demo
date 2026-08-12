@@ -305,6 +305,49 @@ defmodule Examples.EAl do
     report
   end
 
+  # The region product bites: a read whose address escapes into the
+  # padded cube is refused by the circuit, where before only the
+  # emit-time oracle caught it. Forge the honest emit at cube row 0 so
+  # the pointer addresses a padding position, bits and result kept
+  # consistent, so nothing but the region constraint objects.
+  @spec an_out_of_region_read_is_refused() :: Refusal.t()
+  example an_out_of_region_read_is_refused do
+    uair = composed_hop_emits()
+    [%{row: pointer, bit_rows: bits} | _rest] = uair.mode.reads
+    len = uair.len
+    mu = length(bits)
+
+    # a = 0 spells address len - 0 = len, one past the region.
+    forge = fn col, row, value -> List.replace_at(col, 0, value) |> then(fn c -> {row, c} end) end
+    edits = [forge.(Enum.at(uair.columns, pointer), pointer, 0)]
+
+    edits =
+      edits ++
+        for {b, nu} <- Enum.with_index(bits) do
+          {b,
+           List.replace_at(Enum.at(uair.columns, b), 0, len |> Bitwise.bsr(nu) |> Bitwise.band(1))}
+        end
+
+    edits =
+      edits ++
+        for %{value_row: v, result_row: r} <- uair.mode.reads do
+          {r,
+           List.replace_at(
+             Enum.at(uair.columns, r),
+             0,
+             uair.columns |> Enum.at(v) |> Enum.at(len)
+           )}
+        end
+
+    columns =
+      Enum.reduce(edits, uair.columns, fn {i, col}, cols -> List.replace_at(cols, i, col) end)
+
+    {:error, reason} = Prover.prove_uair(%{uair | columns: columns}, name: :forged_hop)
+    assert {:verifier_rejected, _detail} = reason
+    _ = mu
+    reason
+  end
+
   # A claim makes its row public, and the pointer query binds witness
   # columns only: the overlap refuses by name at the prover's door.
   @spec claimed_read_row_is_refused() :: Refusal.t()
