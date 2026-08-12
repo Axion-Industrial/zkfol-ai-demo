@@ -177,6 +177,11 @@ defmodule Examples.EFace do
 
     %{labels: labels, evals: evals} = feed = Face.judgement(statement)
 
+    # One shape either way: an unsolved statement answers the same keys, empty.
+    raw = Face.judgement(%Statement{rels: [EAl.pick()]})
+    assert Map.keys(raw) == Map.keys(feed)
+    assert raw |> Map.values() |> Enum.all?(&(&1 == []))
+
     assert labels == ["pick rule", "tab(1,10)", "tab(2,20)", "tab(3,40)", "tab(4,40)"]
 
     # Every column of a valid witness is answered by exactly one branch.
