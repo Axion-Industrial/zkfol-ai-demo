@@ -55,6 +55,12 @@ defmodule Zkfol.Al do
   end
 
   @doc """
+  I am the program as AL holds it: the class object on `branch`.
+  """
+  @spec program(atom()) :: AL.Object.t()
+  def program(branch), do: %AL.Object{id: @class, branch: branch}
+
+  @doc """
   I derive the witness at `arguments`, or refuse with the reason.
 
       solve(Examples.EUser.fib(), [8])

@@ -57,6 +57,21 @@ ZkfolQuery >> gtAnswersFor: aView [
 		updateWhen: Announcement in: self announcer
 ]
 
+{ #category : 'views' }
+ZkfolQuery >> gtProgramFor: aView [
+	"The AL program my ask steps through, on my own branch; AL draws it."
+	<gtView>
+	<gtBeamView>
+	| program |
+	program := self evaluateOrNil: 'Zkfol.Al.program(' , self resolve , '.branch.id)'.
+	(program isKindOf: ALObject) ifFalse: [ ^ aView empty ].
+	^ aView forward
+		title: 'Program';
+		priority: 9;
+		object: [ program ];
+		view: #gtMethodsFor:
+]
+
 { #category : 'stepping' }
 ZkfolQuery >> next [
 	"One more answer off the node; nil when the search is exhausted, a

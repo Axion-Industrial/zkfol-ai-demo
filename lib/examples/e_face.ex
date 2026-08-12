@@ -65,6 +65,17 @@ defmodule Examples.EFace do
     feed
   end
 
+  @doc "I compile my own act: a cached one's branch is already gone."
+  @spec the_act_forwards_its_program() :: AL.Object.t()
+  example the_act_forwards_its_program do
+    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]})
+    program = Face.program(Zkfol.Log.snapshot(), ran)
+
+    assert %AL.Object{id: :zkfol, branch: branch} = program
+    assert Enum.any?(AL.Branch.list(), &(&1.id == branch))
+    program
+  end
+
   @spec the_emit_spawn_is_the_struct() :: Zkfol.Uair.t()
   example the_emit_spawn_is_the_struct do
     uair = Face.emitted(EUser.compiled())

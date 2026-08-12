@@ -115,11 +115,33 @@ ZkfolRan >> gtPipelineFor: aView [
 ]
 
 { #category : 'views' }
+ZkfolRan >> gtProgramFor: aView [
+	"The run's program where AL decompiles it; I only forward."
+	<gtView>
+	<gtBeamView>
+	| program |
+	program := self program.
+	(program isKindOf: ALObject) ifFalse: [ ^ aView empty ].
+	^ aView forward
+		title: 'Program';
+		priority: 9;
+		object: [ program ];
+		view: #gtMethodsFor:
+]
+
+{ #category : 'views' }
 ZkfolRan >> gtTrailFor: aView [
 	"The raw thread of events my act left on the log."
 	<gtView>
 	<gtBeamView>
 	^ self forward: aView title: 'Trail' priority: 8 view: #gtTrailFor:
+]
+
+{ #category : 'accessing' }
+ZkfolRan >> program [
+	"The AL program my run installed: the class object on the run's own
+	 branch, wearing AL's views. Nil while no run has landed."
+	^ self evaluateOrNil: 'Zkfol.Face.program(Zkfol.Log.snapshot(), ' , self resolve , ')'
 ]
 
 { #category : 'accessing' }
