@@ -156,9 +156,22 @@ fn prover(queue: Receiver<Job>) {
         // past verdict's own guards, so the address is kept out here.
         let (pid, id) = (job.pid, job.id);
 
-        if catch_unwind(AssertUnwindSafe(|| verdict(job))).is_err() {
-            send_verdict(pid, id, &Err("the prover panicked".to_string()));
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| verdict(job))) {
+            send_verdict(pid, id, &Err(panic_said(payload.as_ref())));
         }
+    }
+}
+
+/// What a panic said, so a refusal names its reason rather than the bare
+/// fact of a panic. A misconfigured lookup width is caught this way.
+fn panic_said(payload: &(dyn std::any::Any + Send)) -> String {
+    let said = payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned());
+    match said {
+        Some(said) => format!("the prover panicked: {said}"),
+        None => "the prover panicked".to_string(),
     }
 }
 
@@ -172,7 +185,7 @@ fn verdict(job: Job) {
     let verdict = catch_unwind(AssertUnwindSafe(|| {
         run(job.payload, job.bins, job.num_vars, num_public, job.tamper)
     }))
-    .unwrap_or_else(|_| Err("the prover panicked".to_string()));
+    .unwrap_or_else(|payload| Err(panic_said(payload.as_ref())));
 
     send_verdict(pid, id, &verdict);
 }
