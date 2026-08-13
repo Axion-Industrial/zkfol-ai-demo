@@ -8,7 +8,9 @@ Class {
 		'hoverLayer',
 		'emphasis',
 		'connectors',
-		'decorated'
+		'decorated',
+		'budget',
+		'rulerAtBottom'
 	],
 	#category : 'Zkfol-Grid',
 	#package : 'Zkfol',
@@ -20,29 +22,24 @@ ZkfolUairPicture class >> on: aGrid [
 	^ self new setGrid: aGrid; yourself
 ]
 
-{ #category : 'initialization' }
-ZkfolUairPicture >> setGrid: aGrid [
-	grid := aGrid
-]
-
 { #category : 'rendering' }
 ZkfolUairPicture >> asElement [
-	"The whole trace at a glance: a clickable position ruler, then one
-	 row per committed column, colored by what the emitter derived it
-	 for, claimed rows outlined, cells pointing where they point. Trace
-	 order when the face marked the feed so, committed order with a
-	 marker when it did not, so the reader is never shown the mirror as the trace. A
-	 trace past the render cap shows its first positions and says so."
+	"The whole trace at a glance: a binary position ruler over the cube,
+	 then one row per committed column, colored by what the emitter
+	 derived it for, claimed rows outlined, the padding past the real
+	 trace faded, cells pointing where they point. A cube past the render
+	 cap shows its head, the real/padding seam, and its tail, and says so.
+	 The ruler rides under the rows instead when I am asked to."
 	| container |
 	cellElements := Dictionary new.
 	hovered := nil.
 	decorated := nil.
 	container := ZkfolElements gridContainer: #zkfolUairGrid.
-	grid tracesOrder ifFalse: [ container addChild: self orientationMarkerElement ].
 	self truncated ifTrue: [ container addChild: self truncationMarkerElement ].
-	container addChild: self headerRowElement.
+	self rulerAtBottom ifFalse: [ container addChild: self headerRowElement ].
 	grid displayColumns doWithIndex: [ :each :oneBased |
 		container addChild: (self rowElementFor: each at: oneBased - 1) ].
+	self rulerAtBottom ifTrue: [ container addChild: self headerRowElement ].
 	hoverLayer := ZkfolElements overlay: #zkfolUairHoverLayer.
 	container addChild: hoverLayer.
 	self refreshHover.
@@ -60,17 +57,29 @@ ZkfolUairPicture >> borderFor: aCoord lit: aDictionary [
 		ifNotNil: [ :color | BlBorder paint: color width: 2 ]
 ]
 
+{ #category : 'accessing' }
+ZkfolUairPicture >> budget: aNumber [
+	"How many positions this rendering draws before it truncates to head,
+	 the real/padding seam, and tail. The cost picture sets a tight one;
+	 the grid keeps the render cap."
+	budget := aNumber
+]
+
 { #category : 'rendering' }
 ZkfolUairPicture >> cellElementFor: aValue row: aRowIndex position: aPosition kind: aKind [
 	"One colored square. Clicking it spawns the spelled-out cell in the
 	 next pane; hovering sets which cell is hovered and every highlight
-	 and connector follows from that. A value too big for the cell
-	 compacts to its magnitude and carries its full self as a tooltip."
-	| cell text |
+	 and connector follows from that. A position past the real trace is
+	 base-case padding the cube is filled to, so it fades. A value too
+	 big for the cell compacts to its magnitude and tooltips its full self."
+	| cell text color |
 	text := ZkfolElements compactValue: aValue upTo: 5.
+	color := aPosition > grid len
+		ifTrue: [ (ZkfolPalette kindColor: aKind) alpha: 0.3 ]
+		ifFalse: [ ZkfolPalette kindColor: aKind ].
 	cell := (ZkfolElements
 		box: 24 @ 20
-		color: (ZkfolPalette kindColor: aKind)
+		color: color
 		text: text
 		fontSize: (text size > 4 ifTrue: [ 8 ] ifFalse: [ 9 ]))
 		id: #zkfolUairCell;
@@ -120,6 +129,17 @@ ZkfolUairPicture >> drawThreads: aCollectionOfThreads [
 				hoverLayer addChild: (self connectorFrom: from to: to color: thread value) ] ] ]
 ]
 
+{ #category : 'rendering' }
+ZkfolUairPicture >> ellipsisTile: anExtent [
+	"The gap between two kept runs: a muted ellipsis the width of a
+	 cell, so the ruler and every row stay in step across the skip."
+	^ ZkfolElements
+		box: anExtent
+		color: nil
+		text: ('...' asRopedText foreground: ZkfolPalette mutedTextColor; yourself)
+		fontSize: 9
+]
+
 { #category : 'accessing' }
 ZkfolUairPicture >> emphasis: aCollectionOfCoords [
 	"The cells this rendering is about. Everything else fades."
@@ -128,28 +148,40 @@ ZkfolUairPicture >> emphasis: aCollectionOfCoords [
 
 { #category : 'rendering' }
 ZkfolUairPicture >> headerElementFor: aPosition [
-	"One position header: the trace position, clickable, spawning the
-	 whole column at that position, deref chain included."
+	"One position header: the cube coordinate in the current label mode,
+	 the other mode one hover away, clickable, spawning the whole column
+	 at that position, deref chain included."
 	| header |
-	header := (ZkfolElements headerBox: aPosition)
+	header := (ZkfolElements
+		box: 24 @ 16
+		color: nil
+		text: ((self positionLabel: aPosition) asRopedText
+			foreground: ZkfolPalette mutedTextColor;
+			yourself)
+		fontSize: 9)
 		id: #zkfolUairHeader;
 		yourself.
-	header aptitude: (BrStyleCommonAptitude new
-			default: [ :w | w border: BlBorder empty ];
-			hovered: [ :w | w border: (BlBorder paint: ZkfolPalette hoverColor width: 1) ];
-			yourself).
+	header addAptitude: (BrGlamorousWithTooltipAptitude content: [
+		BlTextElement new text: (self positionTooltip: aPosition) asRopedText; padding: (BlInsets all: 4); yourself ]).
+	header addAptitude: (BrStyleCommonAptitude new
+		default: [ :w | w border: BlBorder empty ];
+		hovered: [ :w | w border: (BlBorder paint: ZkfolPalette hoverColor width: 1) ];
+		yourself).
 	^ ZkfolElements make: header spawn: [ grid columnAt: aPosition ]
 ]
 
 { #category : 'rendering' }
 ZkfolUairPicture >> headerRowElement [
 	"The position ruler over the grid: a spacer the width of the row
-	 labels, then one clickable header per shown position."
+	 labels, then one clickable header per shown position, an ellipsis
+	 where a run is skipped."
 	| row |
 	row := ZkfolElements gridRow.
-	row addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
-	1 to: (self maxPositions min: grid fullWidth) do: [ :pos |
-		row addChild: (self headerElementFor: pos) ].
+	row addChild: (BlElement new size: (grid labelWidth + 2) @ 16; yourself).
+	self shownPositions do: [ :pos |
+		pos = #ellipsis
+			ifTrue: [ row addChild: (self ellipsisTile: 24 @ 16) ]
+			ifFalse: [ row addChild: (self headerElementFor: pos) ] ].
 	^ row
 ]
 
@@ -191,7 +223,7 @@ ZkfolUairPicture >> labelElementFor: aKind at: aZeroBasedIndex column: aColumn [
 	| label |
 	label := (ZkfolElements
 		rowLabel: (grid labelTextFor: aKind at: aZeroBasedIndex)
-		width: self labelWidth)
+		width: grid labelWidth)
 		id: #zkfolUairRowLabel;
 		yourself.
 	^ ZkfolElements make: label spawn: [ ZkfolUairRow
@@ -200,13 +232,6 @@ ZkfolUairPicture >> labelElementFor: aKind at: aZeroBasedIndex column: aColumn [
 		claimed: aZeroBasedIndex < grid numPublic
 		values: aColumn
 		numVars: grid numVars ]
-]
-
-{ #category : 'rendering' }
-ZkfolUairPicture >> labelWidth [
-	"The grid's one label width, off every row's introduction."
-	^ ZkfolElements labelWidthFor: ((0 to: grid displayColumns size - 1)
-		collect: [ :each | grid labelTextFor: (grid kindOfRow: each) at: each ])
 ]
 
 { #category : 'rendering' }
@@ -230,18 +255,28 @@ ZkfolUairPicture >> maxPositions [
 	 fetch bound: every shown cell is an interactive element with its
 	 own handlers, and a few thousand of them stay responsive while
 	 tens of thousands would not. Five hundred twelve covers every
-	 realistic trace in full and scrolls; a larger trace shows its
-	 first 512 with an honest marker rather than a silent cut."
+	 realistic trace in full and scrolls; a larger cube shows its head,
+	 the real/padding seam, and its tail with an honest marker rather
+	 than a silent cut."
 	^ 512
 ]
 
 { #category : 'rendering' }
-ZkfolUairPicture >> orientationMarkerElement [
-	"The face left the feed in committed order, so I show it that way and say
-	 so rather than index the mirror cell with false confidence."
-	^ self
-		markerElement: 'committed order, orientation unknown'
-		id: #zkfolOrientationMarker
+ZkfolUairPicture >> positionLabel: aPosition [
+	"The position in the grid's current mode: the binary cube coordinate,
+	 or its decimal index."
+	^ grid labelMode = #binary
+		ifTrue: [ ZkfolUairCell bitsOf: aPosition over: grid numVars ]
+		ifFalse: [ (aPosition - 1) printString ]
+]
+
+{ #category : 'rendering' }
+ZkfolUairPicture >> positionTooltip: aPosition [
+	"The other mode, for the hover: decimal when the ruler shows binary,
+	 binary when it shows decimal."
+	^ grid labelMode = #binary
+		ifTrue: [ (aPosition - 1) printString ]
+		ifFalse: [ ZkfolUairCell bitsOf: aPosition over: grid numVars ]
 ]
 
 { #category : 'hover' }
@@ -284,13 +319,12 @@ ZkfolUairPicture >> refreshHover [
 { #category : 'rendering' }
 ZkfolUairPicture >> rowElementFor: aColumn at: aZeroBasedIndex [
 	"One committed column as one grid row: a label, then a colored square
-	 per trace position up to the render cap, every one spawning what it
-	 names. The first numPublic rows are the claimed ones the verifier
-	 reads in the clear, so they wear an outline. Past the cap the row
-	 stops; the grid's truncation marker carries the honest count. A
+	 per shown trace position, an ellipsis where a run is skipped, every
+	 cell spawning what it names. The first numPublic rows are the claimed
+	 ones the verifier reads in the clear, so they wear an outline. A
 	 malformed column renders as its own message; the grid never raises
 	 mid-render."
-	| row kind shown |
+	| row kind |
 	kind := grid kindOfRow: aZeroBasedIndex.
 	row := ZkfolElements gridRow.
 	aZeroBasedIndex < grid numPublic
@@ -305,10 +339,42 @@ ZkfolUairPicture >> rowElementFor: aColumn at: aZeroBasedIndex [
 					yourself);
 				yourself ].
 	row addChild: (self labelElementFor: kind at: aZeroBasedIndex column: aColumn).
-	shown := self maxPositions min: aColumn size.
-	(aColumn first: shown) doWithIndex: [ :each :pos |
-		row addChild: (self cellElementFor: each row: aZeroBasedIndex position: pos kind: kind) ].
+	self shownPositions do: [ :pos |
+		pos = #ellipsis
+			ifTrue: [ row addChild: (self ellipsisTile: 24 @ 20) ]
+			ifFalse: [ row addChild: (self
+				cellElementFor: (aColumn at: pos ifAbsent: [ 0 ])
+				row: aZeroBasedIndex
+				position: pos
+				kind: kind) ] ].
 	^ row
+]
+
+{ #category : 'accessing' }
+ZkfolUairPicture >> rulerAtBottom [
+	"Whether the position ruler is drawn under the rows rather than over
+	 them. The grid keeps it on top; the cost picture flips it so the
+	 numbering answers the annotations above."
+	^ rulerAtBottom == true
+]
+
+{ #category : 'accessing' }
+ZkfolUairPicture >> rulerAtBottom: aBoolean [
+	"Draw the position ruler under the rows instead of over them."
+	rulerAtBottom := aBoolean
+]
+
+{ #category : 'initialization' }
+ZkfolUairPicture >> setGrid: aGrid [
+	grid := aGrid
+]
+
+{ #category : 'rendering' }
+ZkfolUairPicture >> shownPositions [
+	"The positions this rendering draws: the grid's truncation at my
+	 budget, head and the real/padding seam and tail, #ellipsis marking
+	 each elided run. The budget defaults to the render cap."
+	^ grid shownPositionsUpTo: (budget ifNil: [ self maxPositions ])
 ]
 
 { #category : 'rendering' }
@@ -320,10 +386,13 @@ ZkfolUairPicture >> truncated [
 
 { #category : 'rendering' }
 ZkfolUairPicture >> truncationMarkerElement [
-	"How many of how many positions are shown. A render bound, not a
-	 fetch one."
+	"How many of how many positions are shown, and that the shown ones
+	 are the head, the real/padding seam, and the tail rather than a
+	 flat prefix. A render bound, not a fetch one."
+	| shown |
+	shown := (self shownPositions reject: [ :p | p = #ellipsis ]) size.
 	^ self
-		markerElement: 'showing first ' , self maxPositions printString
-			, ' of ' , grid fullWidth printString , ' positions'
+		markerElement: 'showing ' , shown printString , ' of '
+			, grid fullWidth printString , ' positions: head, the real/padding seam, and tail'
 		id: #zkfolTruncationMarker
 ]

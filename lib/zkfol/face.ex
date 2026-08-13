@@ -221,18 +221,18 @@ defmodule Zkfol.Face do
   """
   @spec grid(Uair.t()) :: %{atom() => term()}
   def grid(%Uair{} = uair) do
-    columns = Enum.map(uair.columns, &(&1 |> Enum.take(uair.len) |> Enum.reverse()))
+    source = Enum.map(uair.columns, &(&1 |> Enum.take(uair.len) |> Enum.reverse()))
     {reads, lookups} = mode_feed(uair.mode)
 
     %{
-      columns: columns,
-      traces_order: true,
+      columns: uair.columns,
+      len: uair.len,
       num_vars: uair.columns |> hd() |> length() |> then(&round(:math.log2(&1))),
       num_public: uair.num_public,
       shifts: Enum.map(uair.shifts, &Tuple.to_list/1),
       reads: reads,
       lookups: lookups,
-      kinds: kinds(columns, reads, lookups, uair.shifts),
+      kinds: kinds(source, reads, lookups, uair.shifts),
       origins: Enum.map(uair.rows, &origin_text/1)
     }
   end

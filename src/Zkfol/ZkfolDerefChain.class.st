@@ -212,12 +212,12 @@ ZkfolDerefChain >> resultRow [
 	^ resultRow
 ]
 
-{ #category : 'accessing' }
+{ #category : 'initialization' }
 ZkfolDerefChain >> setGrid: aGrid position: aPosition read: aRead index: aOneBasedIndex [
 	"The address is spelled little-endian from the read's own bit rows
 	 at this position, so a missing or non-integer bit contributes
 	 nothing rather than raising; it counts 0-based in the reversed
-	 committed layout."
+	 committed layout, so the target is the cell one past it."
 	| bitRows |
 	grid := aGrid.
 	position := aPosition.
@@ -228,9 +228,7 @@ ZkfolDerefChain >> setGrid: aGrid position: aPosition read: aRead index: aOneBas
 	address := 0.
 	addressBits doWithIndex: [ :bit :nu |
 		bit isInteger ifTrue: [ address := address + (bit bitShift: nu - 1) ] ].
-	target := aGrid tracesOrder
-		ifTrue: [ aGrid fullWidth - address ]
-		ifFalse: [ address + 1 ].
+	target := address + 1.
 	valueRow := aRead at: #value_row ifAbsent: [ nil ].
 	resultRow := aRead at: #result_row ifAbsent: [ nil ]
 ]
