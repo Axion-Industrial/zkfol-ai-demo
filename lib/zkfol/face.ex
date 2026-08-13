@@ -8,6 +8,7 @@ defmodule Zkfol.Face do
       Face.summary(statement)
       Face.text(statement)
       Face.grid(uair)
+      Face.pcs()
       Face.act(snap, ran)
       Face.emitted(ran)
   """
@@ -25,6 +26,7 @@ defmodule Zkfol.Face do
   alias Zkfol.Statement
   alias Zkfol.Statement.Solved
   alias Zkfol.Uair
+  alias Zkfol.ZincPlus
 
   @doc "I am the statement's facts, one map: what a delta view compares."
   @spec summary(Statement.t()) :: %{atom() => term()}
@@ -234,6 +236,16 @@ defmodule Zkfol.Face do
       origins: Enum.map(uair.rows, &origin_text/1)
     }
   end
+
+  @doc """
+  I am the pinned code's parameters, asked of the backend rather than
+  quoted: a committed column of `2^num_vars` cells encodes to `rep_factor`
+  times that many, and an opening reveals `column_openings` of the
+  codeword's positions. A cost view reads me so it cannot go stale when
+  the pin moves.
+  """
+  @spec pcs() :: ZincPlus.pcs_params()
+  def pcs, do: ZincPlus.pcs_params()
 
   # Where a committed column came from: a row of the interpretation by
   # its C number, or the index machinery the pinning added.
