@@ -109,9 +109,8 @@ ZkfolPipelineModel >> nodeLabeled: aString color: aColorOrNil id: anIdSymbol cli
 	 with nothing to spawn still consumes its clicks, or Mondrian's
 	 default would spawn the node's model: a bare index."
 	| node |
-	node := BlElement new
+	node := BrHorizontalPane new
 		id: anIdSymbol;
-		layout: BlLinearLayout horizontal;
 		background: ZkfolPalette nodeBackgroundColor;
 		geometry: (BlRoundedRectangleGeometry cornerRadius: 4);
 		border: (BlBorder
@@ -119,9 +118,7 @@ ZkfolPipelineModel >> nodeLabeled: aString color: aColorOrNil id: anIdSymbol cli
 			width: 1);
 		padding: (BlInsets top: 4 right: 10 bottom: 4 left: 10);
 		margin: (BlInsets top: 1 right: 0 bottom: 1 left: 0);
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
+		fitContent;
 		addChild: (BlTextElement new
 			text: (aString asRopedText fontSize: 11);
 			yourself);
