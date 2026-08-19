@@ -17,6 +17,7 @@ defmodule Zkfol.Statement do
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
+  alias Zkfol.Lang.Rel
   alias Zkfol.Statement.Derived
   alias Zkfol.Statement.Solved
 
@@ -29,6 +30,12 @@ defmodule Zkfol.Statement do
     field(:claims, [Interpretation.claim()], default: [])
     field(:stage, stage(), default: :raw)
   end
+
+  @doc "I am the statement `target` stands for: itself, or the relations it names, root first."
+  @spec of(t() | Rel.t() | [Rel.t()]) :: t()
+  def of(%__MODULE__{} = statement), do: statement
+  def of(%Rel{} = root), do: %__MODULE__{rels: [root]}
+  def of(rels) when is_list(rels), do: %__MODULE__{rels: rels}
 
   @doc "I am the predicate the statement's relations lower to, linked, once solved."
   @spec pred(t()) :: Ast.pred()
