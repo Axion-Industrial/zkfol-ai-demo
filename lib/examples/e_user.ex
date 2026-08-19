@@ -19,6 +19,7 @@ defmodule Examples.EUser do
   alias Zkfol.Pipeline
   alias Zkfol.Refusal
   alias Zkfol.Semantics
+  alias Zkfol.Prover
   alias Zkfol.Statement
   alias Zkfol.Witness
 
@@ -136,6 +137,80 @@ defmodule Examples.EUser do
 
     assert Interpretation.at(Statement.witness(statement), 2, n) == rem(fib(n + 1), 7919)
     statement
+  end
+
+  @doc """
+  I am the comparison a prover cannot lie about: `regsm`'s remainder is
+  pinned below its modulus only by a slack cell, and a slack cell
+  satisfies its equation for a negative value as readily as a natural
+  one. A claimed remainder above the modulus drives that cell below
+  zero, and a negative cell has no transport: the limbs are unsigned,
+  so the backend never sees this one. The width is what refuses the
+  forgeries that stay natural, and that is `a_slack_cannot_outgrow_its_word`.
+  """
+  @spec a_remainder_cannot_exceed_its_modulus() :: Refusal.t()
+  example a_remainder_cannot_exceed_its_modulus do
+    statement = registers_mod(4)
+
+    {:ok, uair} =
+      Zkfol.Uair.emit(
+        Statement.pred(statement),
+        Statement.witness(statement),
+        statement.claims
+      )
+
+    assert uair.word_lookups != []
+
+    # a' = a + m and q' = q - 1 keep `a' + b' = q'*m + a'` true, so the
+    # arithmetic closes; only `a < m` stood between this and a proof, and
+    # that is the slack whose cells go negative here.
+    m = 7919
+    at = fn cols, row, f -> List.update_at(cols, row, &List.update_at(&1, 0, f)) end
+
+    forged =
+      uair.columns
+      |> at.(1, &(&1 + m))
+      |> at.(3, &(&1 - 1))
+      |> at.(6, &(&1 - m))
+      |> at.(7, &(&1 + m))
+      |> at.(8, &(&1 - 1))
+
+    assert {:error, {:witness_value_negative, %{value: -1}} = refused} =
+             Prover.prove_uair(%{uair | columns: forged}, name: :forged_remainder)
+
+    refused
+  end
+
+  @doc "A guard's slack past 32 bits is a natural all the same; only the Word lookup refuses it."
+  @spec a_slack_cannot_outgrow_its_word() :: Refusal.t()
+  example a_slack_cannot_outgrow_its_word do
+    wide =
+      rel :wide do
+        wide(1, 1)
+
+        wide(x, v) do
+          x > 1
+          wide(x - 1, w)
+          v = w + 1
+          v < 10_000_000_000
+        end
+      end
+
+    {:ok, statement, _trace} = Pipeline.run(plain(), %Statement{rels: [wide], args: [3]})
+    witness = Statement.witness(statement)
+
+    cells = witness |> Interpretation.rows() |> List.flatten()
+    assert Enum.min(cells) >= 0
+    assert Enum.max(cells) > 2 ** 32
+
+    assert {:error, {:prover_failed, %{said: said}} = refused} =
+             Prover.prove(Statement.pred(statement), witness,
+               claims: statement.claims,
+               name: :wide_slack
+             )
+
+    assert said =~ "Lookup"
+    refused
   end
 
   @spec power(non_neg_integer()) :: Statement.t()

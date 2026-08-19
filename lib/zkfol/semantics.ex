@@ -57,6 +57,9 @@ defmodule Zkfol.Semantics do
       {:reify, v} ->
         v
 
+      {:natural, v} ->
+        if v >= 0, do: 0, else: 1
+
       {:eq, a, b} ->
         (a - b) * (a - b)
 

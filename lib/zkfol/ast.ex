@@ -3,13 +3,15 @@ defmodule Zkfol.Ast do
   I am the syntax of the logic: Figure 1 of the paper, as data.
 
       t   ::= q | t + t | t * t | len(C) | reify(phi) | X | C_i(X) | C_i(C_j(X))
-      phi ::= t = t | phi and phi | phi or phi
+      phi ::= t = t | phi and phi | phi or phi | natural(t)
       e   ::= q | e + e | e * e | len(C) | X | C_i(X) | C_i(C_j(X))
 
   Integers denote themselves. `t:term_t/0` and `t:pred/0` are the grammar;
   the constructors below build well-formed nodes. `e` is the reify-free
   subsyntax: Figure 2's enriched polynomials, `t:ep/0`, of which terms
-  are the reify-closure.
+  are the reify-closure. `natural(t)` extends Figure 1: it has no
+  polynomial, and discharges by lookup, so `Zkfol.Uair` lifts it out of
+  the predicate before arithmetizing.
   """
 
   @typedoc """
@@ -41,6 +43,7 @@ defmodule Zkfol.Ast do
           {:eq, term_t(), term_t()}
           | {:conj, [pred()]}
           | {:disj, [pred()]}
+          | {:natural, term_t()}
 
   @doc "I am the index variable X: the current column."
   @spec x() :: term_t()
@@ -96,6 +99,10 @@ defmodule Zkfol.Ast do
   @spec disj([pred(), ...]) :: pred()
   def disj([_ | _] = preds), do: {:disj, preds}
 
+  @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
+  @spec natural(term_t()) :: pred()
+  def natural(t), do: {:natural, t}
+
   @doc """
   I am Figure 2's polynomial for `pred`: equality squares the
   difference, conjunction sums, disjunction multiplies, and reify
@@ -142,6 +149,7 @@ defmodule Zkfol.Ast do
   defp map_children({:mul, t, u}, fun), do: {:mul, fun.(t), fun.(u)}
   defp map_children({:reify, phi}, fun), do: {:reify, fun.(phi)}
   defp map_children({:eq, t, u}, fun), do: {:eq, fun.(t), fun.(u)}
+  defp map_children({:natural, t}, fun), do: {:natural, fun.(t)}
   defp map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
   defp map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
   defp map_children(leaf, _fun), do: leaf
@@ -154,6 +162,7 @@ defmodule Zkfol.Ast do
   @spec children(node) :: [node] when node: var
   defp children({tag, t, u}) when tag in [:add, :mul, :eq], do: [t, u]
   defp children({:reify, phi}), do: [phi]
+  defp children({:natural, t}), do: [t]
   defp children({tag, preds}) when tag in [:conj, :disj], do: preds
   defp children(_leaf), do: []
 

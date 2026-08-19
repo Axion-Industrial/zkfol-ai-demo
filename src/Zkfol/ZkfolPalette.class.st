@@ -30,13 +30,15 @@ ZkfolPalette class >> hoverColor [
 ZkfolPalette class >> kindColor: aKind [
 	"The one palette every Zkfol view speaks: pointer bits blue,
 	 dereference results green, looked-up pointers orange, scheduled
-	 rows violet, the index column tan, the rest quiet. Grid cells,
-	 chain chips, verdict chips, and miniature walks all ask me."
+	 rows violet, the index column tan, range-checked columns rose,
+	 the rest quiet. Grid cells, chain chips, verdict chips, and
+	 miniature walks all ask me."
 	aKind = #bit ifTrue: [ ^ Color fromHexString: 'AECBFA' ].
 	aKind = #result ifTrue: [ ^ Color fromHexString: 'B7E1CD' ].
 	aKind = #pointer ifTrue: [ ^ Color fromHexString: 'FDE1B0' ].
 	aKind = #scheduled ifTrue: [ ^ Color fromHexString: 'DDD2F0' ].
 	aKind = #index ifTrue: [ ^ Color fromHexString: 'EAE0CC' ].
+	aKind = #ranged ifTrue: [ ^ Color fromHexString: 'F4C7C3' ].
 	^ Color fromHexString: 'EDEDED'
 ]
 

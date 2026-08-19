@@ -45,7 +45,7 @@ defmodule Zkfol.Refusal do
          unliftable_term head_not_a_column arguments_exceed_rows
          len_needs_a_bound_count residue modulus_not_literal
          region_shape_mismatch region_uninterpreted existential_unfilled
-         lookup_width_mismatch lookup_chunk_indivisible)a,
+         lookup_width_mismatch lookup_chunk_indivisible naturality_undischarged)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted unresolved_within_budget value_exceeds_cell
@@ -197,6 +197,9 @@ defmodule Zkfol.Refusal do
     do:
       "row #{row} is both claimed and part of a composed read; " <>
         "the pointer query binds witness columns only"
+
+  def message({:naturality_undischarged, %{term: term}}),
+    do: "natural(#{inspect(term)}) names no row; only a cell discharges as a lookup"
 
   def message({:unliftable_term, %{term: term}}),
     do: "no clause lowers the term #{inspect(term)}"
