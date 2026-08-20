@@ -348,4 +348,4 @@ fn pcs_params() -> PcsParams {
     }
 }
 
-rustler::init!("Elixir.Zkfol.ZincPlus");
+rustler::init!("Elixir.Zkfol.ZincPlus.Native");
