@@ -1,10 +1,5 @@
 defmodule Examples.ELog do
-  @moduledoc """
-  I show the reads the journal affords over the ambient log: the
-  thread of a proof from its intent to the report observed, and the
-  prover boundary keeping its debts. I journal by hand or let the
-  front door do it; every read is a pure function of a snapshot.
-  """
+  @moduledoc "I am the journal's evidence: every read a pure function of a snapshot."
 
   use ExExample
 
@@ -18,13 +13,16 @@ defmodule Examples.ELog do
 
   @spec journaled_proving() :: Log.Ran.t()
   example journaled_proving do
-    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]}, name: :fibonacci)
+    source = %Statement{rels: [EUser.fib()], args: [8]}
+    ran = Zkfol.compile(source, name: :fibonacci, public: [:r])
     snap = Log.snapshot()
     assert %Prover.Report{} = report = Log.report(snap, ran)
 
+    assert report.claims == [{"kernel.r", EUser.fib(8)}, {"in", 1}]
+
     # The trail runs from route through derivation and intent to observation.
     assert [
-             %Log.Event{body: {:define, :fibonacci, %Pipeline{}}},
+             %Log.Event{body: {:define, :fibonacci, %Pipeline{}, [:r]}},
              %Log.Event{body: {:al_solved, _derivation}},
              %Log.Event{body: {:piped, _verdicts}},
              %Log.Event{body: {:prove_requested, :fibonacci}},

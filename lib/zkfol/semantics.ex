@@ -1,27 +1,14 @@
 defmodule Zkfol.Semantics do
   @moduledoc """
-  I am the integer semantics of the logic: Figure 3 of the paper.
-
-  Zero is the one true value; non-zero values are flavours of false.
-  Equality is the square of the difference, conjunction is sum,
-  disjunction is product. Predicates therefore never go negative
-  (Lemma 2.17), which is what makes conjunction-as-sum sound over Z.
-  A term and a predicate evaluate by the same rules to one integer,
-  so a single `eval/3` serves both.
+  I am the integer semantics of the logic: Figure 3 of the paper, where zero
+  is the one true value and predicates never go negative (Lemma 2.17).
   """
 
   alias Zkfol.Ast
   alias Zkfol.Interpretation
 
-  @typedoc "What I evaluate under: one matrix, or Definition 2.16's ς as a map of them."
-  @type interpretation :: Interpretation.t() | %{atom() => Interpretation.t()}
-
-  @doc """
-  I evaluate a term or predicate at column `x` under `itp`; for a
-  predicate 0 means true. A named cell looks its symbol up in the
-  family; a bare row reads the one matrix.
-  """
-  @spec eval(Ast.term_t() | Ast.pred(), interpretation(), pos_integer()) :: integer() | :error
+  @doc "I evaluate a term or predicate at column `x` under `itp`; for a predicate 0 is true."
+  @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer() | :error
   def eval(node, itp, x) do
     Ast.postwalk(node, fn
       q when is_integer(q) ->
@@ -33,56 +20,67 @@ defmodule Zkfol.Semantics do
       :len ->
         Interpretation.len(itp)
 
-      {:len, sym} ->
-        itp |> named(sym) |> Interpretation.len()
+      {:cell, _i} = read ->
+        at(read, itp, x)
 
-      {:cell, {sym, i}} ->
-        itp |> named(sym) |> Interpretation.at(i, x)
-
-      {:cell, i} ->
-        Interpretation.at(itp, i, x)
-
-      {:cell, {s, i}, {t, j}} ->
-        Interpretation.at(named(itp, s), i, Interpretation.at(named(itp, t), j, x))
-
-      {:cell, i, j} ->
-        Interpretation.at(itp, i, Interpretation.at(itp, j, x))
+      {:cell, _i, _address} = read ->
+        at(read, itp, x)
 
       {:add, a, b} ->
-        a + b
+        defined([a, b], fn -> a + b end)
 
       {:mul, a, b} ->
-        a * b
+        product([a, b])
 
       {:reify, v} ->
         v
 
-      # natural(v): 0 where v sits in N, 1 otherwise, so Lemma 2.17 stands.
       {:natural, v} ->
-        if v >= 0, do: 0, else: 1
+        defined([v], fn -> if v >= 0, do: 0, else: 1 end)
+
+      {:permutes, cells, values} ->
+        defined(cells, fn -> if Enum.sort(cells) == Enum.sort(values), do: 0, else: 1 end)
 
       {:eq, a, b} ->
-        (a - b) * (a - b)
+        defined([a, b], fn -> (a - b) * (a - b) end)
 
       {:conj, vs} ->
-        Enum.sum(vs)
+        defined(vs, fn -> Enum.sum(vs) end)
 
       {:disj, vs} ->
-        Enum.product(vs)
+        product(vs)
     end)
-  rescue
-    # The one cell Definition 2.16 does not define; a symbol ς does not interpret.
-    ArgumentError -> :error
   end
 
-  # The named symbol's matrix; a miss, or a lone matrix asked by name,
-  # is the undefined cell's error.
-  @spec named(interpretation(), atom()) :: Interpretation.t()
-  defp named(family, sym) when is_map(family) and not is_struct(family) do
-    Map.get(family, sym) || raise(ArgumentError, "no interpretation for #{sym}")
+  @doc "I am the column an address names under `itp` at `x`, or `:error` off the matrix."
+  @spec column(Ast.address(), Interpretation.t(), pos_integer()) :: integer() | :error
+  def column({:at, base, _mul, _add} = address, itp, x) do
+    with b when is_integer(b) <- standing(base, itp, x), do: Ast.column(address, b)
   end
 
-  defp named(_single, sym), do: raise(ArgumentError, "no interpretation for #{sym}")
+  @spec at(Ast.term_t(), Interpretation.t(), pos_integer()) :: integer() | :error
+  defp at(read, itp, x) do
+    {i, address} = Ast.read(read)
+    fetch(itp, i, column(address, itp, x))
+  end
+
+  @spec standing(Ast.address_base(), Interpretation.t(), pos_integer()) :: integer() | :error
+  defp standing(:x, _itp, x), do: x
+  defp standing({:cell, j}, itp, x), do: fetch(itp, j, x)
+
+  @spec fetch(Interpretation.t(), Ast.row_ref(), integer() | :error) :: integer() | :error
+  defp fetch(_itp, _i, :error), do: :error
+
+  defp fetch(itp, i, x) do
+    with {:ok, held} <- Interpretation.fetch(itp, i, x), do: held
+  end
+
+  @spec defined([integer() | :error], (-> integer())) :: integer() | :error
+  defp defined(vs, said), do: if(:error in vs, do: :error, else: said.())
+
+  # A zero factor makes the product zero even beside an undefined cell.
+  @spec product([integer() | :error]) :: integer() | :error
+  defp product(vs), do: if(0 in vs, do: 0, else: defined(vs, fn -> Enum.product(vs) end))
 
   @doc "I am the judgement: `itp` satisfies `phi` exactly when `phi` is 0 at every column."
   @spec valid?(Ast.pred(), Interpretation.t()) :: boolean()

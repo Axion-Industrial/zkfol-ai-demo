@@ -56,7 +56,7 @@ defmodule Zkfol.Query do
   `arguments` read as `Zkfol.eval/3`'s do, `:_` free. `:heap` is the
   cap the query runs under, `:branch` what its branch forks from.
   """
-  @spec open(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
+  @spec open(Statement.t() | Rel.t() | [Rel.t()], [Zkfol.Statement.datum() | :_], keyword()) ::
           {:ok, t()} | {:error, Refusal.t()}
   def open(rels, arguments, opts) do
     with {:ok, ask} <- Al.open(rels, arguments, opts),

@@ -1,16 +1,7 @@
 defmodule Zkfol.Statement do
   @moduledoc """
-  I am one statement of the logic: its relations, the arguments of the
-  instance, the range checks and claims that ride along, and the stage
-  the pipeline has carried it to.
-
-  The stage says what is known, so a pass states its precondition as a
-  type rather than testing for absence: `:raw` has only relations,
-  `Derived` carries the derivation the run established, and `Solved`
-  carries the predicate it lowers to beside the witness modelling it.
-  A stage that knows nothing is a bare atom; only the stages carrying
-  data are structs. An answer is had at `Derived`; only a solved
-  statement can be proved.
+  I am one statement of the logic: its relations, the arguments of the instance, and
+  the stage the pipeline has carried it to.
   """
 
   use TypedStruct
@@ -18,34 +9,67 @@ defmodule Zkfol.Statement do
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
-  alias Zkfol.Statement.Derived
+  alias Zkfol.Refusal
   alias Zkfol.Statement.Solved
 
   @typedoc "How far the pipeline has carried a statement."
-  @type stage :: :raw | Derived.t() | Solved.t()
+  @type stage :: :raw | Zkfol.Derivation.t() | Solved.t()
+
+  @typedoc "What an argument carries: one number, or the sequence a bracket writes."
+  @type datum :: integer() | [datum()]
 
   typedstruct enforce: true do
     field(:rels, [Zkfol.Lang.Rel.t()], default: [])
-    field(:args, [integer() | :_], default: [])
-    field(:claims, [Interpretation.claim()], default: [])
+    field(:args, [datum() | :_], default: [])
     field(:stage, stage(), default: :raw)
   end
 
-  @doc "I am the statement `target` stands for: itself, or the relations it names, root first."
-  @spec of(t() | Rel.t() | [Rel.t()]) :: t()
-  def of(%__MODULE__{} = statement), do: statement
-  def of(%Rel{} = root), do: %__MODULE__{rels: [root]}
-  def of(rels) when is_list(rels), do: %__MODULE__{rels: rels}
+  @doc "I am the statement `target` stands for, root first, `opts[:args]` its arguments."
+  @spec of(t() | Rel.t() | [Rel.t()], keyword()) :: t()
+  def of(target, opts \\ [])
+  def of(%__MODULE__{} = statement, _opts), do: statement
+  def of(%Rel{} = root, opts), do: %__MODULE__{rels: [root], args: args(opts)}
+  def of(rels, opts) when is_list(rels), do: %__MODULE__{rels: rels, args: args(opts)}
+
+  @spec args(keyword()) :: [datum() | :_]
+  defp args(opts), do: Keyword.get(opts, :args, [])
 
   @doc "I am the predicate the statement's relations lower to, linked, once solved."
   @spec pred(t()) :: Ast.pred()
   def pred(%__MODULE__{stage: %Solved{pred: pred}}), do: pred
 
-  @doc "I am the witness, once one models the predicate."
+  @doc "I am the witness the lay stands, once solved."
   @spec witness(t()) :: Interpretation.t()
-  def witness(%__MODULE__{stage: %Solved{witness: witness}}), do: witness
+  def witness(%__MODULE__{stage: %Solved{lay: lay}}), do: Zkfol.Lay.witness(lay)
 
-  @doc "I am the lay a run produced, nil before one has or beside a hand-attached witness."
+  @doc "I am the claims an act opened on me, none before one has."
+  @spec claims(t()) :: [Interpretation.claim()]
+  def claims(%__MODULE__{stage: %Solved{claims: claims}}), do: claims
+  def claims(%__MODULE__{}), do: []
+
+  @doc "I am the statement with the cells `public` opens claimed, refusing one already claimed."
+  @spec opened(t(), [Zkfol.Lay.opening()]) :: {:ok, t()} | {:error, Refusal.t()}
+  def opened(%__MODULE__{stage: %Solved{claims: [_one | _rest] = claims}}, _public),
+    do: {:error, {:publicity_is_the_acts, %{claims: claims}}}
+
+  def opened(%__MODULE__{stage: %Solved{lay: lay} = solved} = statement, public) do
+    with {:ok, claims} <- Zkfol.Lay.claims(lay, public),
+         do: {:ok, %{statement | stage: %{solved | claims: claims}}}
+  end
+
+  def opened(%__MODULE__{} = statement, []), do: {:ok, statement}
+
+  def opened(%__MODULE__{}, [named | _rest]),
+    do: {:error, {:unbound_variable, %{variable: named}}}
+
+  @doc "I am the rows of `sym`'s bank in my witness."
+  @spec bank(t(), atom()) :: [[non_neg_integer()]]
+  def bank(%__MODULE__{} = statement, sym) do
+    laid = Interpretation.rows(witness(statement))
+    for i <- Zkfol.Alloc.rows(alloc(statement), sym), do: Enum.at(laid, i - 1)
+  end
+
+  @doc "I am the lay a run produced, nil before one has."
   @spec lay(t()) :: Zkfol.Lay.t() | nil
   def lay(%__MODULE__{stage: %Solved{lay: lay}}), do: lay
   def lay(%__MODULE__{}), do: nil
@@ -57,7 +81,7 @@ defmodule Zkfol.Statement do
 
   @doc "I am the derivation: the run's own once derived, the lay's once solved."
   @spec derivation(t()) :: Zkfol.Derivation.t() | nil
-  def derivation(%__MODULE__{stage: %Derived{derivation: derivation}}), do: derivation
+  def derivation(%__MODULE__{stage: %Zkfol.Derivation{} = derivation}), do: derivation
 
   def derivation(%__MODULE__{} = statement),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.derivation)
@@ -65,7 +89,7 @@ defmodule Zkfol.Statement do
   @doc "I am the statement carrying `derivation`: what its relations established, unlaid."
   @spec derived(t(), Zkfol.Derivation.t()) :: t()
   def derived(%__MODULE__{} = statement, derivation),
-    do: %{statement | stage: %Derived{derivation: derivation}}
+    do: %{statement | stage: derivation}
 
   @doc """
   I am the statement beneath one established fact, named by its
@@ -79,8 +103,8 @@ defmodule Zkfol.Statement do
     with %Zkfol.Derivation{facts: facts} = d <- derivation(statement),
          {name, tuple} = fact <- Enum.at(facts, k - 1),
          root when not is_nil(root) <- Enum.find(rels, &(&1.name == name)),
-         source = %{statement | rels: [root | List.delete(rels, root)], args: tuple, claims: []},
-         {:ok, sub} <- Zkfol.Al.relaid(source, Zkfol.Derivation.under(d, fact)) do
+         source = %{statement | rels: [root | List.delete(rels, root)], args: tuple},
+         {:ok, sub} <- Zkfol.Phi.relaid(source, Zkfol.Derivation.under(d, fact)) do
       sub
     else
       _nothing -> nil

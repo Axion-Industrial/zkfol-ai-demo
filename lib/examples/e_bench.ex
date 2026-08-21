@@ -50,7 +50,7 @@ defmodule Examples.EBench do
       "fibonacci n=#{n}, doubled",
       Statement.pred(statement),
       Statement.witness(statement),
-      statement.claims
+      Statement.claims(statement)
     )
   end
 
@@ -62,7 +62,7 @@ defmodule Examples.EBench do
       "fibonacci n=#{n} mod #{mod}, doubled",
       Statement.pred(statement),
       Statement.witness(statement),
-      statement.claims
+      Statement.claims(statement)
     )
   end
 

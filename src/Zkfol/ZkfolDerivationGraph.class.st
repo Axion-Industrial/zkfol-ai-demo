@@ -30,14 +30,6 @@ ZkfolDerivationGraph >> edges [
 				select: [ :edge | edge second notNil ] ]
 ]
 
-{ #category : 'accessing' }
-ZkfolDerivationGraph >> labelOf: aFact [
-	"A fact says itself: its relation over its tuple, each value
-	 compacted to cell honesty."
-	^ (aFact first) asString , '(' , ((aFact allButFirst
-		collect: [ :v | ZkfolElements compactValue: v upTo: 5 ]) fold: [ :a :b | a , ', ' , b ]) , ')'
-]
-
 { #category : 'painting' }
 ZkfolDerivationGraph >> paint: aMondrian [
 	"The fact DAG as the run derived it: one node per established fact,
@@ -50,7 +42,7 @@ ZkfolDerivationGraph >> paint: aMondrian [
 		shape: [ :row |
 			| node |
 			node := BlTextElement new
-				text: ((self labelOf: (row at: #fact)) asRopedText fontSize: 11);
+				text: ((row at: #label) asRopedText fontSize: 11);
 				background: ZkfolPalette nodeBackgroundColor;
 				padding: (BlInsets all: 8);
 				border: (BlBorder paint: ZkfolPalette nodeBorderColor);

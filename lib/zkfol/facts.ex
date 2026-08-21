@@ -83,11 +83,11 @@ defmodule Zkfol.Facts do
     end
   end
 
-  # What a goal says the step's value is, and the modulus it says it
-  # under: a plain equation reduces by nothing, a mod site by its own.
   @spec defines(term(), atom()) :: {term(), pos_integer() | nil} | nil
   defp defines({:eq, {:var, out}, rhs}, out), do: {rhs, nil}
-  defp defines({:mod, {:var, out}, rhs, m}, out) when is_integer(m), do: {rhs, m}
+
+  defp defines({:call, :mod, [rhs, m, {:var, out}, _q]}, out) when is_integer(m), do: {rhs, m}
+
   defp defines(_goal, _out), do: nil
 
   @spec history([{integer(), atom()}]) ::

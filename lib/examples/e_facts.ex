@@ -21,16 +21,6 @@ defmodule Examples.EFacts do
     v = x * v1
   end
 
-  defrel sub(1, 1)
-  defrel sub(2, 2)
-
-  defrel sub(x, v) do
-    x > 2
-    sub(x - 1, a)
-    sub(x - 2, b)
-    v = a - b
-  end
-
   defrel reduced(1, 1)
   defrel reduced(2, 1)
 
@@ -49,14 +39,6 @@ defmodule Examples.EFacts do
     v = a * b
   end
 
-  @spec fibonacci_descriptor() :: Facts.t()
-  example fibonacci_descriptor do
-    {:ok, descriptor} = Facts.recurrence(EUser.fib())
-
-    assert %{p: 1, q: 1, initial: [{1, 1}, {2, 1}]} = Map.from_struct(descriptor)
-    descriptor
-  end
-
   @doc """
   I read the modulus off the structure: the same coefficients as the
   unreduced recurrence, and the bound the step reduces by, so nobody
@@ -65,30 +47,23 @@ defmodule Examples.EFacts do
   @spec a_reduced_step_carries_its_modulus() :: Facts.t()
   example a_reduced_step_carries_its_modulus do
     {:ok, descriptor} = Facts.recurrence(reduced())
+    {:ok, unreduced} = Facts.recurrence(EUser.fib())
 
     assert %{p: 1, q: 1, mod: 1000} = Map.from_struct(descriptor)
-    assert %{mod: nil} = Map.from_struct(fibonacci_descriptor())
+    assert %{p: 1, q: 1, mod: nil, initial: [{1, 1}, {2, 1}]} = Map.from_struct(unreduced)
     descriptor
   end
 
-  @spec factorial_is_refused() :: Refusal.t()
-  example factorial_is_refused do
-    {:error, refusal} = Facts.recurrence(factorial())
-    assert {:not_order_two, %{offsets: [-1]}} = refusal
-    refusal
-  end
+  @doc "Outside the order-two class, each shape refuses by its own name."
+  @spec refusals_outside_the_class() :: [Refusal.t()]
+  example refusals_outside_the_class do
+    {:error, order} = Facts.recurrence(factorial())
+    {:error, step} = Facts.recurrence(entangled())
+    {:error, arity} = Facts.recurrence(EUser.regs())
 
-  @spec an_entangled_step_is_refused() :: Refusal.t()
-  example an_entangled_step_is_refused do
-    {:error, refusal} = Facts.recurrence(entangled())
-    assert {:step_not_linear, %{term: _term}} = refusal
-    refusal
-  end
-
-  @spec a_squaring_relation_is_refused() :: Refusal.t()
-  example a_squaring_relation_is_refused do
-    {:error, refusal} = Facts.recurrence(EUser.epower())
-    assert {:not_an_index_relation, %{arity: 3}} = refusal
-    refusal
+    assert {:not_order_two, %{offsets: [-1]}} = order
+    assert {:step_not_linear, %{term: _term}} = step
+    assert {:not_an_index_relation, %{arity: 3}} = arity
+    [order, step, arity]
   end
 end

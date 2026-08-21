@@ -49,7 +49,7 @@ defmodule Zkfol.Pipeline do
   """
   @spec default() :: t()
   def default,
-    do: %__MODULE__{passes: [{Doubling, []}, {Witness, []}, {Zkfol.Lang, []}]}
+    do: %__MODULE__{passes: [{Doubling, []}, {Witness, []}, {Zkfol.Phi, []}]}
 
   @doc """
   I run `statement` through my passes, keeping every intermediate;
@@ -58,7 +58,7 @@ defmodule Zkfol.Pipeline do
   """
   @spec run(t(), Statement.t(), keyword()) :: outcome()
   def run(%__MODULE__{passes: passes}, statement, opts \\ []) do
-    statement = %{statement | rels: Zkfol.Lang.gathered(statement.rels)}
+    statement = %{statement | rels: program(statement.rels)}
 
     Enum.reduce_while(passes, {statement, []}, fn {pass, own}, {current, trace} ->
       case pass.run(current, Keyword.merge(opts, own)) do
@@ -71,6 +71,16 @@ defmodule Zkfol.Pipeline do
       {final, trace} -> {:ok, final, Enum.reverse(trace)}
     end
   end
+
+  @spec program([Zkfol.Lang.Rel.t()]) :: [Zkfol.Lang.Rel.t()]
+  defp program([root | _rest] = rels) do
+    case Zkfol.Lang.reached(root, rels) do
+      {:ok, reached} -> reached
+      {:error, _absent} -> rels
+    end
+  end
+
+  defp program([]), do: []
 
   @doc """
   I am the act's verdicts, read off its trace: a pass that returned

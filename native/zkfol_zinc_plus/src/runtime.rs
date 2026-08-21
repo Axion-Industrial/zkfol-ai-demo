@@ -8,16 +8,42 @@ use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use zinc_poly::{
-    mle::DenseMultilinearExtension,
-    univariate::{binary::BinaryPoly, dense::DensePolynomial},
-};
+use zinc_poly::{mle::DenseMultilinearExtension, univariate::dense::DensePolynomial};
 use zinc_uair::{
-    ideal::DegreeOneIdeal, ConstraintBuilder, LookupColumnSpec, LookupTableType,
+    ideal::DegreeOneIdeal, ConstraintBuilder, LookupColumnSpec, LookupTableType, PointTie,
     PublicColumnLayout, ShiftSpec, TotalColumnLayout, TraceRow, Uair, UairSignature, UairTrace,
 };
 
 use crate::config::D;
+
+/// One Selected lookup group: the int columns it spans, the multiset each
+/// of its claims holds, and the cells of each claim as `(slot, row)`, the
+/// slot indexing `columns`. Every column of the group declares the same
+/// table, which is how the backend knows they are one group.
+#[derive(Clone, Debug, rustler::NifStruct)]
+#[module = "Zkfol.ZincPlus.Selected"]
+pub struct Selected {
+    pub columns: Vec<usize>,
+    pub values: Vec<u64>,
+    pub selections: Vec<Vec<(u32, u32)>>,
+}
+
+/// What a tied cell is fixed to: an int column the cell's private value
+/// fills at every row.
+#[derive(Clone, Debug, rustler::NifTaggedEnum)]
+pub enum TieTarget {
+    Broadcast(usize),
+}
+
+/// One cell the statement fixes: its int column, its cube row, and what
+/// fixes it. Nothing of a tie is committed and no lookup discharges it.
+#[derive(Clone, Debug, rustler::NifStruct)]
+#[module = "Zkfol.ZincPlus.Tie"]
+pub struct Tie {
+    pub column: usize,
+    pub row: usize,
+    pub target: TieTarget,
+}
 
 /// One postfix op of the constraint program.
 #[derive(Clone, Debug)]
@@ -33,15 +59,19 @@ pub enum Op {
 pub struct Spec {
     pub num_cols: usize,
     pub num_public: usize,
-    pub bin_cols: usize,
     pub shifts: Vec<(usize, usize)>,
     pub program: Vec<Op>,
-    /// BitPoly lookups: (binary column, table width, chunk width).
-    pub lookups: Vec<(usize, usize, usize)>,
     /// Word lookups: (int column, table width, chunk width). A cell of an
     /// int column is the number the table is indexed by, so this is the
     /// range check: the column proves only if every cell is under 2^width.
     pub word_lookups: Vec<(usize, usize, usize)>,
+    /// The Selected groups, one a table: each names its own cells, so it
+    /// says nothing about the rows no selection reaches.
+    pub selected: Vec<Selected>,
+    /// The cells the statement fixes. A named position is public
+    /// structure, so the verifier evaluates each indicator itself and the
+    /// proof carries nothing for one.
+    pub point_ties: Vec<Tie>,
     /// Composed reads: (value_row, bit_rows, result_row), int-section
     /// indices; the pointer query binds them.
     pub reads: Vec<(usize, Vec<usize>, usize)>,
@@ -90,47 +120,53 @@ where
 
     fn signature() -> UairSignature {
         let spec = spec();
-        let total = TotalColumnLayout::new(spec.bin_cols, 0, spec.num_cols);
+        let total = TotalColumnLayout::new(0, 0, spec.num_cols);
         let public = PublicColumnLayout::new(0, 0, spec.num_public);
-        // Shift sources are flat-indexed (binary_poly || arbitrary_poly ||
-        // int), so int shifts move past the binary section.
         let shifts = spec
             .shifts
             .iter()
-            .map(|&(col, amount)| ShiftSpec::new(spec.bin_cols + col, amount))
+            .map(|&(col, amount)| ShiftSpec::new(col, amount))
             .collect();
         let lookups = spec
-            .lookups
+            .word_lookups
             .iter()
             .map(|&(col, width, chunk)| LookupColumnSpec {
                 column_index: col,
-                table_type: LookupTableType::BitPoly {
+                table_type: LookupTableType::Word {
                     width,
                     chunk_width: Some(chunk),
                 },
             })
-            .chain(spec.word_lookups.iter().map(|&(col, width, chunk)| {
-                LookupColumnSpec {
-                    // Int columns are flat-indexed past the binary section,
-                    // the way shifts and reads are.
-                    column_index: spec.bin_cols + col,
-                    table_type: LookupTableType::Word {
-                        width,
-                        chunk_width: Some(chunk),
+            .chain(spec.selected.iter().flat_map(|group| {
+                group.columns.iter().map(|&col| LookupColumnSpec {
+                    column_index: col,
+                    table_type: LookupTableType::Selected {
+                        values: group.values.clone(),
+                        selections: group.selections.clone(),
                     },
-                }
+                })
             }))
             .collect();
         let reads = spec
             .reads
             .iter()
             .map(|(value, bits, result)| zinc_uair::ComposedReadSpec {
-                value_col: spec.bin_cols + value,
-                bit_cols: bits.iter().map(|&b| spec.bin_cols + b).collect(),
-                result_col: spec.bin_cols + result,
+                value_col: *value,
+                bit_cols: bits.clone(),
+                result_col: *result,
             })
             .collect();
-        UairSignature::new(total, public, shifts, lookups, vec![]).with_composed_reads(reads)
+        let ties = spec
+            .point_ties
+            .iter()
+            .map(|tie| match tie.target {
+                TieTarget::Broadcast(into) => PointTie::broadcast(tie.column, tie.row, into),
+            })
+            .collect();
+
+        UairSignature::new(total, public, shifts, lookups, vec![])
+            .with_composed_reads(reads)
+            .with_point_ties(ties)
     }
 
     fn constrain_general<B, FromR, MBS, IFromR>(
@@ -173,33 +209,16 @@ where
     }
 }
 
-/// Binary columns from u32 bit patterns, one BinaryPoly cell per row.
-pub fn bin_columns(
-    bins: Vec<Vec<u32>>,
-    num_vars: usize,
-) -> Vec<DenseMultilinearExtension<BinaryPoly<D>>> {
-    bins.into_iter()
-        .map(|patterns| {
-            let evals = patterns.into_iter().map(BinaryPoly::<D>::from).collect();
-            DenseMultilinearExtension::from_evaluations_vec(num_vars, evals, BinaryPoly::from(0u32))
-        })
-        .collect()
-}
-
 /// Build the trace from evaluation columns, each already padded to
-/// 2^num_vars rows, plus any binary shadow columns.
-pub fn trace(
-    columns: Vec<Vec<i64>>,
-    bins: Vec<Vec<u32>>,
-    num_vars: usize,
-) -> UairTrace<'static, i64, i64, D> {
+/// 2^num_vars rows.
+pub fn trace(columns: Vec<Vec<i64>>, num_vars: usize) -> UairTrace<'static, i64, i64, D> {
     let int = columns
         .into_iter()
         .map(|evals| DenseMultilinearExtension::from_evaluations_vec(num_vars, evals, 0i64))
         .collect::<Vec<_>>();
 
     UairTrace {
-        binary_poly: std::borrow::Cow::Owned(bin_columns(bins, num_vars)),
+        binary_poly: std::borrow::Cow::Owned(vec![]),
         arbitrary_poly: std::borrow::Cow::Owned(vec![]),
         int: std::borrow::Cow::Owned(int),
     }
@@ -208,7 +227,6 @@ pub fn trace(
 /// A wide trace from sign-free u64 limb lists, at any cell width.
 pub fn limb_trace<const N: usize>(
     columns: Vec<Vec<Vec<u64>>>,
-    bins: Vec<Vec<u32>>,
     num_vars: usize,
 ) -> UairTrace<
     'static,
@@ -233,7 +251,7 @@ pub fn limb_trace<const N: usize>(
         .collect::<Vec<_>>();
 
     UairTrace {
-        binary_poly: std::borrow::Cow::Owned(bin_columns(bins, num_vars)),
+        binary_poly: std::borrow::Cow::Owned(vec![]),
         arbitrary_poly: std::borrow::Cow::Owned(vec![]),
         int: std::borrow::Cow::Owned(int),
     }

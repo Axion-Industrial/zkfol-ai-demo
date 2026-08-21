@@ -22,7 +22,7 @@ use config::{
     setup_big_pp, setup_huge_pp, setup_pp, BigCfg, BigInt, Cfg, HugeCfg, HugeInt, D, F,
     NUM_COLUMN_OPENINGS, PERFORM_CHECKS, REP_FACTOR,
 };
-use runtime::{Op, RuntimeUair, Spec, SPEC};
+use runtime::{Op, RuntimeUair, Selected, Spec, Tie, SPEC};
 
 const BACKEND: &str = "zinc-plus-66776a3";
 
@@ -61,9 +61,7 @@ struct Job {
     id: u64,
     spec: Spec,
     payload: Payload,
-    bins: Vec<Vec<u32>>,
     num_vars: usize,
-    tamper: bool,
 }
 
 static JOBS: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
@@ -90,58 +88,42 @@ fn decode_program(program: Vec<(rustler::types::atom::Atom, i64)>) -> Result<Vec
         .collect()
 }
 
-// The pin holds BitPoly lookups to witness binary columns of width D.
-fn check_lookups(lookups: &[(usize, usize, usize)], bin_cols: usize) -> Result<(), String> {
-    for &(col, width, chunk) in lookups {
-        if col >= bin_cols {
-            return Err(format!("lookup column {col} has no binary column"));
-        }
-        if width != D {
-            return Err(format!("lookup width {width} must equal D = {D} at this pin"));
-        }
-        if chunk == 0 || width % chunk != 0 {
-            return Err(format!("chunk width {chunk} must divide width {width}"));
-        }
-    }
-    Ok(())
-}
-
-/// Queue the statement and return the id its verdict will answer to.
-#[allow(clippy::too_many_arguments)]
-fn submit(
-    env: Env,
+/// One queued UAIR, as Elixir's Payload struct decodes.
+#[derive(NifStruct)]
+#[module = "Zkfol.ZincPlus.Payload"]
+struct Request {
     num_cols: usize,
     num_public: usize,
     shifts: Vec<(usize, usize)>,
     program: Vec<(rustler::types::atom::Atom, i64)>,
-    payload: Payload,
-    bins: Vec<Vec<u32>>,
-    lookups: Vec<(usize, usize, usize)>,
+    cells: Payload,
     word_lookups: Vec<(usize, usize, usize)>,
+    selected_lookups: Vec<Selected>,
+    point_ties: Vec<Tie>,
     reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
-    tamper: bool,
-) -> Result<u64, String> {
-    let program = decode_program(program)?;
-    check_lookups(&lookups, bins.len())?;
+}
+
+/// Queue the statement and return the id its verdict will answer to.
+#[rustler::nif]
+fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
+    let program = decode_program(request.program)?;
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let job = Job {
         pid: env.pid(),
         id,
         spec: Spec {
-            num_cols,
-            num_public,
-            bin_cols: bins.len(),
-            shifts,
+            num_cols: request.num_cols,
+            num_public: request.num_public,
+            shifts: request.shifts,
             program,
-            lookups,
-            word_lookups,
-            reads,
+            word_lookups: request.word_lookups,
+            selected: request.selected_lookups,
+            point_ties: request.point_ties,
+            reads: request.reads,
         },
-        payload,
-        bins,
-        num_vars,
-        tamper,
+        payload: request.cells,
+        num_vars: request.num_vars,
     };
 
     JOBS.get_or_init(|| {
@@ -166,9 +148,22 @@ fn prover(queue: Receiver<Job>) {
         // past verdict's own guards, so the address is kept out here.
         let (pid, id) = (job.pid, job.id);
 
-        if catch_unwind(AssertUnwindSafe(|| verdict(job))).is_err() {
-            send_verdict(pid, id, &Err("the prover panicked".to_string()));
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| verdict(job))) {
+            send_verdict(pid, id, &Err(panic_said(payload.as_ref())));
         }
+    }
+}
+
+/// What a panic said, so a refusal names its reason rather than the bare
+/// fact of a panic.
+fn panic_said(payload: &(dyn std::any::Any + Send)) -> String {
+    let said = payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned());
+    match said {
+        Some(said) => format!("the prover panicked: {said}"),
+        None => "the prover panicked".to_string(),
     }
 }
 
@@ -180,9 +175,9 @@ fn verdict(job: Job) {
     *SPEC.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(job.spec);
 
     let verdict = catch_unwind(AssertUnwindSafe(|| {
-        run(job.payload, job.bins, job.num_vars, num_public, job.tamper)
+        run(job.payload, job.num_vars, num_public)
     }))
-    .unwrap_or_else(|_| Err("the prover panicked".to_string()));
+    .unwrap_or_else(|payload| Err(panic_said(payload.as_ref())));
 
     send_verdict(pid, id, &verdict);
 }
@@ -202,9 +197,9 @@ fn send_verdict(pid: LocalPid, id: u64, verdict: &Result<Report, String>) {
 /// The one prove-and-verify driver, expanded per configuration: a macro
 /// rather than a generic, so the trait bounds live only in zinc-plus.
 macro_rules! prove_verify {
-    ($cfg:ty, $cell:ty, $pp:expr, $trace:expr, $num_vars:expr, $public:expr, $tamper:expr, $backend:expr) => {{
+    ($cfg:ty, $cell:ty, $pp:expr, $trace:expr, $num_vars:expr, $public:expr, $backend:expr) => {{
         let started = Instant::now();
-        let mut proof = ZincPlusPiop::<$cfg, RuntimeUair<$cell>, F, D>::prove::<false, PERFORM_CHECKS>(
+        let proof = ZincPlusPiop::<$cfg, RuntimeUair<$cell>, F, D>::prove::<false, PERFORM_CHECKS>(
             &$pp,
             &$trace,
             $num_vars,
@@ -213,18 +208,6 @@ macro_rules! prove_verify {
         .map_err(|e| format!("prover failed: {e:?}"))?;
         let prove_ms = started.elapsed().as_secs_f64() * 1000.0;
         let proof_bytes = proof.get_num_bytes();
-
-        // The rejection experiment: bend one looked-up chunk lift, the
-        // committed bit pattern's representative, and demand refusal.
-        if $tamper {
-            let group = proof
-                .lookup_proof
-                .groups
-                .first_mut()
-                .ok_or_else(|| "no lookup group to tamper".to_string())?;
-            let coeff = &mut group.chunk_lifts[0][0].coeffs[0];
-            *coeff = coeff.clone() + coeff.clone();
-        }
 
         let sig = RuntimeUair::<$cell>::signature();
         let public_trace = $trace.public(&sig);
@@ -257,21 +240,15 @@ macro_rules! prove_verify {
     }};
 }
 
-fn run(
-    payload: Payload,
-    bins: Vec<Vec<u32>>,
-    num_vars: usize,
-    public: usize,
-    tamper: bool,
-) -> Result<Report, String> {
+fn run(payload: Payload, num_vars: usize, public: usize) -> Result<Report, String> {
     match payload {
         Payload::I64(columns) => {
-            let trace = runtime::trace(columns, bins, num_vars);
+            let trace = runtime::trace(columns, num_vars);
             let pp = setup_pp(num_vars)?;
-            prove_verify!(Cfg, i64, pp, trace, num_vars, public, tamper, BACKEND.to_string())
+            prove_verify!(Cfg, i64, pp, trace, num_vars, public, BACKEND.to_string())
         }
         Payload::Big(columns) => {
-            let trace = runtime::limb_trace::<12>(columns, bins, num_vars);
+            let trace = runtime::limb_trace::<12>(columns, num_vars);
             let pp = setup_big_pp(num_vars)?;
             prove_verify!(
                 BigCfg,
@@ -280,12 +257,11 @@ fn run(
                 trace,
                 num_vars,
                 public,
-                tamper,
                 format!("{BACKEND}/int768")
             )
         }
         Payload::Huge(columns) => {
-            let trace = runtime::limb_trace::<110>(columns, bins, num_vars);
+            let trace = runtime::limb_trace::<110>(columns, num_vars);
             let pp = setup_huge_pp(num_vars)?;
             prove_verify!(
                 HugeCfg,
@@ -294,47 +270,10 @@ fn run(
                 trace,
                 num_vars,
                 public,
-                tamper,
                 format!("{BACKEND}/int7040")
             )
         }
     }
-}
-
-/// One queued UAIR: everything `submit` needs, decoded as a single struct
-/// rather than eight positional arguments.
-#[derive(NifStruct)]
-#[module = "Zkfol.ZincPlus.Payload"]
-struct Request {
-    num_cols: usize,
-    num_public: usize,
-    shifts: Vec<(usize, usize)>,
-    program: Vec<(rustler::types::atom::Atom, i64)>,
-    cells: Payload,
-    bins: Vec<Vec<u32>>,
-    lookups: Vec<(usize, usize, usize)>,
-    word_lookups: Vec<(usize, usize, usize)>,
-    reads: Vec<(usize, Vec<usize>, usize)>,
-    num_vars: usize,
-    tamper: bool,
-}
-
-#[rustler::nif]
-fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
-    submit(
-        env,
-        request.num_cols,
-        request.num_public,
-        request.shifts,
-        request.program,
-        request.cells,
-        request.bins,
-        request.lookups,
-        request.word_lookups,
-        request.reads,
-        request.num_vars,
-        request.tamper,
-    )
 }
 
 /// The pinned code's parameters, asked of the backend rather than quoted:
