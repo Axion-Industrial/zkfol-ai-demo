@@ -141,7 +141,8 @@ defmodule Zkfol.Lang do
     clause = {Enum.map(args, &term/1), Enum.map(body, &goal/1)}
 
     quote do
-      @lang_clauses {unquote(name), unquote(length(args)), unquote(Macro.escape(clause))}
+      @lang_clauses {unquote(name), unquote(length(args)),
+                     unquote(Macro.escape(clause, unquote: true))}
     end
   end
 
