@@ -17,6 +17,7 @@ defmodule Examples.EUser do
   alias Zkfol.Lang
   alias Zkfol.Log
   alias Zkfol.Pipeline
+  alias Zkfol.Prover
   alias Zkfol.Refusal
   alias Zkfol.Semantics
   alias Zkfol.Statement
@@ -119,6 +120,14 @@ defmodule Examples.EUser do
     assert witness |> Interpretation.rows() |> Enum.at(1) == Enum.map(1..n, &fib/1)
     assert Enum.all?(1..n, &Semantics.holds?(Statement.pred(statement), witness, &1))
     statement
+  end
+
+  @spec one_column() :: Prover.Report.t()
+  example one_column do
+    ran = Zkfol.compile(%Statement{rels: [fib()], args: [1]})
+    assert Interpretation.len(Statement.witness(Log.Ran.final_stage(ran))) == 1
+    assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
+    report
   end
 
   @spec registers(pos_integer()) :: Statement.t()

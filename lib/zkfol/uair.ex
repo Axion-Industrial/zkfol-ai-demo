@@ -215,6 +215,14 @@ defmodule Zkfol.Uair do
         ) :: {[{non_neg_integer(), pos_integer()}], [{atom(), integer()}], [[integer()]]}
   defp index_pin(nil, _len, _num_vars, shifts, program, columns), do: {shifts, program, columns}
 
+  # One column is no region: X is one at every row, and the head shift
+  # that would read the region's last row is the domain itself, which
+  # no shift may be.
+  defp index_pin(x_col, 1, num_vars, shifts, program, columns) do
+    {shifts, program ++ postfix(square(sub({:up, x_col}, 1))) ++ [{:add, 0}],
+     columns ++ [List.duplicate(1, 1 <<< num_vars)]}
+  end
+
   defp index_pin(x_col, len, num_vars, shifts, program, columns) do
     rows = 1 <<< num_vars
     ones_col = x_col + 1
