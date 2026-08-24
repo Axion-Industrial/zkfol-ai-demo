@@ -57,6 +57,10 @@ defmodule Zkfol.Semantics do
       {:reify, v} ->
         v
 
+      # natural(v): 0 where v sits in N, 1 otherwise, so Lemma 2.17 stands.
+      {:natural, v} ->
+        if v >= 0, do: 0, else: 1
+
       {:eq, a, b} ->
         (a - b) * (a - b)
 

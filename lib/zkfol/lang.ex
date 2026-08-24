@@ -64,6 +64,9 @@ defmodule Zkfol.Lang do
       field(:clauses, [{[term()], [term()]}])
       field(:layout, Zkfol.Matrix.t() | nil, default: nil, enforce: false)
       field(:home, module() | nil, default: nil, enforce: false)
+      # `phi` lowers me where I am called instead of laying me; `al` is the goal AL posts.
+      field(:phi, {module(), atom()} | nil, default: nil, enforce: false)
+      field(:al, Macro.t() | nil, default: nil, enforce: false)
     end
   end
 
@@ -141,7 +144,9 @@ defmodule Zkfol.Lang do
     clause = {Enum.map(args, &term/1), Enum.map(body, &goal/1)}
 
     quote do
-      @lang_clauses {unquote(name), unquote(length(args)), unquote(Macro.escape(clause))}
+      @lang_clauses {unquote(name), unquote(length(args)), unquote(Macro.escape(clause)),
+                     Module.delete_attribute(__MODULE__, :phi),
+                     Module.delete_attribute(__MODULE__, :al)}
     end
   end
 
@@ -150,11 +155,13 @@ defmodule Zkfol.Lang do
       env.module
       |> Module.get_attribute(:lang_clauses)
       |> Enum.reverse()
-      |> Enum.group_by(fn {name, arity, _clause} -> {name, arity} end)
+      |> Enum.group_by(fn {name, arity, _clause, _phi, _al} -> {name, arity} end)
 
     rels =
       Enum.map(grouped, fn {{name, arity}, entries} ->
-        clauses = for {_name, _arity, clause} <- entries, do: clause
+        clauses = for {_name, _arity, clause, _phi, _al} <- entries, do: clause
+        phi = Enum.find_value(entries, fn {_n, _a, _c, phi, _al} -> phi end)
+        al = Enum.find_value(entries, fn {_n, _a, _c, _phi, al} -> al end)
 
         quote do
           def unquote(name)() do
@@ -162,7 +169,9 @@ defmodule Zkfol.Lang do
               name: unquote(name),
               arity: unquote(arity),
               clauses: unquote(Macro.escape(clauses)),
-              home: __MODULE__
+              home: __MODULE__,
+              phi: unquote(Macro.escape(phi)),
+              al: unquote(Macro.escape(al))
             }
           end
         end
@@ -198,6 +207,9 @@ defmodule Zkfol.Lang do
   defp term({:len, _meta, ctx}) when is_atom(ctx), do: :len
   defp term({:reify, _meta, [inner]}), do: {:reify, goal(inner)}
   defp term(q) when is_integer(q), do: q
+  defp term([]), do: nil
+  defp term([{:|, _meta, [head, tail]}]), do: {:cons, term(head), term(tail)}
+  defp term([head | tail]), do: {:cons, term(head), term(tail)}
   defp term({name, _meta, ctx}) when is_atom(name) and is_atom(ctx), do: {:var, name}
   defp term({:+, _meta, [a, b]}), do: {:add, term(a), term(b)}
   defp term({:*, _meta, [a, b]}), do: {:mul, term(a), term(b)}
