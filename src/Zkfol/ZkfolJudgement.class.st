@@ -33,17 +33,22 @@ ZkfolJudgement class >> onFeed: aDictionary [
 { #category : 'elements' }
 ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 	"One grid square in the shared vocabulary. Green answers, white
-	 declines beside an answer, red only where nobody answers. A click
-	 opens the branch's own clause as the root, unfolding into the
-	 equations it lowered to, whose cells hop onward."
+	 declines beside an answer, ⊥ a read beyond the matrix, red only
+	 where nobody answers. A click opens the branch's own clause as the
+	 root, unfolding into the equations it lowered to, whose cells hop
+	 onward."
 	| shown rope cell |
-	shown := aValue = 0
-		ifTrue: [ '0' ]
-		ifFalse: [ ZkfolElements compactValue: aValue upTo: 5 ].
+	shown := aValue = #error
+		ifTrue: [ '⊥' ]
+		ifFalse: [ aValue = 0
+			ifTrue: [ '0' ]
+			ifFalse: [ ZkfolElements compactValue: aValue upTo: 5 ] ].
 	rope := aValue = 0
 		ifTrue: [ shown asRopedText foreground: Color darkGray ]
 		ifFalse: [ columnHolds
-			ifTrue: [ shown asRopedText foreground: Color gray ]
+			ifTrue: [ shown asRopedText foreground: (aValue = #error
+				ifTrue: [ Color lightGray ]
+				ifFalse: [ Color gray ]) ]
 			ifFalse: [ shown asRopedText foreground: Color red darker; bold ] ].
 	cell := (ZkfolElements
 		box: 24 @ 20
@@ -56,8 +61,10 @@ ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 		fontSize: 9)
 		border: (BlBorder paint: Color veryLightGray width: 1);
 		yourself.
-	shown = aValue printString
-		ifFalse: [ cell aptitude: (BrWithExplicitTooltipAptitude text: aValue printString) ].
+	aValue = #error
+		ifTrue: [ cell aptitude: (BrWithExplicitTooltipAptitude text: 'a read beyond the matrix') ]
+		ifFalse: [ shown = aValue printString
+			ifFalse: [ cell aptitude: (BrWithExplicitTooltipAptitude text: aValue printString) ] ].
 	trees ifNil: [ ^ cell ].
 	^ ZkfolElements make: cell spawn: [
 		| root |
