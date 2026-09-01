@@ -1,8 +1,3 @@
-# The query door forks a branch per query, and dropping a branch's
-# tables is a schema transaction, which dumps mnesia's log. The log
-# grows with every act the suite journals, so the forking module runs
-# first: last it costs three times as much.
-#
 # The proving benchmarks join only under BENCH=1.
 bench = if System.get_env("BENCH") == "1", do: [Examples.EBench], else: []
 

@@ -84,14 +84,24 @@ defmodule Examples.EFace do
     feed
   end
 
-  @doc "I compile my own act: a cached one's branch is already gone."
+  @doc "The program rides the branch the run's solve landed on; nothing landed, nothing to forward."
   @spec the_act_forwards_its_program() :: AL.Object.t()
   example the_act_forwards_its_program do
-    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]})
-    program = Face.program(Zkfol.Log.snapshot(), ran)
+    ran = Zkfol.compile(EUser.fib(), args: [8])
+    snap = Zkfol.Log.snapshot()
 
-    assert %AL.Object{id: :zkfol, branch: branch} = program
-    assert Enum.any?(AL.Branch.list(), &(&1.id == branch))
+    assert %AL.Object{id: :zkfol, branch: branch} = program = Face.program(snap, ran)
+
+    assert Enum.any?(
+             Zkfol.Log.thread(snap, ran.defined),
+             &match?(
+               %Zkfol.Log.Event{body: {:al_solved, %{branch: ^branch}}},
+               &1
+             )
+           )
+
+    refused = Zkfol.emit(%Statement{rels: []}, name: :nothing)
+    assert Face.program(Zkfol.Log.snapshot(), refused) == nil
     program
   end
 

@@ -45,10 +45,12 @@ defmodule Examples.EQuery do
     reason
   end
 
-  @doc "Stepped past its last answer a query is exhausted, and the branch it forked closes with it."
+  @doc "Closed, what a query posted is gone from its branch and the branch is not."
   @spec a_query_exhausts_then_closes() :: Zkfol.Query.t()
   example a_query_exhausts_then_closes do
     {:ok, query} = Query.open(EAl.tab(), [:_, :_], [])
+    branch = query.ask.branch
+    assert answers?(branch)
 
     assert Enum.map(1..4, fn _ -> Query.next(query) end) ==
              [{:ok, [1, 10]}, {:ok, [2, 20]}, {:ok, [3, 40]}, {:ok, [4, 40]}]
@@ -59,8 +61,15 @@ defmodule Examples.EQuery do
     assert Query.close(query) == :ok
     assert Query.close(query) == :ok
     refute Process.alive?(query.pid)
-    refute Enum.any?(AL.Branch.list(), &(&1.id == query.branch.id))
+    refute answers?(branch)
+    assert branch in [AL.Branch.main() | AL.Branch.list()]
     query
+  end
+
+  @spec answers?(AL.Branch.t()) :: boolean()
+  defp answers?(branch) do
+    goal = [AL.ast_to_pattern(quote(do: tab(:zkfol, _x, _v)))]
+    match?({:atomic, _answer}, AL.eval(goal, nil, branch, []))
   end
 
   @doc "An answer is every asked row ground; a row left open is residue, not an answer."

@@ -1,28 +1,15 @@
 defmodule Zkfol.Query do
   @moduledoc """
-  I am a query in flight: one process holding one stepping ask, handing
-  out its answers one at a time.
-
-  AL's search state is the continuation of the derivation and never
-  leaves me: it stays behind messages, and only ground answers cross.
-  I wear my own heap cap. A derivation that outgrows it kills me, and
-  my caller reads the kill as a refusal.
-
-  My handle carries my pid and my branch, so a caller can discard the
-  branch even when the cap killed me before `terminate` could.
-
-      {:ok, query} = Zkfol.Query.open(fib, [:_, :_], [])
-      Zkfol.Query.next(query)    #=> {:ok, [1, 1]}
-      Zkfol.Query.next(query)    #=> {:ok, [2, 1]}
-      Zkfol.Query.close(query)
+  I am a query in flight: one heap-capped process holding one stepping ask, handing out
+  its answers one at a time.
 
   ### Public API
 
-  - `open/3`: fork a branch, install the question, hold the ask.
+  - `open/3`: install the question on its branch, hold the ask.
   - `next/1`: the next answer, the end of the search, or a refusal.
   - `taken/1`: every answer handed out so far, oldest first.
   - `statement/2`: answer `k` as a statement, ready to prove.
-  - `close/1`: stop me and discard the branch.
+  - `close/1`: stop me and retract what I posted.
   """
 
   use GenServer
@@ -34,34 +21,23 @@ defmodule Zkfol.Query do
   alias Zkfol.Statement
   alias Zkfol.Refusal
 
-  @heap 256_000_000
-
-  @typedoc "A query in flight: the process holding it, and the branch it runs on."
+  @typedoc "A query in flight: the process holding it, and the ask it holds, unstepped."
   typedstruct enforce: true do
     field(:pid, pid())
-    field(:branch, AL.Branch.t())
+    field(:ask, Ask.t())
   end
 
   ############################################################
   #                        Public API                        #
   ############################################################
 
-  @doc """
-  I open a query at `arguments`: the ask `Zkfol.Al.open/3` prepares,
-  handed to a capped process of its own. Nothing derives until
-  `next/1`, so the ask crosses without search state.
-
-      {:ok, query} = open(Examples.EAl.tab(), [:_, :_], [])
-
-  `arguments` read as `Zkfol.eval/3`'s do, `:_` free. `:heap` is the
-  cap the query runs under, `:branch` what its branch forks from.
-  """
+  @doc "I open a query at `arguments`, `:_` free; `opts` takes `:heap` and `:branch`."
   @spec open(Statement.t() | Rel.t() | [Rel.t()], [Zkfol.Statement.datum() | :_], keyword()) ::
           {:ok, t()} | {:error, Refusal.t()}
   def open(rels, arguments, opts) do
     with {:ok, ask} <- Al.open(rels, arguments, opts),
-         {:ok, pid} <- GenServer.start(__MODULE__, {ask, opts}),
-         do: {:ok, %__MODULE__{pid: pid, branch: ask.branch}}
+         {:ok, pid} <- GenServer.start(__MODULE__, ask),
+         do: {:ok, %__MODULE__{pid: pid, ask: ask}}
   end
 
   @doc """
@@ -104,12 +80,12 @@ defmodule Zkfol.Query do
     :exit, _gone -> nil
   end
 
-  @doc "I stop the query and discard its branch, however it ended."
-  @spec close(t()) :: :ok
-  def close(%__MODULE__{pid: pid, branch: branch}) do
+  @doc "I stop the query and retract what it posted, however it ended."
+  @spec close(t()) :: :ok | {:error, Refusal.t()}
+  def close(%__MODULE__{pid: pid, ask: ask}) do
     GenServer.stop(pid)
   catch
-    :exit, _gone -> AL.Branch.discard(branch)
+    :exit, _gone -> Al.close(ask)
   end
 
   ############################################################
@@ -117,15 +93,9 @@ defmodule Zkfol.Query do
   ############################################################
 
   @impl true
-  def init({%Ask{} = ask, opts}) do
+  def init(%Ask{} = ask) do
     Process.flag(:trap_exit, true)
-
-    Process.flag(:max_heap_size, %{
-      size: Keyword.get(opts, :heap, @heap),
-      kill: true,
-      error_logger: false
-    })
-
+    Process.flag(:max_heap_size, %{size: ask.heap, kill: true, error_logger: false})
     {:ok, {ask, []}}
   end
 
