@@ -4,7 +4,8 @@ Extension { #name : 'ElixirModuleCoder' }
 ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 	"The module I edit as the pass it may be: every journaled run whose
 	 route carried it, with its define id, each opening as the full
-	 act's pipeline off the log. A module that is no pass, or a bridge
+	 act's pipeline off the log, the play button replaying it from the
+	 receipt the log rebuilds. A module that is no pass, or a bridge
 	 that cannot answer, shows no tab: the one guarded degrade. Row
 	 fields come straight off the feed; a feed missing them is a broken
 	 log and should look broken."
@@ -25,9 +26,11 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 				ifNil: [ (a at: #settled) asString ]
 				ifNotNil: [ :verdict | verdict asString , ' · ' , (a at: #settled) asString ] ];
 		send: [ :a |
-			| act |
-			act := fetch value:
-				'Zkfol.Face.act_at(Zkfol.Log.snapshot(), ' , (a at: #defined) printString , ')'.
-			ZkfolPipelineModel onAct:
-				((act isKindOf: Dictionary) ifTrue: [ act ] ifFalse: [ nil ]) ]
+			| id act |
+			id := (a at: #defined) printString.
+			act := fetch value: 'Zkfol.Face.act_at(Zkfol.Log.snapshot(), ' , id , ')'.
+			(ZkfolPipelineModel onAct: ((act isKindOf: Dictionary) ifTrue: [ act ] ifFalse: [ nil ]))
+				replaySpawner: [ self application evaluateAndWait:
+					'Zkfol.Log.Ran.replay(Zkfol.Log.Ran.at(Zkfol.Log.snapshot(), ' , id , '))' ];
+				yourself ]
 ]

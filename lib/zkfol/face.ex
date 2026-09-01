@@ -253,13 +253,10 @@ defmodule Zkfol.Face do
     %{implements: implements, acts: Log.Ran.acts(snap, module)}
   end
 
-  @doc """
-  I re-emit the final stage's UAIR for the act's emit spawn: the
-  struct itself so the inspector dresses it, or the refusal's prose.
-  """
+  @doc "I re-emit the act's final stage as its UAIR, or the refusal's prose."
   @spec emitted(Log.Ran.t()) :: Uair.t() | {:refused, String.t()}
   def emitted(ran) do
-    {:ok, final} = Log.Ran.stage(ran, length(ran.pipeline.passes))
+    final = Log.Ran.final_stage(ran)
 
     case Uair.emit(Statement.pred(final), Statement.witness(final), Statement.claims(final)) do
       {:ok, uair} -> uair

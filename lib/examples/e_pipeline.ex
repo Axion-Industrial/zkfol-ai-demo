@@ -34,7 +34,7 @@ defmodule Examples.EPipeline do
 
     # A stage is a re-run, never a record: 0 the source, 1 doubled,
     # 2 the same again, the lowering having nothing left to do.
-    assert Log.Ran.stage(ran, 0) == {:ok, entered(ran.source)}
+    assert Log.Ran.stage(ran, 0) == {:ok, entered(source)}
     assert {:ok, doubled} = Log.Ran.stage(ran, 1)
     assert Statement.pred(doubled) != nil
     assert Statement.claims(doubled) == []

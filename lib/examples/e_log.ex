@@ -22,7 +22,7 @@ defmodule Examples.ELog do
 
     # The trail runs from route through derivation and intent to observation.
     assert [
-             %Log.Event{body: {:define, :fibonacci, %Pipeline{}, [:r]}},
+             %Log.Event{body: {:define, :fibonacci, %Pipeline{}, [:r], ^source}},
              %Log.Event{body: {:al_solved, _derivation}},
              %Log.Event{body: {:piped, _verdicts}},
              %Log.Event{body: {:prove_requested, :fibonacci}},

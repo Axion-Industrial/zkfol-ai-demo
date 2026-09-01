@@ -1,28 +1,7 @@
 defmodule Zkfol do
   @moduledoc """
-  I am the language's front door: one call takes a statement through a
-  route to a proof and returns the receipt. I journal the route as its
-  define first, run the passes with that id threaded through their
-  opts so the derivations land on the trail, journal the verdicts, and
-  prove the result under the claims `:public` opens. The `Zkfol.Log.Ran` I
-  return replays the whole act, its report riding the trail's proved
-  event; a pass that errs leaves its refusal among the piped verdicts,
-  a settle that refuses leaves its own on the trail, and the receipt
-  still walks it. `opts` takes `:pipeline`,
-  `:name`, and `:public`, which names the parameters the act opens, by
-  head variable or by position; the rest ride through to the prover.
-
-      Zkfol.compile(corner(), args: [:_], public: [:v])
-      Zkfol.compile(grid_cell(), args: [:_], public: [1, {:grid, :a3}])
-
-      ran = Zkfol.compile(%Zkfol.Statement{rels: [fib], args: [100]})
-      Zkfol.Log.report(Zkfol.Log.snapshot(), ran).prove_ms
-
-  I stop one step short in `emit/2`: the same act to the emitted UAIR,
-  no proof, a receipt whose trail just ends at the verdicts.
-
-      ran = Zkfol.emit(%Zkfol.Statement{rels: [fib], args: [100]})
-      Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
+  I am the language's front door: one call takes a statement through a route to a proof,
+  journalled, and returns the receipt.
   """
 
   alias Zkfol.Lang
@@ -149,7 +128,7 @@ defmodule Zkfol do
     {pipeline, opts} = Keyword.pop(opts, :pipeline, Pipeline.default())
     {name, opts} = Keyword.pop_lazy(opts, :name, fn -> named(statement) end)
     {public, opts} = Keyword.pop(opts, :public, [])
-    define = Log.push({:define, name, pipeline, public})
+    define = Log.push({:define, name, pipeline, public, statement})
 
     outcome = Pipeline.run(pipeline, statement, basedon: define)
     piped = Log.push({:piped, Pipeline.verdicts(pipeline, statement, outcome)}, define)
@@ -161,7 +140,7 @@ defmodule Zkfol do
 
     with {:error, refusal} <- settled, do: Log.push({:refused, refusal}, piped)
 
-    %Log.Ran{pipeline: pipeline, source: statement, defined: define, public: public}
+    %Log.Ran{defined: define}
   end
 
   @spec proved(Statement.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
