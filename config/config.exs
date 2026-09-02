@@ -14,5 +14,6 @@ config :al,
 
 # Tests keep their own store, apart from a live node's log.
 if config_env() == :test do
+  System.put_env("AL_MNESIA_DISTRIBUTED", "false")
   config :al, mnesia_dir: ".mnesiastore-test/"
 end
