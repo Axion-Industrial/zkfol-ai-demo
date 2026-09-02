@@ -11,34 +11,39 @@ defmodule Zkfol.Uair.Composed do
   alias Zkfol.Interpretation
   alias Zkfol.Refusal
   alias Zkfol.Uair
+  alias Zkfol.Uair.Plain
 
   typedstruct enforce: true do
     field(:reads, [Uair.read()], default: [])
   end
 
-  @typedoc "What the lowering derived, or `:plain` when there was nothing to lower."
-  @type lowering ::
-          :plain
-          | %{
-              dynamic: [pos_integer()],
-              bits: %{pos_integer() => [pos_integer()]},
-              lower: %{pos_integer() => pos_integer()},
-              pairs: [{pos_integer(), pos_integer()}],
-              results: %{{pos_integer(), pos_integer()} => pos_integer()}
-            }
+  typedstruct module: Lowering do
+    @typedoc """
+    What the lowering derived: the dynamic pointer rows, the bit rows spelling each,
+    the deref pairs, and the row each pair's value lands on. Empty when there was
+    nothing to lower.
+    """
+    field(:dynamic, [pos_integer()], default: [])
+    field(:lower, %{pos_integer() => pos_integer()}, default: %{})
+    field(:bits, %{pos_integer() => [pos_integer()]}, default: %{})
+    field(:pairs, [{pos_integer(), pos_integer()}], default: [])
+    field(:results, %{{pos_integer(), pos_integer()} => pos_integer()}, default: %{})
+  end
 
   @doc "I lower every pointer read: mu bit rows apiece, a result row per deref, on the witness."
   @spec lower(Ast.pred(), Interpretation.t(), pos_integer()) ::
-          {:ok, Ast.pred(), Interpretation.t(), lowering()} | {:error, Refusal.t()}
+          {:ok, Ast.pred(), Interpretation.t(), Lowering.t()} | {:error, Refusal.t()}
   def lower(pred, witness, mu) do
     case Ast.pointer_reads(pred) do
       [] ->
-        {:ok, pred, witness, :plain}
+        {:ok, pred, witness, %Lowering{}}
 
       dynamic ->
         pairs = Enum.filter(Ast.pointer_derefs(pred), fn {_i, j} -> j in dynamic end)
 
-        with :ok <- admits(pairs, witness) do
+        # The order is load-bearing: asking whether a row is confined reads it.
+        with :ok <- inside(pairs, witness),
+             :ok <- confined(pairs, witness) do
           arity = Interpretation.arity(witness)
 
           bits =
@@ -51,37 +56,42 @@ defmodule Zkfol.Uair.Composed do
 
           {:ok, rewrite(pred, constraints(dynamic, bits, lower), results),
            extend(witness, dynamic, pairs, mu),
-           %{dynamic: dynamic, bits: bits, lower: lower, pairs: pairs, results: results}}
+           %Lowering{dynamic: dynamic, bits: bits, lower: lower, pairs: pairs, results: results}}
         end
     end
   end
 
   @doc "I am the value rows the pointer query binds, unmentioned by the predicate."
-  @spec value_rows(lowering()) :: [pos_integer()]
-  def value_rows(:plain), do: []
-  def value_rows(lowering), do: Enum.map(lowering.pairs, &elem(&1, 0))
+  @spec value_rows(Lowering.t()) :: [pos_integer()]
+  def value_rows(%Lowering{pairs: pairs}), do: Enum.map(pairs, &elem(&1, 0))
 
-  @doc "I name the lowering's rows in committed-column coordinates."
-  @spec emitted(map(), %{pos_integer() => non_neg_integer()}) :: t()
-  def emitted(lowering, cols), do: %__MODULE__{reads: reads(lowering, cols)}
+  @doc "I am the mode a lowering leaves: its rows in committed-column coordinates."
+  @spec emitted(Lowering.t(), %{pos_integer() => non_neg_integer()}) :: Uair.mode()
+  def emitted(%Lowering{dynamic: []}, _cols), do: %Plain{}
+
+  def emitted(lowering, cols) do
+    reads =
+      for {i, a} <- lowering.pairs do
+        %{
+          row: Map.fetch!(cols, a),
+          value_row: Map.fetch!(cols, i),
+          bit_rows: Enum.map(Map.fetch!(lowering.bits, a), &Map.fetch!(cols, &1)),
+          result_row: Map.fetch!(cols, Map.fetch!(lowering.results, {i, a}))
+        }
+      end
+
+    %__MODULE__{reads: reads}
+  end
 
   @doc """
   I name the Word-bounded rows: pointers and their lower-bound slacks. The bits
   spell `len - pointer`; the slack spells `pointer - 1`. Bounding the pointer
   itself also retains its Word bound at the backend’s exempt final row.
   """
-  @spec bounded_rows(lowering()) :: [pos_integer()]
-  def bounded_rows(:plain), do: []
+  @spec bounded_rows(Lowering.t()) :: [pos_integer()]
 
   def bounded_rows(lowering),
     do: lowering.dynamic ++ Enum.map(lowering.dynamic, &Map.fetch!(lowering.lower, &1))
-
-  # The order is load-bearing: asking whether a row is confined reads it.
-  @spec admits([{pos_integer(), pos_integer()}], Interpretation.t()) ::
-          :ok | {:error, Refusal.t()}
-  defp admits(pairs, witness) do
-    with :ok <- inside(pairs, witness), do: confined(pairs, witness)
-  end
 
   @spec spelled([pos_integer()], Ast.term_t()) :: [Ast.pred()]
   defp spelled(rows, source) do
@@ -95,7 +105,6 @@ defmodule Zkfol.Uair.Composed do
     booleanity ++ [Ast.eq(source, Enum.reduce(weighted, &Ast.add(&2, &1)))]
   end
 
-  # Rows the lowering derives from must exist before it derives.
   @spec inside([{pos_integer(), pos_integer()}], Interpretation.t()) ::
           :ok | {:error, Refusal.t()}
   defp inside(pairs, witness) do
@@ -179,17 +188,5 @@ defmodule Zkfol.Uair.Composed do
           do: for(x <- 1..len, do: Interpretation.at(witness, a, x) - 1)
 
     Interpretation.new(Interpretation.rows(witness) ++ bit_rows ++ lower_rows ++ result_rows)
-  end
-
-  @spec reads(map(), %{pos_integer() => non_neg_integer()}) :: [Uair.read()]
-  defp reads(lowering, cols) do
-    for {i, a} <- lowering.pairs do
-      %{
-        row: Map.fetch!(cols, a),
-        value_row: Map.fetch!(cols, i),
-        bit_rows: Enum.map(Map.fetch!(lowering.bits, a), &Map.fetch!(cols, &1)),
-        result_row: Map.fetch!(cols, Map.fetch!(lowering.results, {i, a}))
-      }
-    end
   end
 end

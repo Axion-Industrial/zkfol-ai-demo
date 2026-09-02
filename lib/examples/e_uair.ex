@@ -99,7 +99,7 @@ defmodule Examples.EUair do
     statement = EUser.registers_mod(6)
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
 
-    assert {6, 32, 8} in uair.word_lookups
+    assert {4, 32, 8} in uair.word_lookups
     assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :slacked_trace)
     uair
   end
@@ -118,7 +118,7 @@ defmodule Examples.EUair do
 
     forged = %{
       uair
-      | columns: List.update_at(uair.columns, 6, &List.update_at(&1, last, raise_by))
+      | columns: List.update_at(uair.columns, 4, &List.update_at(&1, last, raise_by))
     }
 
     assert Enum.all?(List.flatten(forged.columns), &(&1 >= 0))
@@ -149,14 +149,12 @@ defmodule Examples.EUair do
 
     columns =
       uair.columns
-      |> at.(1, &(&1 + modulus))
-      |> at.(3, &(&1 - 1))
-      |> at.(6, &(&1 - modulus))
-      |> at.(7, &(&1 + modulus))
-      |> at.(8, &(&1 - 1))
+      |> at.(0, &(&1 + modulus))
+      |> at.(2, &(&1 - 1))
+      |> at.(4, &(&1 - modulus))
 
     forged = %{uair | columns: columns}
-    assert hd(Enum.at(columns, 7)) >= modulus
+    assert hd(Enum.at(columns, 0)) >= modulus
 
     negative =
       for {cells, column} <- Enum.with_index(columns), Enum.any?(cells, &(&1 < 0)), do: column
@@ -189,7 +187,7 @@ defmodule Examples.EUair do
   example declarations(corpus \\ EForgery.statements()) do
     for {name, statement} <- corpus do
       pred = Statement.pred(statement)
-      {:ok, uair} = Uair.emit(pred, Statement.witness(statement), statement.claims)
+      {:ok, uair} = Uair.emit(pred, Statement.witness(statement), Statement.claims(statement))
 
       cells = &Enum.at(uair.columns, Enum.find_index(uair.rows, fn row -> row == &1 end))
       declared = for {column, _width, _chunk} <- uair.word_lookups, do: Enum.at(uair.rows, column)
