@@ -61,14 +61,20 @@ defmodule Zkfol.ZincPlus do
   @spec prove_fol(Payload.t()) :: {:ok, pos_integer()} | {:error, String.t()}
   def prove_fol(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
+  @doc """
+  I queue the UAIR with the prover fitting its magnitude and return an id.
+
+  `unchecked: true` ships the payload as built, past my guard on negative cells. It is
+  the door the negative tests need: a forgery the circuit must refuse cannot be watched
+  being refused while Elixir refuses it first. No ordinary caller passes it.
+  """
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   def request(%Uair{} = uair, opts \\ []) do
     values = List.flatten(uair.columns)
 
     with {:ok, bins, lookups, reads} <- mode_payload(uair.mode),
          :ok <- unclaimed(reads, uair.num_public),
-         :ok <- non_negative(values) do
+         :ok <- non_negative(values, Keyword.get(opts, :unchecked, false)) do
       queued =
         prove_fol(%Payload{
           num_cols: Uair.num_cols(uair),
@@ -150,8 +156,12 @@ defmodule Zkfol.ZincPlus do
   end
 
   # Unsigned limbs have no negative; refuse before the NIF decode crashes.
-  @spec non_negative([integer()]) :: :ok | {:error, Refusal.t()}
-  defp non_negative(values),
+  # `unchecked: true` is the test door past it: only an i64 trace carries a
+  # negative cell, and only a test asks the backend to judge one.
+  @spec non_negative([integer()], boolean()) :: :ok | {:error, Refusal.t()}
+  defp non_negative(_values, true), do: :ok
+
+  defp non_negative(values, false),
     do: Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}})
 
   # Values as little-endian base-2^64 digits, the wide cells' transport.
