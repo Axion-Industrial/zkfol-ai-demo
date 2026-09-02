@@ -34,6 +34,16 @@ defmodule Examples.ESudoku do
 
   @solution16 for r <- 0..15, do: for(c <- 0..15, do: rem(4 * rem(r, 4) + div(r, 4) + c, 16) + 1)
 
+  @doc "The seventeen clues and the rules find the one grid: labeling drives AL's search."
+  @spec answer() :: [[pos_integer()]]
+  example answer do
+    {t, {:ok, query}} = :timer.tc(fn -> Zkfol.eval(solved(), [:_], []) end)
+    [[grid]] = Zkfol.Query.taken(query)
+    assert grid == @solution
+    assert t < 5_000_000
+    grid
+  end
+
   @doc "Cells apart but not 1..n derive and refuse to prove: distinct's proof says 1..n exactly."
   @spec distinct_wants_one_to_n() :: Refusal.t()
   example distinct_wants_one_to_n do
@@ -210,6 +220,7 @@ defmodule Examples.ESudoku do
     each(all_distinct, cols)
     boxes(blocks, x, bs)
     each(all_distinct, bs)
+    each(each(label), x)
   end
 
   defrel solved(x) do

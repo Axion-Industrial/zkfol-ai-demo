@@ -57,6 +57,10 @@ defmodule Zkfol.Prims do
   @al quote(do: all_dif(cells))
   defrel all_distinct(cells)
 
+  # Evaluation only: a free cell takes each value of its domain in turn.
+  @al quote(do: label(x))
+  defrel label(x)
+
   defrel mod(e, m, r, q) do
     e = m * q + r
     r < m
