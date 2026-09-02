@@ -53,10 +53,10 @@ defmodule Zkfol.Uair do
   @spec num_cols(t()) :: non_neg_integer()
   def num_cols(%__MODULE__{columns: columns}), do: length(columns)
 
-  @doc "I am the cube's width: the smallest that covers `len`, never under three."
+  @doc "I am the cube’s width: covering `len` plus an exempt padding row, never under three."
   @spec num_vars(t() | pos_integer()) :: pos_integer()
   def num_vars(%__MODULE__{len: len}), do: num_vars(len)
-  def num_vars(len) when is_integer(len), do: max(ceil_log2(len), 3)
+  def num_vars(len) when is_integer(len), do: max(ceil_log2(len + 1), 3)
 
   @doc "I am the UAIR of the statement: columns, claimed rows first, shifts, program."
   @spec emit(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
