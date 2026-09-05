@@ -103,6 +103,61 @@ defmodule Zkfol.Face do
 
   def judgement(%Statement{}), do: Map.new(@judgement_keys, &{&1, []})
 
+  @doc "I am the lay's join for its picture: the facts its stands reach, the sites, the stands."
+  @spec stands(Zkfol.Lay.t()) :: %{atom() => term()}
+  def stands(%Zkfol.Lay{stands: stands, alloc: alloc, derivation: derivation} = lay) do
+    sites =
+      for %Zkfol.Alloc.Member{name: name, sites: sites} <- alloc.members,
+          do: {name, sites |> Map.values() |> Enum.concat() |> Enum.uniq()}
+
+    reached = MapSet.new(for s <- stands, f <- [s.fact | for({_site, u} <- s.uses, do: u)], do: f)
+
+    drawn =
+      for {fact, index} <- Enum.with_index(derivation.facts),
+          MapSet.member?(reached, fact),
+          do: {fact, index}
+
+    at = Map.new(Enum.with_index(drawn), fn {{fact, _source}, index} -> {fact, index} end)
+
+    {rows, []} =
+      Enum.map_reduce(stands, Zkfol.Lay.arrows(lay), fn stand, arrows ->
+        {mine, rest} = Enum.split(arrows, length(stand.uses))
+
+        uses =
+          for {{site, fact}, arrow} <- Enum.zip(stand.uses, mine),
+              do: use(stand.member, site, at[fact], arrow, sites)
+
+        row = %{
+          fact: at[stand.fact],
+          member: stand.member,
+          laid: "X = #{stand.column}",
+          uses: uses
+        }
+
+        {row, rest}
+      end)
+
+    %{
+      facts: for({fact, index} <- drawn, do: %{index: index, label: fact_label(fact_row(fact))}),
+      members: for({name, ss} <- sites, do: %{name: name, sites: Enum.map(ss, &site_text/1)}),
+      stands: rows
+    }
+  end
+
+  # A site stands among the sites of the member whose clause makes the call, not the callee's.
+  @spec use(atom(), Zkfol.Alloc.Site.t(), non_neg_integer(), map(), keyword()) ::
+          %{atom() => term()}
+  defp use(member, %Zkfol.Alloc.Site{} = site, fact, arrow, sites),
+    do: %{
+      fact: fact,
+      site: [member, Enum.find_index(sites[member], &(&1 == site))],
+      laid: "X = #{arrow.to}"
+    }
+
+  @spec site_text(Zkfol.Alloc.Site.t()) :: String.t()
+  defp site_text(%Zkfol.Alloc.Site{callee: callee, address: address}),
+    do: "#{callee} at #{term_text(Ast.naming(address))}"
+
   @doc """
   I am one lay for its grid: the row introductions off its own shape,
   the witness matrix by column, and the regions, arrows, and aims it
@@ -300,6 +355,65 @@ defmodule Zkfol.Face do
     |> ColumnedList.column("Rows", &"#{&1.first}..#{&1.last}")
   end
 
+  defview object_view(rel = %Lang.Rel{}, builder) do
+    object_list(rel, builder)
+  end
+
+  # A bracket is a row, a bracket of brackets a table; no bracket, nothing drawn.
+  @spec object_list(Lang.Rel.t(), module()) :: struct()
+  defp object_list(%Lang.Rel{name: name, clauses: clauses}, builder) do
+    rows =
+      for {head, []} <- clauses,
+          bracket <- Enum.filter(head, &Lang.Term.sequence?/1),
+          {cells, r} <- bracket |> elements() |> object_rows() |> Enum.with_index(),
+          do: {call_text(name, Enum.reject(head, &Lang.Term.sequence?/1)), r, cells}
+
+    object_table(rows, builder)
+  end
+
+  @spec object_table([{String.t(), non_neg_integer(), [String.t()]}], module()) :: struct()
+  defp object_table([], builder), do: builder.empty()
+
+  defp object_table(rows, builder) do
+    list =
+      builder.columned_list()
+      |> ColumnedList.title("Object")
+      |> ColumnedList.priority(3)
+      |> ColumnedList.items(rows)
+      |> ColumnedList.column("fact", fn {fact, _r, _cells} -> fact end)
+      |> ColumnedList.column("r", fn {_fact, r, _cells} -> to_string(r) end)
+
+    width = rows |> Enum.map(fn {_fact, _r, cells} -> length(cells) end) |> Enum.max()
+
+    Enum.reduce(0..(width - 1), list, fn c, list ->
+      ColumnedList.column(list, to_string(c), fn {_fact, _r, cells} -> Enum.at(cells, c, "") end)
+    end)
+  end
+
+  @spec object_rows([Lang.Term.t()]) :: [[String.t()]]
+  defp object_rows([]), do: []
+
+  defp object_rows(cells) do
+    if Enum.all?(cells, &Lang.Term.sequence?/1),
+      do: for(row <- cells, do: for(cell <- elements(row), do: cell_text(cell))),
+      else: [for(cell <- cells, do: cell_text(cell))]
+  end
+
+  @spec elements(Lang.Term.t()) :: [Lang.Term.t()]
+  defp elements({:cons, head, tail}), do: [head | elements(tail)]
+  defp elements(nil), do: []
+
+  @spec cell_text(Lang.Term.t()) :: String.t()
+  defp cell_text(cell), do: poly_text(cell, &cell_leaf/1)
+
+  @spec cell_leaf(Lang.Term.t()) :: String.t()
+  defp cell_leaf({:var, name}) do
+    text = to_string(name)
+    if String.starts_with?(text, "_"), do: "_", else: text
+  end
+
+  defp cell_leaf(cell), do: surface_leaf(cell)
+
   defview route_view(%Zkfol.Pipeline{passes: passes}, builder) do
     modules = Enum.map(passes, fn {pass, _opts} -> pass end)
     edges = modules |> Enum.zip(Enum.drop(modules, 1)) |> Map.new(fn {a, b} -> {a, [b]} end)
@@ -471,7 +585,7 @@ defmodule Zkfol.Face do
   end
 
   @spec ref_text(Ast.row_ref()) :: String.t()
-  defp ref_text({sym, i}), do: "#{sym}.#{i}"
+  defp ref_text(ref = {_sym, _i}), do: row_text(ref)
   defp ref_text(i), do: "C#{i}"
 
   # Ast's terms and the surface's share the sum-and-product spine; the leaf renderer

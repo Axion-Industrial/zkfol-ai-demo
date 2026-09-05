@@ -30,11 +30,13 @@ ZkfolLayPicture class >> onFeed: aDictionary [
 { #category : 'rendering' }
 ZkfolLayPicture >> arrowLineFor: anArrow [
 	"One consumption edge as a line between the very cells: from the
-	 pointer cell to the consumed column's own bank, the arrowhead on
-	 what is read, the pointer row's color throughout, dashed when the
-	 read goes through a pointer."
+	 pointer cell, or the consumer's presence cell where the index reached
+	 the read, to the consumed column's own bank, the arrowhead on what is
+	 read, dashed when the read goes through a pointer."
 	| from to color line |
-	from := cellElements at: (anArrow at: #ptr) @ (anArrow at: #from) ifAbsent: [ ^ nil ].
+	from := cellElements
+		at: ((anArrow at: #ptr) ifNil: [ anArrow at: #from_row ]) @ (anArrow at: #from)
+		ifAbsent: [ ^ nil ].
 	to := cellElements at: (anArrow at: #to_row) @ (anArrow at: #to) ifAbsent: [ ^ nil ].
 	color := ZkfolPalette readColor: (self ptrIndexOf: anArrow).
 	line := (ZkfolElements connectorFrom: from to: to color: (color alpha: 0.85))
@@ -84,28 +86,27 @@ ZkfolLayPicture >> asElement [
 ]
 
 { #category : 'accessing' }
-ZkfolLayPicture >> colorOfRow: aRow [
-	"The shared palette by what the row's region is: the pointer bank
-	 wears the pointer orange, the tag the scheduled violet, the slack
-	 a guard binds the quiet bit blue, a member's index row the index
-	 tan, its value rows the quiet default."
-	| region name |
-	region := self regionOf: aRow.
-	region ifNil: [ ^ ZkfolPalette kindColor: #plain ].
-	name := (region at: #name) asString.
-	name = 'ptr' ifTrue: [ ^ ZkfolPalette kindColor: #pointer ].
-	name = 'tag' ifTrue: [ ^ ZkfolPalette kindColor: #scheduled ].
-	name = 'slack' ifTrue: [ ^ ZkfolPalette kindColor: #bit ].
-	aRow = (region at: #first) ifTrue: [ ^ ZkfolPalette kindColor: #index ].
-	^ ZkfolPalette kindColor: #plain
-]
-
-{ #category : 'accessing' }
 ZkfolLayPicture >> beInOrder [
 	"Rows in plain allocated order, seams between regions: the reading
 	 the judgement wants beneath its columns, where read-off beats
 	 grouping."
 	inOrder := true
+]
+
+{ #category : 'accessing' }
+ZkfolLayPicture >> colorOfRow: aRow [
+	"The shared palette by what the row's region is: the presence bank,
+	 which says where a member's facts stand, wears the scheduled violet
+	 the tag bank wore; an object's bank the quiet default; and a member's
+	 index row the index tan, which only a member has."
+	| region kind |
+	region := self regionOf: aRow.
+	region ifNil: [ ^ ZkfolPalette kindColor: #plain ].
+	kind := (region at: #kind ifAbsent: [ 'member' ]) asString.
+	kind = 'in' ifTrue: [ ^ ZkfolPalette kindColor: #scheduled ].
+	(kind = 'member' and: [ aRow = (region at: #first) ])
+		ifTrue: [ ^ ZkfolPalette kindColor: #index ].
+	^ ZkfolPalette kindColor: #plain
 ]
 
 { #category : 'accessing' }
@@ -179,41 +180,41 @@ ZkfolLayPicture >> labelWidth: aNumber [
 	labelWidth := aNumber
 ]
 
-{ #category : 'hover' }
+{ #category : 'accessing' }
 ZkfolLayPicture >> litArrows [
-	"The arrows the hovered cell itself relates, as the pointer grid
-	 scopes its hover: a pointer cell lights its own read, a bank cell
-	 lights its readers, any other cell lights nothing."
+	"The arrows the hovered cell itself relates: a pointer or presence
+	 cell lights its own reads, a bank cell lights its readers, any other
+	 cell lights nothing."
 	hovered ifNil: [ ^ #() ].
 	^ arrows select: [ :each |
-		(((each at: #ptr) = hovered x) and: [ (each at: #from) = hovered y ])
-			or: [ ((each at: #to_row) = hovered x)
-				and: [ (each at: #to) = hovered y ] ] ]
+		(((self fromRowOf: each) = hovered x) and: [ (each at: #from) = hovered y ])
+			or: [ ((each at: #to_row) = hovered x) and: [ (each at: #to) = hovered y ] ] ]
 ]
 
 { #category : 'accessing' }
 ZkfolLayPicture >> ptrIndexOf: anArrow [
-	"Which pointer of the bank the edge went through, zero-based, so
-	 the palette's read colors name each pointer row apart."
+	"Which pointer of the bank the edge went through, zero-based, so the
+	 palette's read colors name each pointer row apart; a read no pointer
+	 carried takes the first color."
 	| bank |
+	(anArrow at: #ptr) ifNil: [ ^ 0 ].
 	bank := regions
 		detect: [ :region | (region at: #name) asString = 'ptr' ]
 		ifNone: [ ^ 0 ].
 	^ (anArrow at: #ptr) - (bank at: #first)
 ]
 
-{ #category : 'hover' }
+{ #category : 'drawing' }
 ZkfolLayPicture >> refreshHover [
 	"Nothing at rest; the hovered cell shows what it alone relates, the
-	 endpoints wearing their pointer's color, the hovered cell the
-	 quiet border, and the status line saying its place."
+	 endpoints wearing their read's color, the hovered cell the quiet
+	 border, and the status line saying its place."
 	| lit |
 	arrowLayer ifNil: [ ^ self ].
 	arrowLayer removeChildren.
 	lit := self litArrows.
 	lit do: [ :arrow |
-		(self arrowLineFor: arrow) ifNotNil: [ :line |
-			arrowLayer addChild: line ] ].
+		(self arrowLineFor: arrow) ifNotNil: [ :line | arrowLayer addChild: line ] ].
 	statusElement ifNotNil: [
 		statusElement text: (self statusText asRopedText
 			fontSize: 10;
@@ -225,7 +226,7 @@ ZkfolLayPicture >> refreshHover [
 	lit do: [ :arrow |
 		| color |
 		color := ZkfolPalette readColor: (self ptrIndexOf: arrow).
-		(cellElements at: (arrow at: #ptr) @ (arrow at: #from) ifAbsent: [ nil ])
+		(cellElements at: (self fromRowOf: arrow) @ (arrow at: #from) ifAbsent: [ nil ])
 			ifNotNil: [ :cell | cell border: (BlBorder paint: color width: 2) ].
 		(cellElements at: (arrow at: #to_row) @ (arrow at: #to) ifAbsent: [ nil ])
 			ifNotNil: [ :cell | cell border: (BlBorder paint: color width: 2) ] ].
@@ -282,10 +283,10 @@ ZkfolLayPicture >> setFromFeed: aDictionary [
 	aims := aDictionary at: #aims ifAbsent: [ #() ]
 ]
 
-{ #category : 'hover' }
+{ #category : 'accessing' }
 ZkfolLayPicture >> statusText [
 	"What the hovered cell is, said plainly: its bank and rows, its
-	 column, and what its read is when it is a pointer's."
+	 column, and what it reads when it is a pointer's or a presence's."
 	| region parts |
 	hovered ifNil: [ ^ '' ].
 	region := self regionOf: hovered x.
@@ -296,7 +297,7 @@ ZkfolLayPicture >> statusText [
 	parts add: 'column ' , hovered y printString.
 	self litArrows
 		detect: [ :each |
-			((each at: #ptr) = hovered x) and: [ (each at: #from) = hovered y ] ]
+			((self fromRowOf: each) = hovered x) and: [ (each at: #from) = hovered y ] ]
 		ifFound: [ :arrow |
 			parts add: 'reads column ' , (arrow at: #to) printString.
 			parts add: ((arrow at: #ptr)
@@ -304,4 +305,11 @@ ZkfolLayPicture >> statusText [
 				ifNotNil: [ 'dynamic' ]) ]
 		ifNone: [ ].
 	^ ' · ' join: parts
+]
+
+{ #category : 'accessing' }
+ZkfolLayPicture >> fromRowOf: anArrow [
+	"The row an arrow leaves from: its pointer cell, or the consumer's
+	 presence cell where the index reached the read."
+	^ (anArrow at: #ptr) ifNil: [ anArrow at: #from_row ]
 ]

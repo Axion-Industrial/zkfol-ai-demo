@@ -146,18 +146,24 @@ defmodule Zkfol.Lay do
         do: %{ptr: ptr, member: name}
   end
 
-  @doc "I am the alloc's banks by name and absolute rows."
+  @doc "I am the alloc's regions by name, kind and absolute rows."
   @spec regions(t() | Alloc.t()) :: [
-          %{name: atom(), first: pos_integer(), last: pos_integer()}
+          %{name: atom(), kind: :member | :bank | :in, first: pos_integer(), last: pos_integer()}
         ]
   def regions(%__MODULE__{alloc: alloc}), do: regions(alloc)
 
   def regions(%Alloc{} = alloc) do
     for {name, _width} <- Alloc.regions(alloc) do
       rows = Alloc.rows(alloc, name)
-      %{name: name, first: rows.first, last: rows.last}
+      %{name: name, kind: kind(Alloc.member(alloc, name)), first: rows.first, last: rows.last}
     end
   end
+
+  @spec kind(Member.t() | Bank.t() | Zkfol.Nodes.t() | nil) :: :in | :bank | :member
+  defp kind(nil), do: :in
+  defp kind(%Bank{}), do: :bank
+  defp kind(%Zkfol.Nodes{}), do: :bank
+  defp kind(%Alloc.Member{}), do: :member
 
   @doc """
   I am where the `index`-th cell of `slot`'s run stands: an address in the column

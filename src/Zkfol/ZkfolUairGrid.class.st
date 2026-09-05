@@ -106,6 +106,21 @@ ZkfolUairGrid >> costModel [
 	^ out asArray
 ]
 
+{ #category : 'cost' }
+ZkfolUairGrid >> degree [
+	"The degree of the predicate the trace's polynomial arithmetizes: the
+	 budget the fold spends that the rows and the cube do not say. Nil
+	 when the face named none."
+	^ payload at: #degree ifAbsent: [ nil ]
+]
+
+{ #category : 'cost' }
+ZkfolUairGrid >> degreeBound [
+	"The highest degree the protocol's polynomials may reach, the backend's
+	 own number. Nil when it named none."
+	^ self pcs ifNotNil: [ :p | p at: #degree ifAbsent: [ nil ] ]
+]
+
 { #category : 'rows' }
 ZkfolUairGrid >> derefChainsAt: aPosition [
 	"One chain per composed read, each an object that recovers its own

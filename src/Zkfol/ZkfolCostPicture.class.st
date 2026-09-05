@@ -19,9 +19,10 @@ ZkfolCostPicture >> asElement [
 	"The cost as a picture: the rows bar down the right and the cube bar
 	 over the top, each tinted to a factor of the formula, framing the
 	 committed strip the pointer grid draws at a tight budget with its
-	 ruler flipped beneath the tiles, and the sumcheck formula last. The
-	 strip is the grid's own tiles, so a cost cell is the same cell as in
-	 the grid and nothing is drawn twice."
+	 ruler flipped beneath the tiles, the sumcheck formula next, and the
+	 predicate's degree against its bound last. The strip is the grid's own
+	 tiles, so a cost cell is the same cell as in the grid and nothing is
+	 drawn twice."
 	| positions strip column |
 	positions := self displayPositions.
 	strip := (ZkfolUairPicture on: grid) budget: self budget; rulerAtBottom: true; yourself.
@@ -33,6 +34,7 @@ ZkfolCostPicture >> asElement [
 	column addChild: (self braceStack: positions).
 	column addChild: (self bodyRowWith: strip asElement).
 	column addChild: self formulaElement.
+	self degreeElement ifNotNil: [ :each | column addChild: each ].
 	^ column
 ]
 
@@ -106,6 +108,30 @@ ZkfolCostPicture >> cubeBar: aPositions [
 		color: (cubeColor alpha: 0.16)
 		text: (('2^', mu, ' = ', cube printString) asRopedText fontName: self unicodeFont; foreground: cubeColor; yourself)
 		fontSize: 8
+]
+
+{ #category : 'rendering' }
+ZkfolCostPicture >> degreeElement [
+	"The budget the two bars do not measure, under the formula that reads
+	 them: the degree of the predicate the trace arithmetizes, against the
+	 bound the backend caps its polynomials at. Its own tint, since it is
+	 a factor of neither bar. Nil when the boundary named no degree, so a
+	 face that answers none draws the cost as it was."
+	| degree bound rt layout |
+	degree := grid degree.
+	degree ifNil: [ ^ nil ].
+	bound := grid degreeBound.
+	rt := 'degree  =  ' asRopedText.
+	rt := rt , (degree printString asRopedText foreground: (Color r: 0.24 g: 0.5 b: 0.31); yourself).
+	bound ifNotNil: [ rt := rt , ('  of  ', bound printString) asRopedText ].
+	layout := BlLinearLayout horizontal.
+	layout alignCenter.
+	^ BlElement new
+		layout: layout;
+		constraintsDo: [ :c | c horizontal matchParent. c vertical fitContent ];
+		padding: (BlInsets top: 2 left: 4 bottom: 2 right: 4);
+		addChild: (BlTextElement new text: ((rt fontName: self unicodeFont) fontSize: 13); yourself);
+		yourself
 ]
 
 { #category : 'layout' }

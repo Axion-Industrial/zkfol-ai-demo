@@ -10,8 +10,11 @@ defmodule Examples.EFace do
   import ExUnit.Assertions
 
   alias Examples.EAl
+  alias Examples.ESudoku
   alias Examples.EUser
   alias GtBridge.Phlow.Builder
+  alias GtBridge.Phlow.ColumnedList
+  alias GtBridge.Phlow.Empty
   alias Zkfol.Ast
   alias Zkfol.Face
   alias Zkfol.Interpretation
@@ -39,6 +42,41 @@ defmodule Examples.EFace do
     assert Enum.any?(feed.rows, &String.contains?(&1, "{:read,"))
     assert Enum.all?(feed.witness, &(length(&1) == length(feed.rows)))
     feed
+  end
+
+  @doc "Join's facts and uses navigate to their sources across scalar, bank and heap layouts."
+  @spec a_join_keeps_its_sources() :: [%{atom() => term()}]
+  example a_join_keeps_its_sources do
+    {:ok, sudoku, _trace} =
+      Zkfol.Pipeline.run(EUser.plain(), %Statement{
+        rels: [ESudoku.families()],
+        args: ESudoku.act()
+      })
+
+    for statement <- [EUser.fibonacci(), sudoku, Examples.ENodes.reverse_proves()] do
+      lay = Statement.lay(statement)
+      feed = Face.stands(lay)
+      facts = Enum.map(feed.facts, &Enum.fetch!(lay.derivation.facts, &1.index))
+
+      assert length(feed.stands) == length(lay.stands)
+
+      for {row, stand} <- Enum.zip(feed.stands, lay.stands) do
+        assert Enum.fetch!(facts, row.fact) == stand.fact
+        assert row.member == stand.member
+        assert length(row.uses) == length(stand.uses)
+
+        for {use, {site, fact}} <- Enum.zip(row.uses, stand.uses) do
+          assert Enum.fetch!(facts, use.fact) == fact
+          assert [name, index] = use.site
+          assert name == stand.member
+          member = Zkfol.Alloc.member(lay.alloc, name)
+          sites = member.sites |> Map.values() |> Enum.concat() |> Enum.uniq()
+          assert Enum.fetch!(sites, index) == site
+        end
+      end
+
+      feed
+    end
   end
 
   @doc "I am the pinned code's own parameters, not a copy of them."
@@ -79,6 +117,23 @@ defmodule Examples.EFace do
 
     assert feed.degree == Ast.degree(Statement.pred(statement))
     assert feed.degree < ZincPlus.pcs_params().degree
+    feed
+  end
+
+  @doc "I am a declared object as its own cells, the holes included."
+  @spec an_object_shows_its_cells() :: %{atom() => term()}
+  example an_object_shows_its_cells do
+    feed = ESudoku.puzzle() |> Face.object_view(Builder) |> ColumnedList.as_dict()
+
+    assert feed.title == "Object"
+    assert Enum.map(feed.columns, & &1.title) == ["fact", "r" | Enum.map(0..15, &to_string/1)]
+    assert length(feed.items) == 9 + 16
+
+    assert hd(feed.items) ==
+             ["puzzle(1)", "0" | List.duplicate("_", 9) ++ List.duplicate("", 7)]
+
+    assert Enum.at(feed.items, 9) == ["puzzle(2)", "0" | Enum.map(1..16, &to_string/1)]
+    assert %Empty{} = Face.object_view(EUser.fib(), Builder)
     feed
   end
 
