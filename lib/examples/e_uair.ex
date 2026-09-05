@@ -8,9 +8,12 @@ defmodule Examples.EUair do
   alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
+  alias Examples.EForgery
   alias Examples.EUser
+  alias Zkfol.Al
   alias Zkfol.Ast
   alias Zkfol.Interpretation
+  alias Zkfol.Lang
   alias Zkfol.Log
   alias Zkfol.Prover
   alias Zkfol.Refusal
@@ -87,6 +90,126 @@ defmodule Examples.EUair do
     reason
   end
 
+  @doc """
+  I am the trace the forgery starts from: a mod holding its remainder below the
+  modulus by a slack cell, six columns laid in a cube of eight.
+  """
+  @spec slacked_trace() :: Uair.t()
+  example slacked_trace do
+    statement = EUser.registers_mod(6)
+    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
+
+    assert {6, 32, 8} in uair.word_lookups
+    assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :slacked_trace)
+    uair
+  end
+
+  @doc """
+  I am the Word lookup made load-bearing. The program runs to the cube's last row and
+  stops there, so the slack raised on that row leaves the residue at zero, and raised
+  by 2^32 it stays a natural, which the unsigned limbs carry without complaint. The
+  declaration on its column is the only refusal left: dropped, this trace proves.
+  """
+  @spec raised_slack_is_refused() :: Refusal.t()
+  example raised_slack_is_refused do
+    uair = slacked_trace()
+    last = 2 ** Uair.num_vars(uair) - 1
+    raise_by = &(&1 + 2 ** 32)
+
+    forged = %{
+      uair
+      | columns: List.update_at(uair.columns, 6, &List.update_at(&1, last, raise_by))
+    }
+
+    assert Enum.all?(List.flatten(forged.columns), &(&1 >= 0))
+
+    assert {:error, {:prover_failed, %{said: said}} = refused} =
+             Prover.prove_uair(forged, name: :raised_slack)
+
+    assert said =~ "Lookup"
+    refused
+  end
+
+  @doc """
+  I am the pair of verdicts the range declarations decide between. A remainder above
+  its modulus keeps `e = m*q + r` true when the quotient falls by one, so the whole
+  polynomial program holds of this trace; the slack and the quotient go negative for
+  it, and the door carries them to the backend as built. Declared, the Word tables
+  refuse it. Dropped from the two columns the forgery drove below zero, the same
+  trace proves a remainder of 7932 out of a modulus of 7919.
+  """
+  @spec forged_remainder_verdicts() :: {Refusal.t(), Prover.Report.t()}
+  example forged_remainder_verdicts do
+    uair = slacked_trace()
+    modulus = 7919
+
+    at = fn columns, column, move ->
+      List.update_at(columns, column, &List.update_at(&1, 0, move))
+    end
+
+    columns =
+      uair.columns
+      |> at.(1, &(&1 + modulus))
+      |> at.(3, &(&1 - 1))
+      |> at.(6, &(&1 - modulus))
+      |> at.(7, &(&1 + modulus))
+      |> at.(8, &(&1 - 1))
+
+    forged = %{uair | columns: columns}
+    assert hd(Enum.at(columns, 7)) >= modulus
+
+    negative =
+      for {cells, column} <- Enum.with_index(columns), Enum.any?(cells, &(&1 < 0)), do: column
+
+    dropped = %{forged | word_lookups: Enum.reject(uair.word_lookups, &(elem(&1, 0) in negative))}
+
+    assert {:error, {:prover_failed, %{said: said}} = refused} =
+             Prover.prove_uair(forged, name: :forged_remainder, unchecked: true)
+
+    assert said =~ "Lookup"
+
+    assert {:ok, %Prover.Report{} = proved, _id} =
+             Prover.prove_uair(dropped, name: :dropped_remainder, unchecked: true)
+
+    {refused, proved}
+  end
+
+  @doc """
+  I am the standing audit of the range declarations. A naturality names a row and only
+  a Word table over that row's column discharges it, so a row that reaches the emission
+  undeclared is an obligation the proof has stopped carrying. A claimed row is carried
+  by the private copy bonded to it, which holds the same cells; a declaration on the
+  claim itself would discharge nothing, the lookup argument ranging over the witness
+  trace and a claim riding outside it. Both counts stand at zero, over one statement
+  of every shape the corpus writes. Where the declarations outrun the obligations it
+  is the composed pointers, whose rows are declared as naturals too.
+  """
+  @spec declarations([{atom(), Statement.t()}]) ::
+          [{atom(), non_neg_integer(), non_neg_integer()}]
+  example declarations(corpus \\ EForgery.statements()) do
+    for {name, statement} <- corpus do
+      pred = Statement.pred(statement)
+      {:ok, uair} = Uair.emit(pred, Statement.witness(statement), statement.claims)
+
+      cells = &Enum.at(uair.columns, Enum.find_index(uair.rows, fn row -> row == &1 end))
+      declared = for {column, _width, _chunk} <- uair.word_lookups, do: Enum.at(uair.rows, column)
+      claimed = Enum.take(uair.rows, uair.num_public)
+      obliged = naturals(pred)
+      carried = MapSet.new(declared, cells)
+
+      lost =
+        for {:cell, row} <- obliged,
+            row not in declared,
+            not (row in claimed and cells.(row) in carried),
+            do: row
+
+      assert lost == [], "#{name} obliges #{inspect(lost)} and declares nothing over it"
+      assert length(obliged) <= length(declared), "#{name} declares fewer than it obliges"
+      assert Enum.filter(declared, &(&1 in claimed)) == [], "#{name} declares over a claim"
+      {name, length(obliged), length(declared)}
+    end
+  end
+
   @spec out_of_range_claim_is_refused() :: Refusal.t()
   example out_of_range_claim_is_refused do
     {:error, reason} =
@@ -156,5 +279,22 @@ defmodule Examples.EUair do
     assert kernel.shifts == [{1, 1}, {2, 1}, {3, 1}, {4, 1}, {6, 1}, {7, 1}, {7, 2}]
 
     [kernel, generic]
+  end
+
+  ############################################################
+  #                   Private Implementation                 #
+  ############################################################
+
+  # Every term the predicate obliges as a natural, each once. One naming a cell names
+  # the row its lookup must land on; one over an expression is materialized onto a row
+  # of its own, which only the emission knows.
+  @spec naturals(Ast.pred()) :: [Ast.term_t()]
+  defp naturals(pred) do
+    pred
+    |> Ast.reduce([], fn
+      {:natural, term}, terms -> [term | terms]
+      _node, terms -> terms
+    end)
+    |> Enum.uniq()
   end
 end
