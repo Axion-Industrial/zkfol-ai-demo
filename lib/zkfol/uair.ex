@@ -89,7 +89,12 @@ defmodule Zkfol.Uair do
          {pred, witness, ties} = addressed(stripped(pred), witness, kind, len),
          through = for({i, _address} = read <- reads(pred), kind.(read) == :pointer, do: i),
          {pred, witness, public} =
-           twinned(pred, witness, public, through ++ rows(stood) ++ naturals),
+           twinned(
+             pred,
+             witness,
+             public,
+             through ++ Ast.pointer_reads(pred) ++ rows(stood) ++ naturals
+           ),
          {:ok, pred, witness, lowering} <- Composed.lower(pred, witness, num_vars),
          poly = Ast.arithmetize(pred),
          unread =

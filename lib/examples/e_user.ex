@@ -564,7 +564,7 @@ defmodule Examples.EUser do
     assert Enum.take(Zkfol.stream(topped(), [[3, 1, 2, 4]]), 1) == [[[3, 1, 2, 4]]]
 
     assert hd(Statement.alloc(statement).members).slots == [
-             Slot.bank(:a1, [{:"topped a1", 1}], {0, 5})
+             %Slot{name: :a1, allocation: {:bank, :"topped a1", {:at, :x, 0, 5}}}
            ]
 
     assert Statement.bank(statement, :"topped a1") == [[0, 4, 2, 1, 3]]
@@ -590,6 +590,22 @@ defmodule Examples.EUser do
     assert Statement.bank(statement, :rows) == [[0, 11, 18]]
     assert Statement.bank(statement, :"rows a1") == [[0, 5, 3], [0, 6, 4]]
     statement
+  end
+
+  @doc "The same predicate reads two-row matrices of different lengths without a shape hint."
+  @spec rows_without_a_shape_hint() :: [Interpretation.t()]
+  example rows_without_a_shape_hint do
+    {:ok, pred, alloc} = Phi.compile(rows())
+    pred = Alloc.link(pred, alloc)
+    assert Alloc.regions(alloc) == [rows: 1, "rows a1": 2, in: 2]
+
+    for grid <- [[[3, 4], [5, 6]], [[1, 2], [3, 4], [5, 6]]] do
+      {:ok, derivation} = Zkfol.Al.derived(rows(), [grid, :_])
+      witness = derivation |> Zkfol.Lay.of(alloc) |> Zkfol.Lay.witness()
+      assert Semantics.valid?(pred, witness)
+      assert {:ok, %Prover.Report{}, _id} = Prover.prove(pred, witness)
+      witness
+    end
   end
 
   @doc "A cell of a bank is a bank: the dimension is the rows the passed relation spends."

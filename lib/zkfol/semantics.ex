@@ -7,9 +7,17 @@ defmodule Zkfol.Semantics do
   alias Zkfol.Ast
   alias Zkfol.Interpretation
 
+  @type reader :: (Ast.row_ref(), integer() -> integer() | :error)
+
   @doc "I evaluate a term or predicate at column `x` under `itp`; for a predicate 0 is true."
   @spec eval(Ast.term_t() | Ast.pred(), Interpretation.t(), pos_integer()) :: integer() | :error
-  def eval(node, itp, x) do
+  def eval(node, itp, x),
+    do: eval(node, Interpretation.len(itp), x, &fetch(itp, &1, &2))
+
+  @doc "I evaluate against supplied cells, including cells derived on demand from expressions."
+  @spec eval(Ast.term_t() | Ast.pred(), pos_integer(), pos_integer(), reader()) ::
+          integer() | :error
+  def eval(node, len, x, read) do
     Ast.postwalk(node, fn
       q when is_integer(q) ->
         q
@@ -18,13 +26,13 @@ defmodule Zkfol.Semantics do
         x
 
       :len ->
-        Interpretation.len(itp)
+        len
 
-      {:cell, _i} = read ->
-        at(read, itp, x)
+      {:cell, _i} = cell ->
+        at(cell, read, x)
 
-      {:cell, _i, _address} = read ->
-        at(read, itp, x)
+      {:cell, _i, _address} = cell ->
+        at(cell, read, x)
 
       {:add, a, b} ->
         defined([a, b], fn -> a + b end)
@@ -54,23 +62,21 @@ defmodule Zkfol.Semantics do
 
   @doc "I am the column an address names under `itp` at `x`, or `:error` off the matrix."
   @spec column(Ast.address(), Interpretation.t(), pos_integer()) :: integer() | :error
-  def column({:at, base, _mul, _add} = address, itp, x) do
-    with b when is_integer(b) <- standing(base, itp, x), do: Ast.column(address, b)
+  def column(address, itp, x), do: addressed(address, &fetch(itp, &1, &2), x)
+
+  @spec at(Ast.term_t(), reader(), pos_integer()) :: integer() | :error
+  defp at(cell, read, x) do
+    {i, address} = Ast.read(cell)
+    with at when is_integer(at) <- addressed(address, read, x), do: read.(i, at)
   end
 
-  @spec at(Ast.term_t(), Interpretation.t(), pos_integer()) :: integer() | :error
-  defp at(read, itp, x) do
-    {i, address} = Ast.read(read)
-    fetch(itp, i, column(address, itp, x))
+  @spec addressed(Ast.address(), reader(), pos_integer()) :: integer() | :error
+  defp addressed({:at, base, _mul, _add} = address, read, x) do
+    b = if base == :x, do: x, else: read.(elem(base, 1), x)
+    with b when is_integer(b) <- b, do: Ast.column(address, b)
   end
 
-  @spec standing(Ast.address_base(), Interpretation.t(), pos_integer()) :: integer() | :error
-  defp standing(:x, _itp, x), do: x
-  defp standing({:cell, j}, itp, x), do: fetch(itp, j, x)
-
-  @spec fetch(Interpretation.t(), Ast.row_ref(), integer() | :error) :: integer() | :error
-  defp fetch(_itp, _i, :error), do: :error
-
+  @spec fetch(Interpretation.t(), Ast.row_ref(), integer()) :: integer() | :error
   defp fetch(itp, i, x) do
     with {:ok, held} <- Interpretation.fetch(itp, i, x), do: held
   end

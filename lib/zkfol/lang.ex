@@ -96,7 +96,7 @@ defmodule Zkfol.Lang do
       field(:arity, non_neg_integer())
       field(:clauses, [{[term()], [term()]}])
       field(:home, module() | nil, default: nil, enforce: false)
-      # `phi` lowers me where I am called instead of laying me; `al` is the goal AL posts.
+      # `phi` specializes a call's lowering; `al` is the goal AL posts beyond these clauses.
       field(:phi, {module(), atom()} | nil, default: nil, enforce: false)
       field(:al, Macro.t() | nil, default: nil, enforce: false)
     end

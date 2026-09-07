@@ -6,10 +6,15 @@ defmodule Examples.EProgramSpace do
   import ExUnit.Assertions
 
   alias Examples.EForgery
+  alias Zkfol.Al
+  alias Zkfol.Alloc
+  alias Zkfol.Derivation
   alias Zkfol.Interpretation
+  alias Zkfol.Lay
   alias Zkfol.Lang.Rel
   alias Zkfol.Lang.Term
   alias Zkfol.Log
+  alias Zkfol.Phi
   alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.Statement
@@ -42,6 +47,41 @@ defmodule Examples.EProgramSpace do
 
     assert failing == [], said(failing)
     failing
+  end
+
+  @doc "An unresolved composed output proves on one predicate for different private inputs."
+  @spec an_unresolved_output_proves() :: [Lay.t()]
+  example an_unresolved_output_proves do
+    {_, [root | _] = rels, args} =
+      Enum.find(space(), &(elem(&1, 0) == "walk1 -> carried9 -> walk1"))
+
+    {:ok, pred, alloc} = Phi.compile(root, rels, args)
+    linked = Alloc.link(pred, alloc)
+
+    for input <- [[1, 2, 3, 4], [5, 6, 7, 8]] do
+      assert {:ok, ^pred, ^alloc} = Phi.compile(root, rels, [input, :_])
+      {:ok, derivation} = Al.derived(rels, [input, :_])
+
+      assert Derivation.root(derivation, root.name) ==
+               {root.name, [input, Enum.map(input, &(&1 * 4)) ++ [18]]}
+
+      lay = Lay.of(derivation, alloc)
+      witness = Lay.witness(lay)
+      assert Semantics.valid?(linked, witness)
+      assert {:ok, %Prover.Report{}, _id} = Prover.prove(linked, witness)
+
+      {:ok, [{_name, row, column} | _cells]} = Lay.claims(lay, [2])
+
+      forged =
+        witness
+        |> Interpretation.rows()
+        |> List.update_at(row - 1, &List.replace_at(&1, column - 1, 1))
+        |> Interpretation.new()
+
+      refute Semantics.valid?(linked, forged)
+      assert {:error, _refusal} = Prover.prove(linked, forged)
+      lay
+    end
   end
 
   # `ZKFOL_PROVE=1` lays every program and proves every tenth; `all` proves them all.

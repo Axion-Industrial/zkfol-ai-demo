@@ -15,6 +15,7 @@ for module <-
         Examples.EPipeline,
         Examples.EAl,
         Examples.EAlloc,
+        Examples.ENodes,
         Examples.ESudoku,
         Examples.EPassed,
         Examples.EFol,

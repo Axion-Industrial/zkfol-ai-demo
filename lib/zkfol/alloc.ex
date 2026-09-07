@@ -1,15 +1,16 @@
 defmodule Zkfol.Alloc do
   @moduledoc """
-  I am the layout: the members a statement's relations stand on and the bank of rows each
-  takes in the one committed matrix.
+  I am the layout: the members a statement's relations stand on, the banks their sequences
+  fill, and the row every reference names in the one committed matrix.
 
   ### Public API
 
-  - `new/1`: an allocation of bare banks, one of each width.
-  - `numbered/2`: the members a walk made, in rows, the root first.
-  - `root/1`, `member/2`, `names/1`: the root, a member by name, my members' names.
+  - `refs/1`, `slot_rows/2`, `defaults/1`: every assigned row, and its padding value.
+  - `row/2`, `rows/2`, `regions/1`, `width/1`: where a reference, a symbol, every symbol, all
+    of it lands.
   - `presence/2`: the row a member's facts stand on.
-  - `regions/1`, `rows/2`, `row/2`, `width/1`: where a symbol's bank landed.
+  - `numbered/2`, `root/1`, `member/2`, `names/1`: the members a walk made, the root, one by
+    name, their names.
   - `link/2`, `aimed/2`: named references to absolute rows.
   """
 
@@ -17,60 +18,52 @@ defmodule Zkfol.Alloc do
 
   alias Zkfol.Ast
 
+  @typedoc """
+  Where a parameter stands relative to its member's column.
+
+      {:cell, ref}            a scalar on my member’s column
+      {:bank, name, address}   a sequence in the named bank, its head at the address
+      {:column, origin}        the column itself, X + origin; no row
+      {:node, ref}             a term identity on a row at my member’s column
+      :none                    no row of the trace: a relation, or a value standing elsewhere
+  """
+  @type allocation ::
+          {:cell, Ast.row_ref()}
+          | {:bank, atom(), Ast.address()}
+          | {:column, integer()}
+          | {:node, Ast.row_ref()}
+          | :none
+
   defmodule Slot do
-    @moduledoc """
-    I am a binding: whose cells I read, and where under a column I meet them.
-
-        rows: [row],  at: nil          one cell of my own, at my member's standing
-        rows: bank's, at: {mul, add}   the bank's cells, `Lay.at/2` reading where each meets
-        rows: [],     at: {1, origin}  the column itself, the index it counts standing
-        rows: [],     at: nil          nothing of the trace: a relation my site passed
-
-    Rows not my member's are a name handed to it already standing: one cell, two readers.
-    """
+    @moduledoc "I am a parameter's allocation: my name, and where I stand."
     use TypedStruct
 
     typedstruct enforce: true do
       field(:name, atom())
-      field(:rows, [Zkfol.Ast.row_ref()], default: [])
-      field(:at, {integer(), integer()} | nil, default: nil)
+      field(:allocation, Zkfol.Alloc.allocation())
+    end
+  end
+
+  defmodule Bank do
+    @moduledoc "I am rows a sequence's cells stand on: `depth` of them, one element a column."
+    use TypedStruct
+
+    typedstruct enforce: true do
+      field(:name, atom())
+      field(:depth, pos_integer())
     end
 
-    @doc "I am a parameter on a row of my own, met at my member's own standing."
-    @spec own(atom(), [Zkfol.Ast.row_ref()]) :: t()
-    def own(name, rows), do: %__MODULE__{name: name, rows: rows}
+    @doc "I am the name of the bank a parameter's cells stand in."
+    @spec of(Zkfol.Ast.row_ref()) :: atom()
+    def of({name, {:param, sym}}) do
+      :"#{name} #{sym}"
+    end
 
-    @doc "I am a parameter meeting a bank: its cells, my `p`-th at `mul * X + add - p`."
-    @spec bank(atom(), [Zkfol.Ast.row_ref()], {integer(), integer()}) :: t()
-    def bank(name, rows, at), do: %__MODULE__{name: name, rows: rows, at: at}
-
-    @doc "I am the column itself: the index my member counts, its first standing for `origin`."
-    @spec index(atom(), integer()) :: t()
-    def index(name, origin), do: %__MODULE__{name: name, at: {1, origin}}
-
-    @doc "I am a relation my site passed, which stands on no row of the trace."
-    @spec passed(atom()) :: t()
-    def passed(name), do: %__MODULE__{name: name}
-
-    @doc "I am the name each row of mine shows: my own where I spend one, numbered where more."
-    @spec names(t()) :: [atom()]
-    def names(%__MODULE__{name: name, rows: [_one]}), do: [name]
-
-    def names(%__MODULE__{name: name, rows: rows}),
-      do: for(i <- 1..length(rows)//1, do: :"#{name}#{i}")
-
-    @doc "I am the member whose rows I read, none where I read no row."
-    @spec owner(t()) :: atom() | nil
-    def owner(%__MODULE__{rows: [{name, _i} | _rest]}), do: name
-    def owner(%__MODULE__{}), do: nil
-
-    @doc "I say whether I meet a bank: cells of another member, strided under my column."
-    @spec bank?(t()) :: boolean()
-    def bank?(%__MODULE__{rows: rows, at: at}), do: rows != [] and at != nil
-
-    @doc "I say whether I am the column itself, which spends no row of anyone's."
-    @spec index?(t()) :: boolean()
-    def index?(%__MODULE__{rows: rows, at: at}), do: rows == [] and at != nil
+    @doc "I am the rows of the bank `name`, `depth` deep."
+    @spec rows(atom(), pos_integer()) :: [Zkfol.Ast.row_ref()]
+    def rows(name, depth) do
+      Enum.map(1..depth//1, &{name, &1})
+    end
   end
 
   defmodule Site do
@@ -91,156 +84,178 @@ defmodule Zkfol.Alloc do
   defmodule Member do
     @moduledoc """
     I am one relation as a call site reaches it, `relation` its name in the surface: a slot
-    per parameter and per existential, the presence row, and the site each call of mine
-    reaches. `steps` is the parameter my column counts and the count my first column
-    stands for.
+    per parameter and per row a phi spent, and the sites each clause of mine calls through,
+    by clause index. `steps` is the parameter my column counts and the count my first column
+    stands for, none where I count nothing.
     """
     use TypedStruct
 
     typedstruct enforce: true do
       field(:name, atom())
-      field(:relation, atom() | nil, default: nil)
-      field(:slots, [Zkfol.Alloc.Slot.t()], default: [])
-      field(:steps, {non_neg_integer(), integer()} | nil, default: nil)
-      field(:present, Zkfol.Ast.row_ref() | nil, default: nil)
-      field(:sites, [[Zkfol.Alloc.Site.t()]], default: [])
+      field(:relation, atom())
+      field(:slots, [Zkfol.Alloc.Slot.t()])
+      field(:steps, {non_neg_integer(), integer()} | nil)
+      field(:sites, %{non_neg_integer() => [Zkfol.Alloc.Site.t()]})
     end
-
-    @doc "I am `relation` as one site reaches it, standing on the presence row my name names."
-    @spec of(atom(), atom(), {non_neg_integer(), integer()} | nil) :: t()
-    def of(name, relation, steps),
-      do: %__MODULE__{name: name, relation: relation, steps: steps, present: {:in, name}}
-
-    @doc "I am a bank: `dim` rows a cell and no relation of my own."
-    @spec bank(atom(), pos_integer()) :: t()
-    def bank(name, dim),
-      do: %__MODULE__{
-        name: name,
-        present: {:in, name},
-        slots: [Slot.own(:cells, bank_rows(name, dim))]
-      }
-
-    @doc "I am the name of the bank a parameter's cells stand in."
-    @spec bank_name(Zkfol.Ast.row_ref()) :: atom()
-    def bank_name({name, {:param, sym}}), do: :"#{name} #{sym}"
-
-    @doc "I am the row refs of the bank `name`, `dim` rows deep."
-    @spec bank_rows(atom(), pos_integer()) :: [Zkfol.Ast.row_ref()]
-    def bank_rows(name, dim), do: for(i <- 1..dim//1, do: {name, i})
-
-    @doc "I say whether I am a bank: a member with no relation of its own to say."
-    @spec bank?(t()) :: boolean()
-    def bank?(%__MODULE__{relation: relation}), do: relation == nil
-
-    @doc "I am the slot `name` names, or the one standing `place`-th among mine."
-    @spec slot(t(), atom() | pos_integer()) :: Slot.t() | nil
-    def slot(%__MODULE__{slots: slots}, name) when is_atom(name),
-      do: Enum.find(slots, &(&1.name == name))
-
-    def slot(%__MODULE__{slots: slots}, place) when is_integer(place) and place > 0,
-      do: Enum.at(slots, place - 1)
-
-    @doc "I am the column a fact counting `count` stands at, none where I count nothing."
-    @spec column(t(), integer()) :: integer() | nil
-    def column(%__MODULE__{steps: {_j, origin}}, count), do: count - origin
-    def column(%__MODULE__{steps: nil}, _count), do: nil
-
-    @doc "I am the rows my slots spend."
-    @spec width(t()) :: non_neg_integer()
-    def width(%__MODULE__{} = member), do: length(rows(member))
-
-    @doc "I am the name of every row I spend, in order."
-    @spec rows(t()) :: [atom()]
-    def rows(%__MODULE__{} = member), do: Enum.flat_map(open(member), &Slot.names/1)
-
-    @doc "I am the reference of every row I spend, in order: the walk's name for it."
-    @spec refs(t()) :: [Zkfol.Ast.row_ref()]
-    def refs(%__MODULE__{} = member), do: Enum.flat_map(open(member), & &1.rows)
-
-    @doc "I am the slots standing on rows of my own: a row names the member spending it."
-    @spec open(t()) :: [Slot.t()]
-    def open(%__MODULE__{name: name, slots: slots}),
-      do: for(slot <- slots, slot.rows == [] or Slot.owner(slot) == name, do: slot)
   end
 
   typedstruct enforce: true do
-    field(:members, [Member.t()], default: [])
+    field(:members, [Member.t() | Bank.t() | Zkfol.Nodes.t()])
   end
 
-  @doc "I am the allocation of a bare bank per name, each of its width."
-  @spec new([{atom(), pos_integer()}]) :: t()
-  def new(banks),
-    do: %__MODULE__{members: for({name, width} <- banks, do: Member.bank(name, width))}
-
-  @doc "I am the root member: the relation the act named, first among my members."
-  @spec root(t()) :: Member.t()
-  def root(%__MODULE__{members: [root | _rest]}), do: root
-
-  @doc "I am the member named `name`."
-  @spec member(t(), atom()) :: Member.t() | nil
-  def member(%__MODULE__{members: members}, name), do: Enum.find(members, &(&1.name == name))
-
-  @doc "I am my members' names, in order."
-  @spec names(t() | [Member.t()]) :: [atom()]
-  def names(%__MODULE__{members: members}), do: names(members)
-  def names(members) when is_list(members), do: for(member <- members, do: member.name)
-
-  @doc "I am the bank each member spending rows takes, and the presence bank behind them."
-  @spec regions(t()) :: [{atom(), pos_integer()}]
-  def regions(%__MODULE__{members: members}) do
-    for(member <- members, Member.width(member) > 0, do: {member.name, Member.width(member)}) ++
-      [{:in, length(members)}]
+  @doc "I am every row I assign, in order: each member's own rows, then one presence row a member."
+  @spec refs(t()) :: [Ast.row_ref()]
+  def refs(%__MODULE__{members: members}) do
+    Enum.flat_map(members, &spent/1) ++
+      for(member <- members, not is_struct(member, Zkfol.Nodes), do: {:in, member.name})
   end
 
-  @doc "I am the rows of `sym`: absolute, 1-based, in region order, none where I hold no `sym`."
-  @spec rows(t(), atom()) :: Range.t() | nil
-  def rows(%__MODULE__{} = alloc, sym) do
-    {before, rest} = Enum.split_while(regions(alloc), fn {name, _width} -> name != sym end)
-    offset = Enum.sum(for {_name, width} <- before, do: width)
+  @doc "I am the symbolic rows a slot uses; a bank owns its dimensions."
+  @spec slot_rows(t(), Slot.t()) :: [Ast.row_ref()]
+  def slot_rows(alloc, %Slot{allocation: {:bank, name, _address}}) do
+    %Bank{depth: depth} = member(alloc, name)
+    Bank.rows(name, depth)
+  end
 
-    with [{^sym, span} | _rest] <- rest, do: (offset + 1)..(offset + span)//1, else: ([] -> nil)
+  def slot_rows(_alloc, %Slot{allocation: {kind, ref}}) when kind in [:cell, :node], do: [ref]
+  def slot_rows(_alloc, %Slot{}), do: []
+
+  @doc "I give pointer and term identities a valid padding value; other rows pad zero."
+  @spec defaults(t()) :: %{pos_integer() => 1}
+  def defaults(alloc = %__MODULE__{members: members}) do
+    refs =
+      Enum.flat_map(members, fn
+        %Member{slots: slots, sites: sites} ->
+          nodes = for %Slot{allocation: {:node, ref}} <- slots, do: ref
+
+          pointers =
+            for calls <- Map.values(sites),
+                %Site{address: {:at, {:cell, ref}, _m, _a}} <- calls,
+                do: ref
+
+          nodes ++ pointers
+
+        %Zkfol.Nodes{refs: refs} ->
+          for {Zkfol.Nodes, field} = ref <- refs, field not in [:tag, :value], do: ref
+
+        %Bank{} ->
+          []
+      end)
+
+    Map.new(refs, &{row(alloc, &1), 1})
   end
 
   @doc "I am the absolute row a reference names."
   @spec row(t(), Ast.row_ref()) :: pos_integer()
-  def row(_alloc, i) when is_integer(i), do: i
-  def row(%__MODULE__{} = alloc, {sym, i}) when is_integer(i), do: rows(alloc, sym).first + i - 1
+  def row(_alloc, i) when is_integer(i) do
+    i
+  end
 
-  def row(%__MODULE__{} = alloc, {:in, name}),
-    do: rows(alloc, :in).first + Enum.find_index(names(alloc), &(&1 == name))
+  def row(alloc = %__MODULE__{}, ref) do
+    Enum.find_index(refs(alloc), &(&1 == ref)) + 1
+  end
 
-  def row(%__MODULE__{} = alloc, {sym, _which} = ref),
-    do: rows(alloc, sym).first + Enum.find_index(Member.refs(member(alloc, sym)), &(&1 == ref))
+  @doc "I am the rows of `sym`: absolute, 1-based, in region order, none where I hold no `sym`."
+  @spec rows(t(), atom()) :: Range.t() | nil
+  def rows(alloc = %__MODULE__{}, sym) do
+    case for({{^sym, _which}, i} <- Enum.with_index(refs(alloc), 1), do: i) do
+      [] -> nil
+      at -> hd(at)..List.last(at)//1
+    end
+  end
 
-  @doc "I am the absolute row a pointer address reads, none where it is affine in the column."
-  @spec aimed(t(), Ast.address()) :: pos_integer() | nil
-  def aimed(%__MODULE__{} = alloc, {:at, {:cell, ref}, _mul, _add}), do: row(alloc, ref)
-  def aimed(%__MODULE__{}, {:at, :x, _mul, _add}), do: nil
-
-  @doc "I am the absolute row the facts of `name` stand on."
-  @spec presence(t(), atom()) :: pos_integer()
-  def presence(%__MODULE__{} = alloc, name), do: row(alloc, member(alloc, name).present)
+  @doc "I am the rows each symbol takes, in order, the presence rows last."
+  @spec regions(t()) :: [{atom(), pos_integer()}]
+  def regions(alloc = %__MODULE__{}) do
+    Enum.map(Enum.chunk_by(refs(alloc), &elem(&1, 0)), &{elem(hd(&1), 0), length(&1)})
+  end
 
   @doc "I am how many rows I assign in all."
   @spec width(t()) :: non_neg_integer()
-  def width(%__MODULE__{} = alloc), do: alloc |> regions() |> Enum.map(&elem(&1, 1)) |> Enum.sum()
+  def width(alloc = %__MODULE__{}) do
+    length(refs(alloc))
+  end
+
+  @doc "I am the absolute row the facts of `name` stand on."
+  @spec presence(t(), atom()) :: pos_integer()
+  def presence(alloc = %__MODULE__{}, name) do
+    row(alloc, {:in, name})
+  end
+
+  @doc "I am the members a walk made, in rows, the root first."
+  @spec numbered([Member.t() | Bank.t() | Zkfol.Nodes.t()], atom()) :: t()
+  def numbered(made, root) do
+    %__MODULE__{members: Enum.sort_by(made, &(&1.name != root))}
+  end
+
+  @doc "I am the root member: the relation the act named, first among my members."
+  @spec root(t()) :: Member.t()
+  def root(%__MODULE__{members: [root | _rest]}) do
+    root
+  end
+
+  @doc "I am the member or bank named `name`."
+  @spec member(t(), atom()) :: Member.t() | Bank.t() | Zkfol.Nodes.t() | nil
+  def member(%__MODULE__{members: members}, name) do
+    Enum.find(members, &(&1.name == name))
+  end
+
+  @doc "I am my members' names, in order."
+  @spec names(t() | [Member.t() | Bank.t() | Zkfol.Nodes.t()]) :: [atom()]
+  def names(%__MODULE__{members: members}) do
+    names(members)
+  end
+
+  def names(members) when is_list(members) do
+    Enum.map(members, & &1.name)
+  end
+
+  @doc "I am the absolute row a pointer address reads, none where it is affine in the column."
+  @spec aimed(t(), Ast.address()) :: pos_integer() | nil
+  def aimed(alloc = %__MODULE__{}, {:at, {:cell, ref}, _mul, _add}) do
+    row(alloc, ref)
+  end
+
+  def aimed(%__MODULE__{}, {:at, :x, _mul, _add}) do
+    nil
+  end
 
   @doc "I resolve every named reference to its absolute row; numeric ones pass through."
   @spec link(Ast.pred(), t()) :: Ast.pred()
-  def link(pred, %__MODULE__{} = alloc), do: Ast.postwalk(pred, &resolve(&1, alloc))
-
-  @doc "I am the members a walk made, in rows, the root first."
-  @spec numbered([Member.t()], atom()) :: t()
-  def numbered(made, root), do: %__MODULE__{members: Enum.sort_by(made, &(&1.name != root))}
+  def link(pred, alloc = %__MODULE__{}) do
+    Ast.postwalk(pred, &resolve(&1, alloc))
+  end
 
   ############################################################
   #                   Private Implementation                 #
   ############################################################
 
+  @spec spent(Member.t() | Bank.t() | Zkfol.Nodes.t()) :: [Ast.row_ref()]
+  defp spent(%Zkfol.Nodes{refs: refs}), do: refs
+
+  defp spent(%Bank{name: name, depth: depth}) do
+    Bank.rows(name, depth)
+  end
+
+  defp spent(%Member{slots: slots}) do
+    Enum.flat_map(slots, fn
+      %Slot{allocation: {kind, ref}} when kind in [:cell, :node] -> [ref]
+      _slot -> []
+    end)
+  end
+
   @spec resolve(term(), t()) :: term()
-  defp resolve({:cell, _ref} = read, alloc), do: linked(read, alloc)
-  defp resolve({:cell, _ref, _address} = read, alloc), do: linked(read, alloc)
-  defp resolve(node, _alloc), do: node
+  defp resolve({:cell, _ref} = read, alloc) do
+    linked(read, alloc)
+  end
+
+  defp resolve({:cell, _ref, _address} = read, alloc) do
+    linked(read, alloc)
+  end
+
+  defp resolve(node, _alloc) do
+    node
+  end
 
   @spec linked(Ast.term_t(), t()) :: Ast.term_t()
   defp linked(read, alloc) do

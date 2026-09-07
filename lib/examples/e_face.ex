@@ -29,6 +29,18 @@ defmodule Examples.EFace do
     summary
   end
 
+  @doc "Generated term rows retain printable labels in the layout feed."
+  @spec constructed_terms_have_a_layout_feed() :: %{atom() => term()}
+  example constructed_terms_have_a_layout_feed do
+    lay = Statement.lay(Examples.ENodes.reverse_proves())
+    feed = Face.lay(lay)
+
+    assert length(feed.rows) == Zkfol.Alloc.width(lay.alloc)
+    assert Enum.any?(feed.rows, &String.contains?(&1, "{:read,"))
+    assert Enum.all?(feed.witness, &(length(&1) == length(feed.rows)))
+    feed
+  end
+
   @doc "I am the pinned code's own parameters, not a copy of them."
   @spec the_code_answers_its_parameters() :: %{atom() => term()}
   example the_code_answers_its_parameters do
