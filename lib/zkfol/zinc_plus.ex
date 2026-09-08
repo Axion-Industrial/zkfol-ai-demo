@@ -61,6 +61,21 @@ defmodule Zkfol.ZincPlus do
   @spec prove_fol(Payload.t()) :: {:ok, pos_integer()} | {:error, String.t()}
   def prove_fol(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
+  @typedoc """
+  The pinned code's parameters: a column encodes to `rep_factor` times its cells, an
+  opening reveals `column_openings` positions, `degree` is the protocol's degree bound.
+  """
+  @type pcs_params :: %{
+          rep_factor: pos_integer(),
+          column_openings: pos_integer(),
+          degree: pos_integer(),
+          backend: String.t()
+        }
+
+  @doc "I answer the pinned code's parameters; they move with the dep."
+  @spec pcs_params() :: pcs_params()
+  def pcs_params, do: :erlang.nif_error(:nif_not_loaded)
+
   @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   def request(%Uair{} = uair, opts \\ []) do

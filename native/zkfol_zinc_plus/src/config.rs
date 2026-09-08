@@ -33,7 +33,10 @@ const INT_LIMBS: usize = U64::LIMBS;
 /// so the modulus type must hold exactly 256 bits.
 pub const FIELD_LIMBS: usize = U64::LIMBS * 4;
 /// Repetition factor for the linear code, an inverse rate.
-const REP_FACTOR: usize = 8;
+pub const REP_FACTOR: usize = 8;
+/// Codeword positions the verifier asks for at an opening, one tier's
+/// standing for all of them: every ZipTypes here declares the same count.
+pub const NUM_COLUMN_OPENINGS: usize = <BinaryCfg as ZipTypes>::NUM_COLUMN_OPENINGS;
 /// Prover-side self-checks, off in earnest runs as in the upstream bench.
 pub const PERFORM_CHECKS: bool = zinc_utils::UNCHECKED;
 

@@ -26,6 +26,20 @@ defmodule Examples.EFace do
     summary
   end
 
+  @doc "I am the pinned code's own parameters, not a copy of them."
+  @spec the_code_answers_its_parameters() :: %{atom() => term()}
+  example the_code_answers_its_parameters do
+    pcs = Face.pcs()
+
+    # The inverse rate and the proximity sample count are the backend's
+    # to state: a column of 2^mu cells encodes to rep_factor times that.
+    assert pcs.rep_factor > 1
+    assert pcs.column_openings > 0
+    assert pcs.degree > 0
+    assert pcs.backend =~ "zinc-plus"
+    pcs
+  end
+
   @spec the_grid_feed_is_settled() :: %{atom() => term()}
   example the_grid_feed_is_settled do
     statement = EUser.fibonacci()
