@@ -58,6 +58,26 @@ defmodule Examples.ELog do
     refusal
   end
 
+  @doc "A request refused before submission still settles its intent on the log."
+  @spec a_rejected_proof_settles() :: Zkfol.Refusal.t()
+  example a_rejected_proof_settles do
+    statement = EUser.fibonacci()
+    {:ok, uair} = Zkfol.Uair.emit(Statement.pred(statement), Statement.witness(statement))
+    columns = List.update_at(uair.columns, 0, &List.replace_at(&1, 0, -1))
+    args = %Log.Args{statement: statement, entry: :compile, opts: []}
+    parent = Log.push({:define, :rejected_proof, EUser.plain(), [], args})
+    assert {:error, reason} = Prover.prove_uair(%{uair | columns: columns}, basedon: parent)
+    assert {:witness_value_negative, %{value: -1}} = reason
+
+    assert [
+             %Log.Event{},
+             %Log.Event{id: request, body: {:prove_requested, nil}},
+             %Log.Event{basedon: request, body: {:prove_failed, ^reason}}
+           ] = Log.thread(Log.snapshot(), parent)
+
+    reason
+  end
+
   @doc "A verdict lingering from an abandoned wait is not this wait's."
   @spec stale_verdicts_are_not_heard() :: Prover.Report.t()
   example stale_verdicts_are_not_heard do
