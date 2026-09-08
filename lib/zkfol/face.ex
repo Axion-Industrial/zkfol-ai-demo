@@ -28,6 +28,34 @@ defmodule Zkfol.Face do
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
 
+  @doc "I am a relation shaped for its clauses view: each clause as the surface writes it."
+  @spec rel(Lang.Rel.t()) :: %{atom() => term()}
+  def rel(%Lang.Rel{name: name, arity: arity, clauses: clauses}) do
+    %{arity: arity, clauses: for({head, body} <- clauses, do: clause_text(name, head, body))}
+  end
+
+  @doc """
+  I am a relation's compiled shape summarized: its members, pointers,
+  widths, and branch count. A shape that refuses says why, so a
+  half-written relation still reads.
+  """
+  @spec shape(Lang.Rel.t()) :: %{atom() => term()}
+  def shape(%Lang.Rel{} = rel) do
+    case Lang.compile(rel) do
+      {:ok, shape} ->
+        %{
+          members: shape.members,
+          pointers: for({callee, at} <- shape.pointers, do: "#{callee} " <> term_text(at)),
+          slack: shape.slack,
+          quot: shape.quot,
+          branches: length(Ast.branches(shape.pred))
+        }
+
+      {:error, refusal} ->
+        %{refused: Refusal.message(refusal)}
+    end
+  end
+
   @doc "I am the statement's facts, one map: what a delta view compares."
   @spec summary(Statement.t()) :: %{atom() => term()}
   def summary(%Statement{} = statement) do
@@ -88,6 +116,8 @@ defmodule Zkfol.Face do
   the size of its objection. The labels come off the relations
   themselves, in the order Lang emits their branches.
   """
+  @judgement_keys ~w(labels evals terms trees sources rows regions arrows aims witness)a
+
   @spec judgement(Statement.t()) :: %{atom() => term()}
   def judgement(%Statement{stage: %Solved{witness: witness}} = statement) do
     branches =
@@ -120,7 +150,7 @@ defmodule Zkfol.Face do
     }
   end
 
-  def judgement(%Statement{}), do: %{labels: [], evals: []}
+  def judgement(%Statement{}), do: Map.new(@judgement_keys, &{&1, []})
 
   # A reading of the statement's lay, empty without one.
   @spec on_lay(Statement.t(), (Zkfol.Lay.t() -> [term()])) :: [term()]

@@ -56,5 +56,4 @@ defmodule Zkfol.Matrix do
 
   @spec facts(Rel.t()) :: [fact()]
   defp facts(%Rel{arity: 3, clauses: clauses}), do: for({[r, c, v], []} <- clauses, do: {r, c, v})
-  defp facts(%Rel{arity: 2, clauses: clauses}), do: for({[i, v], []} <- clauses, do: {0, i, v})
 end
