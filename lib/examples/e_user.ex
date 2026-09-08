@@ -87,6 +87,16 @@ defmodule Examples.EUser do
     v = 2 * (h * h)
   end
 
+  @step 3
+
+  defrel step(1, ^@step)
+
+  defrel step(x, v) do
+    x > 1
+    step(x - 1, w)
+    v = w + ^@step
+  end
+
   # The whole act on the default route; the receipt is what the
   # pipeline views open on.
   @spec compiled(pos_integer()) :: Log.Ran.t()
@@ -147,6 +157,17 @@ defmodule Examples.EUser do
     statement
   end
 
+  @spec pinned_step(pos_integer()) :: Lang.Rel.t()
+  example pinned_step(n \\ 4) do
+    step = step()
+    assert {[1, @step], []} = hd(step.clauses)
+
+    query = Zkfol.eval!(step, [n, :_], [])
+    assert Zkfol.Query.taken(query) == [[n, n * @step]]
+    Zkfol.Query.close(query)
+    step
+  end
+
   @spec unseeded_base_is_knowledge() :: Refusal.t()
   example unseeded_base_is_knowledge do
     unseeded =
@@ -185,7 +206,7 @@ defmodule Examples.EUser do
     [root | _scope] = program = program(:fib)
 
     assert root.name == :fib
-    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs, :regsm]
+    assert program |> Enum.map(& &1.name) |> Enum.sort() == [:epower, :fib, :regs, :regsm, :step]
 
     # The closure walk takes what it calls and ignores the rest.
     {:ok, shape} = Lang.compile(root, program)
