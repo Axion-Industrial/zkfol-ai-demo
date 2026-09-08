@@ -69,10 +69,10 @@ defmodule Examples.EFace do
     feed = Face.grid(uair)
 
     assert feed.len == 8
-    assert hd(feed.columns) == Enum.reverse(Enum.map(1..8, &EUser.fib/1))
+    assert hd(feed.columns) == Enum.reverse(Enum.map(1..8, &EUser.fib/1)) ++ List.duplicate(1, 8)
     assert feed.kinds == [:scheduled, :scheduled, :ranged, :scheduled, :scheduled]
-    assert Enum.all?(feed.columns, &(length(&1) == 8))
-    assert feed.num_vars == 3
+    assert Enum.all?(feed.columns, &(length(&1) == 16))
+    assert feed.num_vars == 4
 
     assert length(feed.origins) == length(feed.columns)
     assert Enum.all?(feed.origins, &(String.starts_with?(&1, "C") or &1 in ["x", "ones"]))

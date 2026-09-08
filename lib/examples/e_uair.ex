@@ -14,6 +14,7 @@ defmodule Examples.EUair do
   alias Zkfol.Log
   alias Zkfol.Prover
   alias Zkfol.Refusal
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
@@ -73,6 +74,20 @@ defmodule Examples.EUair do
              Prover.prove_uair(%{long | columns: forged, word_lookups: [{pointer, 32, 8}]})
 
     long
+  end
+
+  @doc "A full trace reserves padding: the backend's exempt final row is never an actual cell."
+  @spec the_exempt_row_is_padding() :: Uair.t()
+  example the_exempt_row_is_padding do
+    {:ok, uair} = Uair.emit(Ast.eq(Ast.cell(1), 2), Interpretation.new([List.duplicate(2, 8)]))
+    assert Uair.num_vars(uair) == 4
+    assert [column] = uair.columns
+    assert length(column) == 16
+    actual = %{uair | columns: [List.replace_at(column, 7, 3)]}
+    padding = %{uair | columns: [List.replace_at(column, 15, 3)]}
+    assert {:error, {:verifier_rejected, _}} = Prover.prove_uair(actual)
+    assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(padding)
+    uair
   end
 
   @spec tampered_is_rejected() :: Refusal.t()
@@ -156,5 +171,78 @@ defmodule Examples.EUair do
     assert kernel.shifts == [{1, 1}, {2, 1}, {3, 1}, {4, 1}, {6, 1}, {7, 1}, {7, 2}]
 
     [kernel, generic]
+  end
+
+  @doc """
+  I am the reach of the program's last-row exemption, measured. The program runs to
+  the cube's last row and stops there, and that row is `x = 1` exactly when the trace
+  fills its cube. A move of a cell at `x = 1` is held when some column past 1 breaks
+  under it and free when none does, and the backend keeps that split exactly: it
+  refuses a held move and proves every free one. What the free list holds is how far
+  the exemption reaches on that trace, which is nothing at all on some of them.
+  """
+  @spec last_row_exemption() ::
+          [{atom(), [{pos_integer(), integer()}], [{pos_integer(), integer()}]}]
+  example last_row_exemption do
+    for {name, statement} <- traces(),
+        {:ok, uair} <- [Uair.emit(Statement.pred(statement), Statement.witness(statement))],
+        2 ** Uair.num_vars(uair) == uair.len do
+      witness = Statement.witness(statement)
+
+      moves =
+        for row <- 1..Interpretation.arity(witness),
+            held = Interpretation.at(witness, row, 1),
+            to <- [held + 1, held - 1],
+            to >= 0,
+            {true, beyond} <- [broken(Statement.pred(statement), witness, row, to)],
+            do: {row, to, beyond}
+
+      held = for {row, to, beyond} <- moves, beyond != [], do: {row, to}
+      free = for {row, to, beyond} <- moves, beyond == [], do: {row, to}
+
+      assert held != []
+      assert {:error, _reason} = forged(uair, hd(held))
+      assert Enum.all?(free, &match?({:ok, %Prover.Report{}, _id}, forged(uair, &1)))
+      {name, held, free}
+    end
+  end
+
+  ############################################################
+  #                   Private Implementation                 #
+  ############################################################
+
+  # The traces the exemption reaches: some filling their cube, one padding.
+  @spec traces() :: [{atom(), Statement.t()}]
+  defp traces do
+    [
+      fib: EUser.fibonacci(),
+      regs: EUser.registers(),
+      mod: EUser.registers_mod(8),
+      power: EUser.power()
+    ]
+  end
+
+  # A move at x = 1: whether the predicate breaks under it at all, and where past x = 1.
+  @spec broken(Ast.pred(), Interpretation.t(), pos_integer(), integer()) ::
+          {boolean(), [pos_integer()]}
+  defp broken(pred, witness, row, to) do
+    moved =
+      witness
+      |> Interpretation.rows()
+      |> List.update_at(row - 1, &List.replace_at(&1, 0, to))
+      |> Interpretation.new()
+
+    columns = for x <- 1..Interpretation.len(witness), not Semantics.holds?(pred, moved, x), do: x
+    {columns != [], columns -- [1]}
+  end
+
+  # The same move written into the trace, on the cube's last row, which is x = 1.
+  @spec forged(Uair.t(), {pos_integer(), integer()}) ::
+          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
+  defp forged(uair, {row, to}) do
+    column = Enum.find_index(uair.rows, &(&1 == row))
+    last = 2 ** Uair.num_vars(uair) - 1
+    columns = List.update_at(uair.columns, column, &List.replace_at(&1, last, to))
+    Prover.prove_uair(%{uair | columns: columns}, name: :last_row)
   end
 end
