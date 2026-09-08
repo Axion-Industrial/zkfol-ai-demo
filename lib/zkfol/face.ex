@@ -253,8 +253,8 @@ defmodule Zkfol.Face do
     reads = mode_feed(uair.mode)
 
     %{
-      columns: columns,
-      traces_order: true,
+      columns: uair.columns,
+      len: uair.len,
       num_vars: uair.columns |> hd() |> length() |> then(&round(:math.log2(&1))),
       num_public: uair.num_public,
       shifts: Enum.map(uair.shifts, &Tuple.to_list/1),

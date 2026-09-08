@@ -49,18 +49,17 @@ defmodule Examples.EFace do
 
     feed = Face.grid(uair)
 
-    # Oriented at the source: trace order with the padding cut, so the
-    # n row counts 1..len, and every row's kind named off the shifts.
-    assert feed.traces_order
-    assert hd(feed.columns) == Enum.to_list(1..8)
-    # The fibonacci guard x > 1 range-checks its slack column, so that
-    # committed column reads :ranged off the word_lookups; the rest are
-    # plain or shifted, taking no read of their own.
+    # The committed columns as the prover proves them: reversed trace,
+    # padded to the cube, len marking where the real trace ends. The n
+    # row counts len..1, every row's kind named off the shifts.
+    assert feed.len == 8
+    assert hd(feed.columns) == Enum.to_list(8..1//-1) ++ List.duplicate(1, 8)
+    # The guard range-checks its slack column.
     assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :ranged, :scheduled, :scheduled]
     assert feed.word_lookups == [{4, 32, 8}]
     assert :ranged in feed.kinds
-    assert Enum.all?(feed.columns, &(length(&1) == 8))
-    assert feed.num_vars == 3
+    assert Enum.all?(feed.columns, &(length(&1) == 16))
+    assert feed.num_vars == 4
 
     # Every committed column says which interpretation row it carries.
     assert length(feed.origins) == length(feed.columns)

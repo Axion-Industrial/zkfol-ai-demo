@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns traces_order kinds num_vars num_public shifts reads word_lookups origins)
+	^ #(columns len kinds num_vars num_public shifts reads word_lookups origins)
 ]
 
 { #category : 'examples' }
@@ -62,13 +62,12 @@ ZkfolUairExamples >> cellClickSpawnsCell [
 { #category : 'fixtures' }
 ZkfolUairExamples >> classicAffine [
 	"The pre-Section-4 shape: every read affine, so no composed reads and
-	 no lookups; the face settled it to trace order and named the kinds,
-	 the index column earning its tint."
+	 no lookups; the face settled it to committed order and named the
+	 kinds, the index column earning its tint."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 		#num_public -> 1.
-		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#plain #scheduled #index).
 		#reads -> #().
@@ -84,14 +83,13 @@ ZkfolUairExamples >> classicStatementTags [
 	"I read the classic all-affine fixture, no composed reads or lookups,
 	 and assert the settled kinds render: the claimed row tags its label,
 	 scheduled rows tint violet and name their offsets, the index column
-	 earns its tint, and hover follows every scheduled offset back
-	 through the trace."
+	 earns its tint, and hover follows every scheduled offset forward
+	 through the committed trace."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid picture element |
 	grid := ZkfolUairGrid onUair: self classicAffine.
 	picture := grid picture.
-	self assert: grid tracesOrder description: 'the face handed trace order'.
 	self
 		assert: ((0 to: 2) collect: [ :each | grid kindOfRow: each ]) asArray
 		equals: #(#plain #scheduled #index).
@@ -101,22 +99,17 @@ ZkfolUairExamples >> classicStatementTags [
 		assert: (grid labelTextFor: #scheduled at: 1) equals: '1 · shifts 1, 2'.
 	self
 		assert: (grid labelTextFor: #index at: 2) equals: '2 · index'.
-	"hover follows a scheduled row back through the trace, at each
+	"hover follows a scheduled row forward through the trace, at each
 	 offset it carries. Asserted on hoverLit, which is what the grid
-	 actually lights; hoverTargetsOf: computed the same answer down a
-	 path nothing rendered from."
+	 actually lights."
 	picture hovered: 1 @ 5.
-	self assert: picture hoverLit keys asSet equals: { 1 @ 4. 1 @ 3 } asSet.
+	self assert: picture hoverLit keys asSet equals: { 1 @ 6. 1 @ 7 } asSet.
 	picture hideHover.
 	element := picture asElement.
-	self
-		assert: (self elementWithId: #zkfolOrientationMarker in: element) isNil
-		description: 'an oriented grid carries no marker'.
 	self
 		assert: ((self textsUnder: element) includes: '1 · shifts 1, 2')
 		description: 'the tags the model spells reach the rendered element'.
 	^ grid
-
 ]
 
 { #category : 'private' }
@@ -197,12 +190,11 @@ ZkfolUairExamples >> elementsWithId: anIdSymbol in: anElement [
 { #category : 'fixtures' }
 ZkfolUairExamples >> emittedFibonacci [
 	"Zkfol.Face.grid of the emitted fibonacci at witness 8: the compiler
-	 output settled at the source, columns in trace order."
+	 output settled at the source, columns in committed order."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#traces_order -> true.
 		#num_vars -> 3.
 		#kinds -> #(#scheduled #scheduled #plain #plain #scheduled #scheduled).
 		#reads -> #().
@@ -218,31 +210,31 @@ ZkfolUairExamples >> emittedFibonacci [
 
 { #category : 'examples' }
 ZkfolUairExamples >> emittedFibonacciRenders [
-	"Compiler output, where the other fixtures are miniatures: the feed
-	 arrives in trace order, so no marker, and the scheduler's shifts
-	 land as scheduled rows."
+	"Compiler output, where the other fixtures are miniatures: the
+	 scheduler's shifts land as scheduled rows, and the whole of it
+	 renders with those rows' tags in the tree."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| grid element |
 	grid := ZkfolUairGrid onUair: self emittedFibonacci.
-	self assert: grid tracesOrder description: 'the feed is trace order'.
+	self assert: (grid kindOfRow: 0) equals: #scheduled.
 	element := grid picture asElement.
 	self
-		assert: (self elementWithId: #zkfolOrientationMarker in: element) isNil
-		description: 'a trace-order uair needs no marker'.
+		assert: ((self textsUnder: element) includes: (grid labelTextFor: #scheduled at: 0))
+		description: 'a scheduled row tag reaches the rendered element'.
 	^ grid
 ]
 
 { #category : 'examples' }
 ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	"I assert the failure list says nothing when nothing is wrong. Every
-	 oriented fixture lists no failure and offers no tab at all; the blind
-	 reversed shape contradicts at four of its five reads. A view that is
-	 empty when all is well is one whose presence means something."
+	 sound fixture lists no failure and offers no tab at all; the broken
+	 hop contradicts at four of its five reads. A view that is empty when
+	 all is well is one whose presence means something."
 	<gtExample>
 	<return: #ZkfolUairGrid>
 	| broken |
-	#(miniatureHop orientedHop hopWithTwoReads) do: [ :fx |
+	#(miniatureHop hopWithTwoReads) do: [ :fx |
 		| grid |
 		grid := ZkfolUairGrid onUair: (self perform: fx).
 		self assert: grid failingChains isEmpty.
@@ -270,20 +262,20 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 
 { #category : 'examples' }
 ZkfolUairExamples >> gridElement [
-	"I render the fixture grid: the honesty marker, since this fixture
-	 is committed order and carries no index column, the position ruler, then
-	 one row element per committed column, the claimed row outlined, and
-	 last the connector layer the hover connectors are drawn into, always
-	 present and empty at rest."
+	"I render the fixture grid: the position ruler, then one row element
+	 per committed column, the claimed row outlined, and last the
+	 connector layer the hover connectors are drawn into, always present
+	 and empty at rest. A miniature within the render budget carries no
+	 truncation marker."
 	<gtExample>
 	<return: #BlElement>
 	| grid element claimed layer |
 	grid := self gridFromFixture.
 	element := grid picture asElement.
-	self assert: element children size equals: grid numCols + 3.
+	self assert: element children size equals: grid numCols + 2.
 	self
-		assert: (self elementWithId: #zkfolOrientationMarker in: element) notNil
-		description: 'the committed-order fixture should carry the marker'.
+		assert: (self elementWithId: #zkfolTruncationMarker in: element) isNil
+		description: 'a miniature within budget carries no truncation marker'.
 	claimed := element children detect: [ :each | each border width > 0 ] ifNone: [ nil ].
 	self assert: claimed notNil description: 'the claimed row should be outlined'.
 	layer := self elementWithId: #zkfolUairHoverLayer in: element.
@@ -304,35 +296,6 @@ ZkfolUairExamples >> gridFromFixture [
 	self
 		assert: ((0 to: 6) collect: [ :i | grid kindOfRow: i ]) asArray
 		equals: #(#plain #pointer #plain #bit #bit #bit #result).
-	^ grid
-]
-
-{ #category : 'examples' }
-ZkfolUairExamples >> gridFromOrientedHop [
-	"I read the trace-order fixture and assert the orientation rule:
-	 marked traces_order, the grid displays trace order, un-reversing the
-	 committed columns and truncating the padding, so the address a
-	 pointer cell holds indexes the displayed grid directly and the
-	 deref chain agrees with itself. The raw committed columns stay as
-	 fetched underneath."
-	<gtExample>
-	<return: #ZkfolUairGrid>
-	| grid picture |
-	grid := ZkfolUairGrid onUair: self orientedHop.
-	picture := grid picture.
-	self assert: grid displayColumns first equals: #(7 8 9).
-	self assert: (grid displayColumns collect: [ :each | each size ]) asArray
-		equals: #(3 3 3 3 3).
-	"hovering the pointer lights both ends of the read: the cell its
-	 address selects and the result that should equal it. The old
-	 assertion named only the first, because it asked hoverTargetsOf:,
-	 which nothing rendered from."
-	picture hovered: 1 @ 1.
-	self assert: picture hoverLit keys asSet equals: { 0 @ 2. 2 @ 1. 3 @ 1. 4 @ 1 } asSet.
-	picture hideHover.
-	self
-		assert: (grid derefChainsAt: 1) first agrees
-		description: 'following the address lands on the result'.
 	^ grid
 ]
 
@@ -359,15 +322,13 @@ ZkfolUairExamples >> headerClickSpawnsColumn [
 
 { #category : 'fixtures' }
 ZkfolUairExamples >> hopReversed [
-	"A feed still in committed order, the shape a viewer must be honest
-	 about: traces_order false, so the grid shows it as fetched with the
-	 honesty marker, and in this order the deref chain contradicts
-	 itself, which is exactly what the failures view is for."
+	"A committed hop whose deref chain contradicts itself: the addresses
+	 its pointer holds do not land on cells that agree, which is exactly
+	 what the failures view is for."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 		#num_public -> 0.
-		#traces_order -> false.
 		#num_vars -> 2.
 		#kinds -> #(#plain #pointer #bit #bit #result).
 		#shifts -> #().
@@ -376,39 +337,16 @@ ZkfolUairExamples >> hopReversed [
 ]
 
 { #category : 'fixtures' }
-ZkfolUairExamples >> orientedHop [
-	"The composed hop as the face settles it: length 3, trace order, the
-	 padding cut, every value asymmetric so a missed orientation cannot
-	 pass, and the deref chain self-consistent."
-	<gtExample>
-	<return: #Dictionary>
-	^ {
-		#num_public -> 0.
-		#traces_order -> true.
-		#num_vars -> 2.
-		#kinds -> #(#plain #pointer #bit #bit #result).
-		#shifts -> #().
-		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
-		#columns -> {
-			#(7 8 9).
-			#(2 1 3).
-			#(1 0 0).
-			#(0 1 0).
-			#(8 7 9) } } asDictionary
-]
-
-{ #category : 'fixtures' }
 ZkfolUairExamples >> hopWithTwoReads [
-	"A length 3 hop with TWO composed reads sharing one pointer, len
-	 bearing so it orients cleanly: value rows 0 and 1, the pointer row
-	 2 with its two bit rows, and a result row per read, 5 and 6. Hover
-	 on the pointer lights each read's target and result in its own
-	 color, so the two greens at rest split into two hues on hover."
+	"A length 3 hop with TWO composed reads sharing one pointer, in
+	 committed order: value rows 0 and 1, the pointer row 2 with its two
+	 bit rows, and a result row per read, 5 and 6. Hover on the pointer
+	 lights each read's target and result in its own color, so the two
+	 greens at rest split into two hues on hover."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 			#num_public -> 0.
-			#traces_order -> true.
 			#num_vars -> 2.
 			#kinds -> #(#plain #plain #pointer #bit #bit #result #result).
 			#shifts -> #().
@@ -421,8 +359,8 @@ ZkfolUairExamples >> hopWithTwoReads [
 				#(2 1 3).
 				#(1 0 0).
 				#(0 1 0).
-				#(20 10 30).
-				#(50 40 60) } } asDictionary
+				#(20 30 10).
+				#(50 60 40) } } asDictionary
 ]
 
 { #category : 'examples' }
@@ -550,19 +488,17 @@ ZkfolUairExamples >> miniatureChain [
 
 { #category : 'fixtures' }
 ZkfolUairExamples >> miniatureHop [
-	"A miniature grid feed the way the face hands it, still in committed
-	 order: lists as arrays, maps as dictionaries, tuples as arrays.
-	 Column 0 carries the claimed value row, column 1 a dynamic pointer
-	 under a Word lookup, columns 3 to 5 its bit rows, column 6 the
-	 dereference results, column 2 stays plain.
-
+	"A miniature grid feed the way the face hands it, in committed order:
+	 lists as arrays, maps as dictionaries, tuples as arrays. Column 0
+	 carries the claimed value row, column 1 a dynamic pointer under a
+	 Word lookup, columns 3 to 5 its bit rows, column 6 the dereference
+	 results, column 2 stays plain.
 	 A plain Dictionary: a live uair arrives as one settled feed from the
 	 face and is parsed straight into one of these."
 	<gtExample>
 	<return: #Dictionary>
 	^ {
 			#num_public -> 1.
-			#traces_order -> false.
 			#num_vars -> 3.
 			#kinds -> #(#plain #pointer #plain #bit #bit #bit #result).
 			#shifts -> #().
@@ -725,19 +661,19 @@ ZkfolUairExamples >> pointerGridForwardBuildsAsync [
 ZkfolUairExamples >> pointerGridRendersInInspector [
 	"I put the grid in a real inspector under a scripter, let the space
 	 settle, and assert the Pointer grid tab is offered and its grid
-	 element actually rendered: the marker, the ruler, and one row per
-	 committed column, plus the connector layer, so numCols + 3 children."
+	 element actually rendered: the ruler, one row per committed column,
+	 and the connector layer, so numCols + 2 children."
 	<gtExample>
 	<return: #BlScripter>
 	| scripter expected |
-	expected := self gridFromFixture numCols + 3.
+	expected := self gridFromFixture numCols + 2.
 	scripter := BlScripter new.
 	scripter element: (GtInspectorTool new object: self gridFromFixture) asElement.
 	scripter wait forEmptySpaceTaskQueue.
 	scripter play.
 	scripter assertStep: [ :s |
 		s
-			label: 'The grid rendered the marker, ruler, and one row per committed column';
+			label: 'The grid rendered the ruler and one row per committed column';
 			value: [ :el | el children size ] equals: [ expected ];
 			// #zkfolUairGrid ].
 	scripter assertStep: [ :s |
@@ -803,12 +739,11 @@ ZkfolUairExamples >> refusedUairSaysWhy [
 
 { #category : 'fixtures' }
 ZkfolUairExamples >> reversedHopColumns [
-	"The committed columns of a length 3 composed hop, reversed and
-	 padded to 2^2 the way the emitter ships them: w = [7, 8, 9], pointer
-	 A = [2, 1, 3] with its two bit rows, and the result w[A(x)] = [8,
-	 7, 9]. Every value is asymmetric, so a missed un-reversal cannot
-	 pass, and in trace order the deref chain is self-consistent while
-	 in committed order it lands on the mirror cell."
+	"The committed columns of a length 3 composed hop padded to 2^2 the
+	 way the emitter ships them: w = [7, 8, 9], pointer A = [2, 1, 3]
+	 with its two bit rows, and a result row that does not match what
+	 the addresses select, so every deref in this trace contradicts
+	 itself. Every value is asymmetric, so no coincidence hides it."
 	<gtExample>
 	<return: #Array>
 	^ {
@@ -877,21 +812,20 @@ ZkfolUairExamples >> stageDiffView [
 	^ transform
 ]
 
-{ #category : 'helpers' }
+{ #category : 'fixtures' }
 ZkfolUairExamples >> syntheticGridOfLength: aLength vars: aNumVars rows: aRowCount [
 	"A trace of a size no fixture should carry, settled the way the face
-	 hands it: trace order, the padding already cut."
+	 hands it: committed order, the cube filled to its width."
 	^ self syntheticGridOfLength: aLength vars: aNumVars rows: aRowCount extra: Dictionary new
 ]
 
-{ #category : 'helpers' }
+{ #category : 'fixtures' }
 ZkfolUairExamples >> syntheticGridOfLength: aLength vars: aNumVars rows: aRowCount extra: aDictionary [
 	"As above, with more payload fields folded in: a caller wanting
 	 public rows or shifts states them as payload, not by reaching for a
 	 setter afterwards."
 	| payload |
 	payload := Dictionary new.
-	payload at: #traces_order put: true.
 	payload at: #num_vars put: aNumVars.
 	payload at: #columns put: ((1 to: aRowCount) collect: [ :row |
 		(1 to: aLength) asArray ]).
@@ -922,7 +856,6 @@ ZkfolUairExamples >> wideGridRendersInMondrian [
 	grid := self syntheticGridOfLength: 40 vars: 6 rows: 3 extra: {
 		#num_public -> 1.
 		#shifts -> { #(1 1). #(1 2) } } asDictionary.
-	self assert: grid tracesOrder description: 'traces_order makes it trace order'.
 	self assert: grid displayColumns first size equals: 40.
 	firstLabel := grid labelTextFor: (grid kindOfRow: 0) at: 0.
 	view := grid gtPointerGridFor: GtPhlowView empty.
@@ -944,12 +877,13 @@ ZkfolUairExamples >> wideGridRendersInMondrian [
 { #category : 'examples' }
 ZkfolUairExamples >> wideGridTruncatesHonestly [
 	"I assert the render cap is honest, not silent: under it every
-	 position renders unmarked, past it only maxPositions render and the
-	 marker names the true numbers. The uair already arrives in one
-	 fetch, so this bounds rendering, never fetching."
+	 position renders unmarked, past it only the head, the real/padding
+	 seam, and the tail render, the marker names the true numbers, and
+	 both ends are present so it is no flat prefix. The uair already
+	 arrives in one fetch, so this bounds rendering, never fetching."
 	<gtExample>
 	<return: #ZkfolUairGrid>
-	| within over |
+	| within over overPic overElement shown |
 	within := self syntheticGridOfLength: 200 vars: 8 rows: 1.
 	self
 		assert: (self elementsWithId: #zkfolUairCell in: within picture asElement) size
@@ -958,11 +892,18 @@ ZkfolUairExamples >> wideGridTruncatesHonestly [
 		assert: (self elementWithId: #zkfolTruncationMarker in: within picture asElement) isNil
 		description: 'a fitting trace carries no marker'.
 	over := self syntheticGridOfLength: 700 vars: 10 rows: 1.
+	overPic := over picture.
+	overElement := overPic asElement.
 	self
-		assert: (self elementsWithId: #zkfolUairCell in: over picture asElement) size
-		equals: over picture maxPositions.
+		assert: (self elementsWithId: #zkfolUairCell in: overElement) size <= overPic maxPositions
+		description: 'past the cap the render is bounded'.
+	shown := overPic shownPositions.
+	self assert: (shown includes: 1) description: 'the head renders'.
+	self assert: (shown includes: 700) description: 'the tail renders'.
+	self assert: (shown includes: #ellipsis) description: 'a run is elided between them'.
 	self
-		assert: (self elementWithId: #zkfolTruncationMarker in: over picture asElement) text asString
-		equals: 'showing first ' , over picture maxPositions printString , ' of 700 positions'.
+		assert: ((self elementWithId: #zkfolTruncationMarker in: overElement) text asString
+			includesSubstring: 'of 700 positions')
+		description: 'the marker names the true cube width'.
 	^ over
 ]
