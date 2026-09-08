@@ -24,7 +24,7 @@ use config::{
 };
 use runtime::{Op, RuntimeUair, Spec, SPEC};
 
-const BACKEND: &str = "zinc-plus-7cf72c4";
+const BACKEND: &str = "zinc-plus-66776a3";
 
 #[derive(rustler::NifMap)]
 struct Report {
