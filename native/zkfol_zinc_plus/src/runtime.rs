@@ -38,6 +38,10 @@ pub struct Spec {
     pub program: Vec<Op>,
     /// BitPoly lookups: (binary column, table width, chunk width).
     pub lookups: Vec<(usize, usize, usize)>,
+    /// Word lookups: (int column, table width, chunk width). A cell of an
+    /// int column is the number the table is indexed by, so this is the
+    /// range check: the column proves only if every cell is under 2^width.
+    pub word_lookups: Vec<(usize, usize, usize)>,
     /// Composed reads: (value_row, bit_rows, result_row), int-section
     /// indices; the pointer query binds them.
     pub reads: Vec<(usize, Vec<usize>, usize)>,
@@ -105,6 +109,17 @@ where
                     chunk_width: Some(chunk),
                 },
             })
+            .chain(spec.word_lookups.iter().map(|&(col, width, chunk)| {
+                LookupColumnSpec {
+                    // Int columns are flat-indexed past the binary section,
+                    // the way shifts and reads are.
+                    column_index: spec.bin_cols + col,
+                    table_type: LookupTableType::Word {
+                        width,
+                        chunk_width: Some(chunk),
+                    },
+                }
+            }))
             .collect();
         let reads = spec
             .reads

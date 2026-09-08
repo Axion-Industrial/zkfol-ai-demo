@@ -34,8 +34,12 @@ defmodule Zkfol.Uair do
           result_row: non_neg_integer()
         }
 
-  @typedoc "A lookup: a Word table on a pointer row."
-  @type lookup :: %{row: non_neg_integer(), table: {:word, pos_integer()}}
+  # A naturality discharges as membership in the Word table: 32 bits in
+  # byte chunks, so width over chunk stays the power of two the backend
+  # takes. A pointer rides the same table, its own 2^mu bound coming
+  # from the bits that spell it.
+  @word_width 32
+  @word_chunk 8
 
   typedstruct enforce: true do
     field(:num_public, non_neg_integer())
@@ -47,6 +51,10 @@ defmodule Zkfol.Uair do
     field(:columns, [[integer()]])
     field(:mode, mode(), default: %Plain{})
     field(:rows, [pos_integer() | :x | :ones], default: [])
+    # The predicate's naturalities and the pointer bounds as Word
+    # declarations, in committed columns, so they ride the artifact into
+    # every prove path.
+    field(:word_lookups, [ZincPlus.lookup()], default: [])
   end
 
   @doc "I am the committed column count: the columns themselves say it."
@@ -64,15 +72,19 @@ defmodule Zkfol.Uair do
   def emit(pred, witness, claims \\ []) do
     len = Interpretation.len(witness)
     num_vars = num_vars(len)
+    public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
     # schedule calculates cells having a fixed relation backwords to a set previous column
     with {:ok, schedules} <- Ast.schedules(pred),
          pred = Ast.bind_pointers(pred, schedules),
          {:ok, pred, witness, lowering} <- Composed.lower(pred, schedules, witness, num_vars),
-         poly = Ast.arithmetize(pred),
-         refs = refs(poly, schedules) ++ Enum.map(Composed.value_rows(lowering), &{&1, nil}),
+         {:ok, obliged} <- natural_rows(pred),
+         {pred, witness, naturals} = copied(pred, witness, obliged, public),
+         poly = pred |> stripped() |> Ast.arithmetize(),
+         refs =
+           refs(poly, schedules) ++
+             Enum.map(Composed.value_rows(lowering) ++ naturals, &{&1, nil}),
          {:ok, resolved} <- resolve_claims(claims, witness),
          :ok <- models(pred, witness) do
-      public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
       %{rows: rows, cols: cols, shifts: shifts, down: down} = slots(refs, public)
       origins = rows ++ if(uses_x?(poly), do: [:x, :ones], else: [])
       x_col = if uses_x?(poly), do: map_size(cols)
@@ -91,8 +103,16 @@ defmodule Zkfol.Uair do
            shifts: shifts,
            program: program,
            columns: columns,
-           mode: emitted_mode(lowering, cols, num_vars),
-           rows: origins
+           mode: emitted_mode(lowering, cols),
+           rows: origins,
+           # Every naturality the predicate carried, `copied/4` having moved
+           # the claimed ones onto private rows the lookup can reach, and
+           # every dynamic pointer. The pin takes one Word table, so they
+           # share a width.
+           word_lookups:
+             for i <- naturals ++ Composed.pointer_rows(lowering) do
+               {Map.fetch!(cols, i), @word_width, @word_chunk}
+             end
          }}
       end
     end
@@ -133,6 +153,84 @@ defmodule Zkfol.Uair do
     end
   end
 
+  # A claim rides in the clear, outside the witness trace the lookup
+  # argument ranges over, so no Word table reaches it. Its naturality moves
+  # onto a copy of the row, committed and private, bound to the claim by an
+  # equality on every branch: the claim keeps its bound through the copy,
+  # at one column apiece. I answer with the rows the lookups then name.
+  @spec copied(Ast.pred(), Interpretation.t(), [pos_integer()], [pos_integer()]) ::
+          {Ast.pred(), Interpretation.t(), [pos_integer()]}
+  defp copied(pred, witness, naturals, public),
+    do: copy(pred, witness, naturals, Enum.filter(naturals, &(&1 in public)))
+
+  @spec copy(Ast.pred(), Interpretation.t(), [pos_integer()], [pos_integer()]) ::
+          {Ast.pred(), Interpretation.t(), [pos_integer()]}
+  defp copy(pred, witness, naturals, []), do: {pred, witness, naturals}
+
+  defp copy(pred, witness, naturals, claimed) do
+    copies = claimed |> Enum.with_index(Interpretation.arity(witness) + 1) |> Map.new()
+    bonds = for {i, copy} <- copies, do: Ast.eq(Ast.cell(copy), Ast.cell(i))
+    rows = Interpretation.rows(witness)
+    branches = pred |> moved(copies) |> Ast.branches()
+
+    {branches |> Enum.map(&Ast.conj(Ast.conjuncts(&1) ++ bonds)) |> Ast.disj(),
+     Interpretation.new(rows ++ Enum.map(claimed, &Enum.at(rows, &1 - 1))),
+     naturals |> Enum.map(&Map.get(copies, &1, &1)) |> Enum.sort()}
+  end
+
+  # The naturality of a copied row moves onto the copy. The copy is the
+  # whole row, so a composed read comes out bounded on every column of its
+  # row and not only the ones it reaches through the pointer: more than the
+  # obligation asks, which is sound, and the direction that costs nothing.
+  @spec moved(Ast.pred(), %{pos_integer() => pos_integer()}) :: Ast.pred()
+  defp moved(pred, copies) do
+    Ast.postwalk(pred, fn
+      {:natural, t} = node ->
+        with {:ok, i} <- natural_row(t), {:ok, copy} <- Map.fetch(copies, i) do
+          Ast.natural(Ast.cell(copy))
+        else
+          _uncopied -> node
+        end
+
+      node ->
+        node
+    end)
+  end
+
+  # The rows the predicate's naturalities oblige, each once. A naturality
+  # is discharged by a Word table on the row it names, so one that names no
+  # row has nowhere to be checked, and `stripped/1` would drop it silently.
+  @spec natural_rows(Ast.pred()) :: {:ok, [pos_integer()]} | {:error, Refusal.t()}
+  defp natural_rows(pred) do
+    pred
+    |> Ast.reduce([], fn
+      {:natural, t}, acc -> [t | acc]
+      _node, acc -> acc
+    end)
+    |> Refusal.map(&natural_row/1)
+    |> case do
+      {:ok, rows} -> {:ok, rows |> Enum.uniq() |> Enum.sort()}
+      refusal -> refusal
+    end
+  end
+
+  # Which row a naturality names: the sole authority on the shapes one
+  # takes, so the copier and the collector cannot drift apart.
+  @spec natural_row(Ast.term_t()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
+  defp natural_row({:cell, i}), do: {:ok, i}
+  defp natural_row({:cell, i, _j}), do: {:ok, i}
+  defp natural_row(term), do: {:error, {:naturality_undischarged, %{term: term}}}
+
+  # The naturalities leave the predicate here: they have no polynomial, so
+  # only the rest arithmetizes.
+  @spec stripped(Ast.pred()) :: Ast.pred()
+  defp stripped(pred) do
+    Ast.postwalk(pred, fn
+      {:conj, parts} -> {:conj, Enum.reject(parts, &match?({:natural, _}, &1))}
+      node -> node
+    end)
+  end
+
   # A witness that is no model of the scheduled statement is refused
   # before it reaches the prover, with the failing column as reason.
   @spec models(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}
@@ -144,13 +242,10 @@ defmodule Zkfol.Uair do
     )
   end
 
-  # A Section 4 lowering names its reads and the Word lookups it owes;
-  # anything else emits plain. The lookup mode is put on by the caller
-  # that shadows a column.
-  @spec emitted_mode(Composed.lowering(), %{pos_integer() => non_neg_integer()}, pos_integer()) ::
-          mode()
-  defp emitted_mode(:plain, _cols, _mu), do: %Plain{}
-  defp emitted_mode(lowering, cols, mu), do: Composed.emitted(lowering, cols, mu)
+  # A Section 4 lowering names its reads; anything else emits plain.
+  @spec emitted_mode(Composed.lowering(), %{pos_integer() => non_neg_integer()}) :: mode()
+  defp emitted_mode(:plain, _cols), do: %Plain{}
+  defp emitted_mode(lowering, cols), do: Composed.emitted(lowering, cols)
 
   # Every cell reference in the polynomial: {row, nil} direct, or {row, shift}
   # through a scheduled pointer; the lowering has rewritten the dynamic ones away.

@@ -269,9 +269,11 @@ defmodule Examples.EAl do
     {:ok, uair} = Uair.emit(pred, witness)
     len = Interpretation.len(witness)
 
-    assert [%{row: pointer, table: {:word, _mu}}] = uair.mode.lookups
-    assert [%{value_row: 0, bit_rows: bits, result_row: _r1}, second] = uair.mode.reads
+    assert [%{row: pointer, value_row: 0, bit_rows: bits, result_row: _r1}, second] =
+             uair.mode.reads
+
     assert %{value_row: 1, bit_rows: ^bits, result_row: _r2} = second
+    assert {pointer, 32, 8} in uair.word_lookups
 
     bit_columns = for b <- bits, do: Enum.at(uair.columns, b)
     assert bit_columns |> List.flatten() |> Enum.all?(&(&1 in [0, 1]))
@@ -303,6 +305,26 @@ defmodule Examples.EAl do
 
     assert %Zkfol.Prover.Report{} = report
     report
+  end
+
+  @doc """
+  I am the pointer forged past the trace after the oracle judged the
+  witness: the Word table its column rides is what refuses it, at the
+  backend, where no emit ran.
+  """
+  @spec pointer_off_the_trace_is_refused() :: Refusal.t()
+  example pointer_off_the_trace_is_refused do
+    uair = composed_hop_emits()
+    [%{row: pointer} | _] = uair.mode.reads
+    assert Enum.all?(Enum.at(uair.columns, pointer), &(&1 in 1..uair.len))
+
+    forged = List.update_at(uair.columns, pointer, &List.replace_at(&1, 0, 2 ** 32))
+
+    assert {:error, {:prover_failed, %{said: said}} = refused} =
+             Prover.prove_uair(%{uair | columns: forged}, name: :forged_pointer)
+
+    assert said =~ "Lookup"
+    refused
   end
 
   # A claim makes its row public, and the pointer query binds witness

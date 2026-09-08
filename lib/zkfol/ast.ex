@@ -99,6 +99,10 @@ defmodule Zkfol.Ast do
   @spec disj([pred(), ...]) :: pred()
   def disj([_ | _] = preds), do: {:disj, preds}
 
+  @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
+  @spec natural(term_t()) :: pred()
+  def natural(t), do: {:natural, t}
+
   @doc """
   I am the read at a computed index: a disjunction over `cells`, the
   index saying which of them the value stands for. Nothing tells the
@@ -108,10 +112,6 @@ defmodule Zkfol.Ast do
   def nth(index, cells, value),
     do:
       disj(for {cell, i} <- Enum.with_index(cells, 1), do: conj([eq(index, i), eq(value, cell)]))
-
-  @doc "I am natural(t): the obligation that `t` sits in N, discharged by lookup, never a polynomial."
-  @spec natural(term_t()) :: pred()
-  def natural(t), do: {:natural, t}
 
   @doc """
   I am Figure 2's polynomial for `pred`: equality squares the

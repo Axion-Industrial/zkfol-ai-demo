@@ -53,9 +53,12 @@ defmodule Examples.EFace do
     # n row counts 1..len, and every row's kind named off the shifts.
     assert feed.traces_order
     assert hd(feed.columns) == Enum.to_list(1..8)
-    # The slack row is committed like any other, so it is plain: it
-    # takes no shift and carries no read of its own.
-    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :plain, :scheduled, :scheduled]
+    # The fibonacci guard x > 1 range-checks its slack column, so that
+    # committed column reads :ranged off the word_lookups; the rest are
+    # plain or shifted, taking no read of their own.
+    assert feed.kinds == [:scheduled, :scheduled, :plain, :plain, :ranged, :scheduled, :scheduled]
+    assert feed.word_lookups == [{4, 32, 8}]
+    assert :ranged in feed.kinds
     assert Enum.all?(feed.columns, &(length(&1) == 8))
     assert feed.num_vars == 3
 

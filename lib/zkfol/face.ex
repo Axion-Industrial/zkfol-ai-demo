@@ -216,13 +216,13 @@ defmodule Zkfol.Face do
   @doc """
   I am the emitted UAIR settled for its grid: the committed columns
   un-reversed to trace order with their padding cut, every row's
-  derived kind named, and the mode's reads and lookups lifted out.
+  derived kind named, and the mode's reads lifted out.
   The grid draws; nothing on its side re-derives what I already know.
   """
   @spec grid(Uair.t()) :: %{atom() => term()}
   def grid(%Uair{} = uair) do
     columns = Enum.map(uair.columns, &(&1 |> Enum.take(uair.len) |> Enum.reverse()))
-    {reads, lookups} = mode_feed(uair.mode)
+    reads = mode_feed(uair.mode)
 
     %{
       columns: columns,
@@ -231,8 +231,8 @@ defmodule Zkfol.Face do
       num_public: uair.num_public,
       shifts: Enum.map(uair.shifts, &Tuple.to_list/1),
       reads: reads,
-      lookups: lookups,
-      kinds: kinds(columns, reads, lookups, uair.shifts),
+      word_lookups: uair.word_lookups,
+      kinds: kinds(columns, reads, uair.shifts, uair.word_lookups),
       origins: Enum.map(uair.rows, &origin_text/1)
     }
   end
@@ -434,16 +434,17 @@ defmodule Zkfol.Face do
   defp word({:errors, _refusal}), do: :errors
   defp word(verdict), do: verdict
 
-  @spec mode_feed(Uair.mode()) :: {[map()], [map()]}
-  defp mode_feed(%Uair.Composed{reads: reads, lookups: lookups}), do: {reads, lookups}
-  defp mode_feed(_plain), do: {[], []}
+  @spec mode_feed(Uair.mode()) :: [map()]
+  defp mode_feed(%Uair.Composed{reads: reads}), do: reads
+  defp mode_feed(_plain), do: []
 
-  @spec kinds([[integer()]], [map()], [map()], [tuple()]) :: [atom()]
-  defp kinds(columns, reads, lookups, shifts) do
+  @spec kinds([[integer()]], [map()], [tuple()], [tuple()]) :: [atom()]
+  defp kinds(columns, reads, shifts, word_lookups) do
     bit = reads |> Enum.flat_map(& &1.bit_rows) |> MapSet.new()
     result = MapSet.new(reads, & &1.result_row)
-    pointer = lookups |> Enum.map(& &1[:row]) |> Enum.reject(&is_nil/1) |> MapSet.new()
+    pointer = MapSet.new(reads, & &1.row)
     scheduled = MapSet.new(shifts, &elem(&1, 0))
+    ranged = MapSet.new(word_lookups, &elem(&1, 0))
     index = index_row(columns)
 
     for i <- 0..(length(columns) - 1) do
@@ -453,6 +454,7 @@ defmodule Zkfol.Face do
         i in pointer -> :pointer
         i in scheduled -> :scheduled
         i == index -> :index
+        i in ranged -> :ranged
         true -> :plain
       end
     end
@@ -545,6 +547,13 @@ defmodule Zkfol.Face do
         Map.put(tree(t, w, x), :role, "left"),
         Map.put(tree(u, w, x), :role, "right")
       ]
+    }
+
+  defp tree({:natural, t} = g, w, x),
+    do: %{
+      text: phi_text(g),
+      value: Semantics.eval(g, w, x),
+      children: [tree(t, w, x)]
     }
 
   defp tree({:conj, goals} = g, w, x),
@@ -677,6 +686,7 @@ defmodule Zkfol.Face do
   defp phi_text({:eq, t, u}), do: term_text(t) <> " = " <> term_text(u)
   defp phi_text({:conj, goals}), do: Enum.map_join(goals, " and ", &phi_text/1)
   defp phi_text({:disj, goals}), do: Enum.map_join(goals, " or ", &phi_text/1)
+  defp phi_text({:natural, t}), do: "natural(" <> term_text(t) <> ")"
 
   @spec term_text(Ast.term_t()) :: String.t()
   defp term_text(q) when is_integer(q), do: Integer.to_string(q)
