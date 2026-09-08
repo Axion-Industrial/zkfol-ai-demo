@@ -25,13 +25,18 @@ defmodule Examples.EFace do
 
     raw = Face.summary(%Statement{rels: [EUser.fib()], args: [8]})
     assert %{rels: 1, arity: 2, branches: nil, witness: nil} = raw
+
+    text = Face.text(EUser.fibonacci())
+    assert text =~ "…elided…"
+    refute text =~ "Interpretation"
+    assert {:ok, _json} = Jexon.to_json(EUser.fibonacci())
     summary
   end
 
   @doc "Generated term rows retain printable labels in the layout feed."
   @spec constructed_terms_have_a_layout_feed() :: %{atom() => term()}
   example constructed_terms_have_a_layout_feed do
-    lay = Statement.lay(Examples.ENodes.reverse_proves())
+    lay = Statement.lay(Examples.ENodes.reverse())
     feed = Face.lay(lay)
 
     assert length(feed.rows) == Zkfol.Alloc.width(lay.alloc)
@@ -49,7 +54,7 @@ defmodule Examples.EFace do
         args: ESudoku.act()
       })
 
-    for statement <- [EUser.fibonacci(), sudoku, Examples.ENodes.reverse_proves()] do
+    for statement <- [EUser.fibonacci(), sudoku, Examples.ENodes.reverse()] do
       lay = Statement.lay(statement)
       feed = Face.stands(lay)
       facts = Enum.map(feed.facts, &Enum.fetch!(lay.derivation.facts, &1.index))
@@ -180,23 +185,6 @@ defmodule Examples.EFace do
     assert Enum.all?(feed.passes, &(&1.implements == ["verb/0", "run/2"]))
     assert Enum.all?(feed.passes, &String.starts_with?(&1.says, "I "))
     feed
-  end
-
-  @spec the_text_elides_the_witness() :: String.t()
-  example the_text_elides_the_witness do
-    text = Face.text(EUser.fibonacci())
-
-    assert text =~ "…elided…"
-    refute text =~ "Interpretation"
-    text
-  end
-
-  @spec the_statement_rides_the_bridge_whole() :: Statement.t()
-  example the_statement_rides_the_bridge_whole do
-    statement = EUser.fibonacci()
-
-    assert {:ok, _json} = Jexon.to_json(statement)
-    statement
   end
 
   @spec the_stage_carries_its_derivation() :: %{atom() => term()}

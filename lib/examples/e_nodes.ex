@@ -4,6 +4,8 @@ defmodule Examples.ENodes do
   use Zkfol.Lang
   import ExUnit.Assertions
 
+  alias Examples.EAst
+
   alias Zkfol.{
     Alloc,
     Ast,
@@ -71,11 +73,7 @@ defmodule Examples.ENodes do
     suffix = Alloc.row(alloc, {Zkfol.Nodes, {:suffix, :"bridge xs"}})
 
     for x <- 1..Interpretation.len(witness), Interpretation.at(witness, suffix, x) != 1 do
-      forged =
-        witness
-        |> Interpretation.rows()
-        |> List.update_at(suffix - 1, &List.replace_at(&1, x - 1, 1))
-        |> Interpretation.new()
+      forged = EAst.tamper(witness, suffix, x, 1)
 
       refute Semantics.valid?(Statement.pred(statement), forged)
     end
@@ -113,26 +111,28 @@ defmodule Examples.ENodes do
   end
 
   @doc "Reverse allocates its constructed tails across calls; the source list remains a bank."
-  @spec reverse_proves() :: Statement.t()
-  example reverse_proves do
-    statement = solved(rev(), [[1, 2, 3], :_])
-    assert Statement.bank(statement, :"rev a1") |> List.first() |> Enum.take(4) == [0, 3, 2, 1]
+  @spec reverse([non_neg_integer()]) :: Statement.t()
+  example reverse(xs \\ [1, 2, 3]) do
+    statement = solved(rev(), [xs, :_])
 
-    assert {:ok, %Prover.Report{}, _id} =
-             Prover.prove(Statement.pred(statement), Statement.witness(statement))
+    assert Derivation.root(Statement.derivation(statement), :rev) ==
+             {:rev, [xs, Enum.reverse(xs)]}
 
     statement
   end
 
-  @doc "A parameter alternates between a scalar and a nested pair without flattening either."
-  @spec tree_proves() :: Statement.t()
-  example tree_proves do
-    statement = solved(tree(), [[[0, 0], 0], :_])
+  @doc "Constructed lists and recursive trees prove without flattening their nested terms."
+  @spec constructed_terms_prove() :: [Statement.t()]
+  example constructed_terms_prove do
+    reversed = reverse()
+    assert Statement.bank(reversed, :"rev a1") |> List.first() |> Enum.take(4) == [0, 3, 2, 1]
 
-    assert {:ok, %Prover.Report{}, _id} =
-             Prover.prove(Statement.pred(statement), Statement.witness(statement))
+    for statement <- [reversed, solved(tree(), [[[0, 0], 0], :_])] do
+      assert {:ok, %Prover.Report{}, _id} =
+               Prover.prove(Statement.pred(statement), Statement.witness(statement))
 
-    statement
+      statement
+    end
   end
 
   @doc "S constructs [[x,z],[y,z]] for a recursive call; both applications prove."
@@ -168,11 +168,7 @@ defmodule Examples.ENodes do
     assert Interpretation.at(witness, head, id) == Interpretation.at(witness, head, next)
 
     for {row, value} <- [{head, 0}, {tail, 0}, {head, id}, {tail, id}] do
-      forged =
-        witness
-        |> Interpretation.rows()
-        |> List.update_at(row - 1, &List.replace_at(&1, id - 1, value))
-        |> Interpretation.new()
+      forged = EAst.tamper(witness, row, id, value)
 
       refute Semantics.valid?(Statement.pred(statement), forged)
       assert {:error, _refusal} = Uair.emit(Statement.pred(statement), forged)

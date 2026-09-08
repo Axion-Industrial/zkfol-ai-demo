@@ -5,6 +5,7 @@ defmodule Examples.EProgramSpace do
 
   import ExUnit.Assertions
 
+  alias Examples.EAst
   alias Examples.EForgery
   alias Zkfol.Al
   alias Zkfol.Alloc
@@ -72,11 +73,7 @@ defmodule Examples.EProgramSpace do
 
       {:ok, [{_name, row, column} | _cells]} = Lay.claims(lay, [2])
 
-      forged =
-        witness
-        |> Interpretation.rows()
-        |> List.update_at(row - 1, &List.replace_at(&1, column - 1, 1))
-        |> Interpretation.new()
+      forged = EAst.tamper(witness, row, column, 1)
 
       refute Semantics.valid?(linked, forged)
       assert {:error, _refusal} = Prover.prove(linked, forged)
@@ -344,7 +341,7 @@ defmodule Examples.EProgramSpace do
          :ok <- columns(statement),
          :ok <- swept(statement),
          :ok <- placed(statement),
-         :ok <- proved(rels, args, proving),
+         :ok <- proved(statement, proving),
          do: nil
   end
 
@@ -387,16 +384,15 @@ defmodule Examples.EProgramSpace do
     end
   end
 
-  @spec proved([Rel.t()], [Statement.datum() | :_], boolean()) :: :ok | {:unproved, term()}
-  defp proved(_rels, _args, false), do: :ok
+  @spec proved(Statement.t(), boolean()) :: :ok | {:unproved, term()}
+  defp proved(_statement, false), do: :ok
 
-  defp proved(rels, args, true) do
-    ran = Zkfol.compile(rels, args: args)
-    snap = Log.snapshot()
-
-    case Log.report(snap, ran) do
-      %Prover.Report{} -> :ok
-      _none -> {:unproved, Log.refusal(snap, ran)}
+  defp proved(statement, true) do
+    case Prover.prove(Statement.pred(statement), Statement.witness(statement),
+           claims: Statement.claims(statement)
+         ) do
+      {:ok, %Prover.Report{}, _id} -> :ok
+      {:error, refusal} -> {:unproved, refusal}
     end
   end
 

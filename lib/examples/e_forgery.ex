@@ -9,6 +9,7 @@ defmodule Examples.EForgery do
   import ExUnit.Assertions
 
   alias Examples.EAl
+  alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
   alias Examples.EUser
@@ -123,7 +124,7 @@ defmodule Examples.EForgery do
           from = Interpretation.at(witness, i, x),
           to <- moves(from, i in bits),
           move = {cell, from, to},
-          forged = moved(witness, cell, to) do
+          forged = EAst.tamper(witness, i, x, to) do
         # The predicate judges everywhere: the read index can miss a column a move breaks.
         believed = Semantics.valid?(pred, forged)
 
@@ -343,14 +344,6 @@ defmodule Examples.EForgery do
   @spec cells(Interpretation.t()) :: [{pos_integer(), pos_integer()}]
   defp cells(witness) do
     for i <- 1..Interpretation.arity(witness), x <- 1..Interpretation.len(witness), do: {i, x}
-  end
-
-  @spec moved(Interpretation.t(), {pos_integer(), pos_integer()}, integer()) :: Interpretation.t()
-  defp moved(witness, {i, x}, value) do
-    witness
-    |> Interpretation.rows()
-    |> List.update_at(i - 1, &List.replace_at(&1, x - 1, value))
-    |> Interpretation.new()
   end
 
   @spec inside?(Interpretation.t(), {pos_integer(), integer() | :error}) :: boolean()

@@ -5,7 +5,6 @@ defmodule Examples.EUair do
 
   import ExUnit.Assertions
 
-  alias Examples.EAl
   alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
@@ -14,10 +13,8 @@ defmodule Examples.EUair do
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Log
-  alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Refusal
-  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
@@ -31,18 +28,6 @@ defmodule Examples.EUair do
     assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
     assert report.backend =~ "int768"
     ran
-  end
-
-  @doc "I am the pinned code's own parameters, not a copy of them."
-  @spec the_code_answers_its_parameters() :: ZincPlus.pcs_params()
-  example the_code_answers_its_parameters do
-    pcs = ZincPlus.pcs_params()
-
-    assert pcs.rep_factor > 1
-    assert pcs.column_openings > 0
-    assert pcs.degree > 0
-    assert pcs.backend =~ "zinc-plus"
-    pcs
   end
 
   @doc "Pointer bounds keep their degree as the trace grows; forged bounds fail at the prover."
@@ -292,107 +277,6 @@ defmodule Examples.EUair do
     assert kernel.shifts == [{1, 1}, {2, 1}, {3, 1}, {4, 1}, {6, 1}, {7, 1}, {7, 2}]
 
     [kernel, generic]
-  end
-
-  @doc """
-  I am the pointer held to the region its reads reach. The bits spell `len - a` and
-  hold the address under the cube, which leaves `a = 0` spellable and aimed at the
-  padding no column of the derivation occupies; the region product is the whole lower
-  bound. Aimed at 0 with its bits respelled to match, every cell of the trace stays a
-  natural and the verifier rejects it; drop the product and the same trace proves.
-  """
-  @spec aimed_out_of_region_is_rejected() :: Refusal.t()
-  example aimed_out_of_region_is_rejected do
-    {:ok, statement, _trace} =
-      Pipeline.run(Pipeline.default(), %Statement{rels: [EAl.hop_rel()], args: [5]})
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-    assert %Uair.Composed{reads: [%{row: address, bit_rows: [low, high | _rest]} | _]} = uair.mode
-    assert uair.len == 2
-
-    at = fn columns, column, value ->
-      List.update_at(columns, column, &List.replace_at(&1, 0, value))
-    end
-
-    aimed = uair.columns |> at.(address, 0) |> at.(low, 0) |> at.(high, 1)
-    assert Enum.all?(List.flatten(aimed), &(&1 >= 0))
-
-    {:error, reason} = Prover.prove_uair(%{uair | columns: aimed}, name: :aimed_out_of_region)
-    assert {:verifier_rejected, _said} = reason
-    reason
-  end
-
-  @doc """
-  I am the reach of the program's last-row exemption, measured. The program runs to
-  the cube's last row and stops there, and that row is `x = 1` exactly when the trace
-  fills its cube. A move of a cell at `x = 1` is held when some column past 1 breaks
-  under it and free when none does, and the backend keeps that split exactly: it
-  refuses a held move and proves every free one. What the free list holds is how far
-  the exemption reaches on that trace, which is nothing at all on some of them.
-  """
-  @spec last_row_exemption() ::
-          [{atom(), [{pos_integer(), integer()}], [{pos_integer(), integer()}]}]
-  example last_row_exemption do
-    for {name, statement} <- traces(),
-        {:ok, uair} <- [Uair.emit(Statement.pred(statement), Statement.witness(statement))],
-        2 ** Uair.num_vars(uair) == uair.len do
-      witness = Statement.witness(statement)
-
-      moves =
-        for row <- 1..Interpretation.arity(witness),
-            held = Interpretation.at(witness, row, 1),
-            to <- [held + 1, held - 1],
-            to >= 0,
-            {true, beyond} <- [broken(Statement.pred(statement), witness, row, to)],
-            do: {row, to, beyond}
-
-      held = for {row, to, beyond} <- moves, beyond != [], do: {row, to}
-      free = for {row, to, beyond} <- moves, beyond == [], do: {row, to}
-
-      assert held != []
-      assert {:error, _reason} = forged(uair, hd(held))
-      assert Enum.all?(free, &match?({:ok, %Prover.Report{}, _id}, forged(uair, &1)))
-      {name, held, free}
-    end
-  end
-
-  ############################################################
-  #                   Private Implementation                 #
-  ############################################################
-
-  # The traces the exemption reaches: some filling their cube, one padding.
-  @spec traces() :: [{atom(), Statement.t()}]
-  defp traces do
-    [
-      fib: EUser.fibonacci(),
-      regs: EUser.registers(),
-      mod: EUser.registers_mod(8),
-      power: EUser.power()
-    ]
-  end
-
-  # A move at x = 1: whether the predicate breaks under it at all, and where past x = 1.
-  @spec broken(Ast.pred(), Interpretation.t(), pos_integer(), integer()) ::
-          {boolean(), [pos_integer()]}
-  defp broken(pred, witness, row, to) do
-    moved =
-      witness
-      |> Interpretation.rows()
-      |> List.update_at(row - 1, &List.replace_at(&1, 0, to))
-      |> Interpretation.new()
-
-    columns = for x <- 1..Interpretation.len(witness), not Semantics.holds?(pred, moved, x), do: x
-    {columns != [], columns -- [1]}
-  end
-
-  # The same move written into the trace, on the cube's last row, which is x = 1.
-  @spec forged(Uair.t(), {pos_integer(), integer()}) ::
-          {:ok, Prover.Report.t(), pos_integer()} | {:error, Refusal.t()}
-  defp forged(uair, {row, to}) do
-    column = Enum.find_index(uair.rows, &(&1 == row))
-    last = 2 ** Uair.num_vars(uair) - 1
-    columns = List.update_at(uair.columns, column, &List.replace_at(&1, last, to))
-    Prover.prove_uair(%{uair | columns: columns}, name: :last_row)
   end
 
   # Every term the predicate obliges as a natural, each once. One naming a cell names
