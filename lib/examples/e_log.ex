@@ -22,7 +22,9 @@ defmodule Examples.ELog do
 
     # The trail runs from route through derivation and intent to observation.
     assert [
-             %Log.Event{body: {:define, :fibonacci, %Pipeline{}, [:r]}},
+             %Log.Event{
+               body: {:define, :fibonacci, %Pipeline{}, [:r], %Log.Args{statement: ^source}}
+             },
              %Log.Event{body: {:al_solved, _derivation}},
              %Log.Event{body: {:piped, _verdicts}},
              %Log.Event{body: {:prove_requested, :fibonacci}},
@@ -30,6 +32,19 @@ defmodule Examples.ELog do
            ] = Enum.take(Log.trail(snap, ran), -5)
 
     ran
+  end
+
+  @doc "The define carries the act whole, so its receipt runs it again."
+  @spec replayed_from_the_log() :: Log.Ran.t()
+  example replayed_from_the_log do
+    ran = journaled_proving()
+    assert Log.Ran.at(Log.snapshot(), ran.defined) == ran
+    again = Log.Ran.replay(ran)
+
+    assert again.defined > ran.defined
+    assert Log.Ran.stage(again, 0) == Log.Ran.stage(ran, 0)
+    assert %Prover.Report{} = Log.report(Log.snapshot(), again)
+    again
   end
 
   @doc "An act refused at its settle leaves the refusal on its trail: the story carries it."

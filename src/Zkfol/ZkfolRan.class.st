@@ -152,6 +152,13 @@ ZkfolRan >> provedReport [
 ]
 
 { #category : 'accessing' }
+ZkfolRan >> replay [
+	"The act run again from the arguments its define carries: a fresh
+	 receipt, arriving as its own proxy."
+	^ self evaluateAndWait: 'Zkfol.Log.Ran.replay(' , self resolve , ')'
+]
+
+{ #category : 'accessing' }
 ZkfolRan >> stageAt: aStageIndex [
 	"Stage k re-run from the source over the bridge: the real statement,
 	 registered, so the spawn is the bridged value itself. My #resolve
@@ -167,7 +174,8 @@ ZkfolRan >> viewModel [
 	 the fetch a refusal, which reads as an empty act, not a raise.
 	 Stage states re-run live through Log.stage so a click spawns the
 	 real bridged statement, the emit re-emitted through the face so it
-	 wears the pointer grid, the report fetched as its struct."
+	 wears the pointer grid, the report fetched as its struct, the
+	 replay run through me."
 	| feed |
 	feed := self plainFetch: 'Zkfol.Face.act(Zkfol.Log.snapshot(), ' , self resolve , ')'.
 	(feed isKindOf: ZkfolRefusal) ifTrue: [ feed := nil ].
@@ -175,5 +183,6 @@ ZkfolRan >> viewModel [
 		stageSpawner: [ :k | self stageAt: k ];
 		emitSpawner: [ self emitted ];
 		reportSpawner: [ self provedReport ];
+		replaySpawner: [ self replay ];
 		yourself
 ]

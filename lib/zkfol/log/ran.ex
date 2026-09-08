@@ -1,10 +1,5 @@
 defmodule Zkfol.Log.Ran do
-  @moduledoc """
-  I am the receipt of one journaled act: the route, the source, and
-  the defining event's id. I keep no history: `stage/2` and
-  `final_stage/1` re-run from the source, and `story/2` and `acts/2`
-  rebuild what an act came to from the log itself.
-  """
+  @moduledoc "I am the receipt of one journaled act: the id of its define event."
 
   use TypedStruct
 
@@ -13,35 +8,39 @@ defmodule Zkfol.Log.Ran do
   alias Zkfol.Statement
 
   typedstruct enforce: true do
-    field(:pipeline, Zkfol.Pipeline.t())
-    field(:source, Statement.t())
     field(:defined, pos_integer())
-    field(:public, [Zkfol.Lay.opening()], default: [])
   end
 
-  @doc """
-  I am the statement after the act's first `k` passes, re-run from the
-  source: passes are pure, so a stage is recomputed, never stored.
-  Stage 0 is the source itself.
-  """
-  @spec stage(t(), non_neg_integer()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def stage(%__MODULE__{pipeline: pipeline, source: source}, k) do
-    shortened = %Zkfol.Pipeline{passes: Enum.take(pipeline.passes, k)}
+  @typedoc "The define event's body: the act's name, its route, the openings, and its arguments."
+  @type define :: {:define, atom(), Zkfol.Pipeline.t(), [Zkfol.Lay.opening()], Log.Args.t()}
 
-    case Zkfol.Pipeline.run(shortened, source) do
-      {:ok, statement, _trace} -> {:ok, statement}
-      {:error, _pass, reason, _trace} -> {:error, reason}
+  @doc "I am the receipt of the act event `defined` began, nil when it defined none."
+  @spec at(Log.t(), pos_integer()) :: t() | nil
+  def at(log, defined) do
+    case Log.body(log, defined) do
+      {:define, _name, _pipeline, _public, %Log.Args{}} -> %__MODULE__{defined: defined}
+      _other -> nil
     end
   end
 
-  @doc """
-  I am the act's final statement, re-run from the source, so a holder
-  has the struct itself and every view it wears; nil when a pass
-  refused and there is no final stage to hold.
-  """
+  @doc "I am the act run again through the same door with the same route, a fresh receipt."
+  @spec replay(t()) :: t()
+  def replay(%__MODULE__{defined: defined}) do
+    {:define, name, pipeline, public, %Log.Args{} = args} = define(defined)
+    route = [name: name, pipeline: pipeline, public: public]
+    apply(Zkfol, args.entry, [args.statement, route ++ args.opts])
+  end
+
+  @doc "I am the statement after the act's first `k` passes, re-run; stage 0 is the source."
+  @spec stage(t(), non_neg_integer()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  def stage(%__MODULE__{defined: defined}, k), do: staged(define(defined), k)
+
+  @doc "I am the act's final statement, re-run and opened as the act opened it; nil if refused."
   @spec final_stage(t()) :: Statement.t() | nil
-  def final_stage(%__MODULE__{pipeline: pipeline, public: public} = ran) do
-    with {:ok, statement} <- stage(ran, length(pipeline.passes)),
+  def final_stage(%__MODULE__{defined: defined}) do
+    {:define, _name, pipeline, public, _args} = define = define(defined)
+
+    with {:ok, statement} <- staged(define, length(pipeline.passes)),
          {:ok, opened} <- Statement.opened(statement, public) do
       opened
     else
@@ -68,8 +67,10 @@ defmodule Zkfol.Log.Ran do
   @doc "I am every journaled act whose route carried `module`, with its verdict and settling."
   @spec acts(Log.t(), module()) :: [%{atom() => term()}]
   def acts(snap, module) do
-    for %Log.Event{id: defined, body: {:define, route, %Zkfol.Pipeline{passes: passes}, _public}} <-
-          snap.events,
+    for %Log.Event{
+          id: defined,
+          body: {:define, route, %Zkfol.Pipeline{passes: passes}, _public, _args}
+        } <- snap.events,
         Enum.any?(passes, &match?({^module, _opts}, &1)) do
       thread = Log.thread(snap, defined)
 
@@ -89,8 +90,26 @@ defmodule Zkfol.Log.Ran do
     end
   end
 
+  @spec define(pos_integer()) :: define()
+  defp define(defined) do
+    [%Log.Event{body: {:define, _name, _pipeline, _public, _args} = define} | _trail] =
+      Log.thread(Log.snapshot(), defined)
+
+    define
+  end
+
+  @spec staged(define(), non_neg_integer()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp staged({:define, _name, pipeline, _public, %Log.Args{statement: source}}, k) do
+    shortened = %Zkfol.Pipeline{passes: Enum.take(pipeline.passes, k)}
+
+    case Zkfol.Pipeline.run(shortened, source) do
+      {:ok, statement, _trace} -> {:ok, statement}
+      {:error, _pass, reason, _trace} -> {:error, reason}
+    end
+  end
+
   @spec read(term(), map()) :: map()
-  defp read({:define, name, _pipeline, _public}, feed), do: %{feed | route: name}
+  defp read({:define, name, _pipeline, _public, _args}, feed), do: %{feed | route: name}
   defp read({:prove_requested, name}, feed), do: %{feed | intent: name}
   defp read({:proved, report}, feed), do: %{feed | report: Map.from_struct(report)}
   defp read({:prove_failed, reason}, feed), do: %{feed | failure: inspect(reason)}

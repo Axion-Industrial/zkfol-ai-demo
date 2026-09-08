@@ -1,28 +1,7 @@
 defmodule Zkfol do
   @moduledoc """
-  I am the language's front door: one call takes a statement through a
-  route to a proof and returns the receipt. I journal the route as its
-  define first, run the passes with that id threaded through their
-  opts so the derivations land on the trail, journal the verdicts, and
-  prove the result under the claims `:public` opens. The `Zkfol.Log.Ran` I
-  return replays the whole act, its report riding the trail's proved
-  event; a pass that errs leaves its refusal among the piped verdicts,
-  a settle that refuses leaves its own on the trail, and the receipt
-  still walks it. `opts` takes `:pipeline`,
-  `:name`, and `:public`, which names the parameters the act opens, by
-  head variable or by position; the rest ride through to the prover.
-
-      Zkfol.compile(corner(), args: [:_], public: [:v])
-      Zkfol.compile(grid_cell(), args: [:_], public: [1, {:grid, :a3}])
-
-      ran = Zkfol.compile(%Zkfol.Statement{rels: [fib], args: [100]})
-      Zkfol.Log.report(Zkfol.Log.snapshot(), ran).prove_ms
-
-  I stop one step short in `emit/2`: the same act to the emitted UAIR,
-  no proof, a receipt whose trail just ends at the verdicts.
-
-      ran = Zkfol.emit(%Zkfol.Statement{rels: [fib], args: [100]})
-      Zkfol.Log.trail(Zkfol.Log.snapshot(), ran)
+  I am the language's front door: one call takes a statement through a route to a proof,
+  journalled, and returns the receipt.
   """
 
   alias Zkfol.Lang
@@ -39,16 +18,16 @@ defmodule Zkfol do
 
   @doc "I am the whole act: define, run, verdicts, prove, receipt."
   @spec compile(target(), keyword()) :: Log.Ran.t()
-  def compile(target, opts \\ []), do: taken(target, opts, &proved/2)
+  def compile(target, opts \\ []), do: taken(target, opts, :compile)
 
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
   @spec emit(target(), keyword()) :: Log.Ran.t()
-  def emit(target, opts \\ []), do: taken(target, opts, &emitted/2)
+  def emit(target, opts \\ []), do: taken(target, opts, :emit)
 
-  @spec taken(target(), keyword(), (Statement.t(), keyword() -> term())) :: Log.Ran.t()
-  defp taken(target, opts, settle) do
+  @spec taken(target(), keyword(), Log.Args.entry()) :: Log.Ran.t()
+  defp taken(target, opts, entry) do
     {args, opts} = Keyword.pop(opts, :args, [])
-    acted(Statement.of(target, args: args), opts, settle)
+    acted(Statement.of(target, args: args), opts, entry)
   end
 
   @doc """
@@ -140,16 +119,13 @@ defmodule Zkfol do
 
   # The act itself, up to whatever settles it: the two entry points
   # differ only in that last step.
-  @spec acted(
-          Statement.t(),
-          keyword(),
-          (Statement.t(), keyword() -> {:ok, pos_integer() | nil} | {:error, Refusal.t()})
-        ) :: Log.Ran.t()
-  defp acted(statement, opts, settle) do
+  @spec acted(Statement.t(), keyword(), Log.Args.entry()) :: Log.Ran.t()
+  defp acted(statement, opts, entry) do
     {pipeline, opts} = Keyword.pop(opts, :pipeline, Pipeline.default())
     {name, opts} = Keyword.pop_lazy(opts, :name, fn -> named(statement) end)
     {public, opts} = Keyword.pop(opts, :public, [])
-    define = Log.push({:define, name, pipeline, public})
+    args = %Log.Args{statement: statement, entry: entry, opts: opts}
+    define = Log.push({:define, name, pipeline, public, args})
 
     outcome = Pipeline.run(pipeline, statement, basedon: define)
     piped = Log.push({:piped, Pipeline.verdicts(pipeline, statement, outcome)}, define)
@@ -157,12 +133,26 @@ defmodule Zkfol do
     settled =
       with {:ok, final, _trace} <- outcome,
            {:ok, opened} <- Statement.opened(final, public),
-           do: settle.(opened, Keyword.merge(opts, name: name, basedon: piped))
+           do: settle(entry, opened, Keyword.merge(opts, name: name, basedon: piped))
 
     with {:error, refusal} <- settled, do: Log.push({:refused, refusal}, piped)
 
-    %Log.Ran{pipeline: pipeline, source: statement, defined: define, public: public}
+    %Log.Ran{defined: define}
   end
+
+  @spec settle(Log.Args.entry(), Statement.t(), keyword()) ::
+          {:ok, pos_integer() | nil} | {:error, Refusal.t()}
+  # A route that stops short of the lowering leaves nothing to prove or emit.
+  defp settle(_entry, %Statement{stage: stage}, _opts)
+       when not is_struct(stage, Statement.Solved),
+       do: {:error, {:not_solved, %{stage: staged(stage)}}}
+
+  defp settle(:compile, final, opts), do: proved(final, opts)
+  defp settle(:emit, final, opts), do: emitted(final, opts)
+
+  @spec staged(Statement.stage()) :: atom()
+  defp staged(:raw), do: :raw
+  defp staged(%module{}), do: module
 
   @spec proved(Statement.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   defp proved(final, opts) do

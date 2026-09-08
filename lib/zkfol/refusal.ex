@@ -82,6 +82,11 @@ defmodule Zkfol.Refusal do
   def message(refusal), do: refusal |> said() |> elem(1)
 
   @spec said(t()) :: {atom(), String.t()}
+  defp said({:not_solved, %{stage: stage}}),
+    do:
+      {:restructure,
+       "the route stopped at #{inspect(stage)}, before the lowering: nothing to prove or emit"}
+
   defp said({:not_an_index_relation, %{relation: name, arity: arity}}),
     do: {:restructure, "#{name}/#{arity} is not a relation between an index and one value"}
 

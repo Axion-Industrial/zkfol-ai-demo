@@ -1,16 +1,7 @@
 defmodule Zkfol.Log do
   @moduledoc """
-  I am the command log: the only essential state of the system, an
-  append-only mnesia table living with the node.
-
-  Following Schueler's Update Reconsidered, events are immutable and
-  union is the only operation on them: `push/2` is the one write, and
-  it returns the event's id. What you hold is only ever `snapshot/0`, a
-  value; every read is a pure function of one. The table is created
-  once at boot (`Zkfol.Application`), so no write carries its own setup.
-
-  A journaled pipeline act leaves a `Ran`: a receipt
-  of ids whose trail is a query and whose stages are pure re-runs.
+  I am the session's log: what ran and what came of it, an append-only mnesia table in
+  ram. Events are immutable, `push/2` the one write, every read a function of `snapshot/0`.
   """
 
   use TypedStruct
@@ -85,6 +76,15 @@ defmodule Zkfol.Log do
       end)
 
     %__MODULE__{events: Enum.sort_by(events, & &1.id, :desc)}
+  end
+
+  @doc "I am the body of event `id`; nil when the log holds no such event."
+  @spec body(t(), pos_integer()) :: term() | nil
+  def body(%__MODULE__{events: events}, id) do
+    Enum.find_value(events, fn
+      %Event{id: ^id, body: body} -> body
+      _event -> nil
+    end)
   end
 
   @doc "I am event `id` and everything transitively based on it, oldest first."

@@ -10,7 +10,8 @@ Class {
 		'proveFailure',
 		'stageSpawner',
 		'emitSpawner',
-		'reportSpawner'
+		'reportSpawner',
+		'replaySpawner'
 	],
 	#category : 'Zkfol-Views',
 	#package : 'Zkfol',
@@ -74,13 +75,21 @@ ZkfolPipelineModel >> emitSpawner: aBlock [
 ZkfolPipelineModel >> gtPipelineFor: aView [
 	"The journaled act as a vertical Mondrian graph, stage nodes
 	 clickable, the canvas pannable and zoomable so it fills the space
-	 and fits however many stages the act ran."
+	 and fits however many stages the act ran. Its toolbar plays the act
+	 again, when whoever opened me said how, and opens the new receipt."
 	<gtView>
+	| view |
 	self passes isEmpty ifTrue: [ ^ aView empty ].
-	^ aView mondrian
+	view := aView mondrian
 		title: 'Pipeline';
 		priority: 5;
-		painting: [ :aMondrian | self paintPipelineOn: aMondrian ]
+		painting: [ :aMondrian | self paintPipelineOn: aMondrian ].
+	replaySpawner ifNotNil: [
+		view
+			actionButtonIcon: BrGlamorousVectorIcons play
+			tooltip: 'Replay the act'
+			action: [ :aButton | aButton phlow spawnObject: replaySpawner value ] ].
+	^ view
 ]
 
 { #category : 'views' }
@@ -206,6 +215,14 @@ ZkfolPipelineModel >> reportLabel [
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b printString , ' B' ].
 		(report at: #backend)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b asString ] ]
+]
+
+{ #category : 'accessing' }
+ZkfolPipelineModel >> replaySpawner: aBlock [
+	"The block answering the act run again, a fresh receipt; whoever
+	 opens me off the log knows the define to replay from. Without one
+	 the pipeline view has no play button."
+	replaySpawner := aBlock
 ]
 
 { #category : 'accessing' }

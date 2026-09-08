@@ -43,6 +43,7 @@ defmodule Examples.ERefusal do
       {:prover_failed, %{said: "the prover panicked"}},
       {:prover_timeout, %{intent: 7}},
       {:publicity_is_the_acts, %{claims: [{"fib.v", 1, 8}]}},
+      {:not_solved, %{stage: Zkfol.Derivation}},
       {:read_row_claimed, %{row: 1}},
       {:read_row_outside_witness, %{row: 9}},
       {:relation_not_in_scope, %{relation: :nowhere}},
