@@ -4,7 +4,6 @@ import Config
 config :al,
   packages: [
     AL.Package.Bootstrap,
-    AL.Package.Users,
     AL.Package.ElixirProcess,
     AL.Package.Mapset,
     AL.Package.Interval,

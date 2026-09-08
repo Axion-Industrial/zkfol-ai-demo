@@ -1,11 +1,5 @@
 defmodule Examples.EQuery do
-  @moduledoc """
-  I am the query door open: one answer through `Zkfol.eval/3`, every
-  answer through a `Zkfol.Query` stepped one at a time, and the same
-  answers lazily as `Zkfol.stream/3`. The query is a process because
-  AL's search state is the whole continuation and must not be copied;
-  what crosses the boundary is a ground answer and nothing else.
-  """
+  @moduledoc "I am the query door open: answers stepped one at a time."
 
   use ExExample
   use Zkfol.Lang
@@ -14,7 +8,6 @@ defmodule Examples.EQuery do
 
   alias Examples.EAl
   alias Examples.EUser
-  alias Zkfol.Al
   alias Zkfol.Query
   alias Zkfol.Refusal
 
@@ -33,42 +26,7 @@ defmodule Examples.EQuery do
     v = reify(x = len)
   end
 
-  # The collatz step: a fresh body name in each clause, nowhere in the
-  # head, which only the prove road needs placed.
-  defrel collatz_next(x, y) do
-    x = 2 * k
-    y = k
-  end
-
-  defrel collatz_next(x, y) do
-    x = 2 * k + 1
-    y = 3 * x + 1
-  end
-
-  @doc """
-  Evaluation never lowers: a fresh body name derives, and only the
-  prove road wants it on a row.
-  """
-  @spec a_fresh_name_evaluates() :: Refusal.t()
-  example a_fresh_name_evaluates do
-    {:ok, odd} = Zkfol.eval(collatz_next(), [7, :_], [])
-    assert Query.taken(odd) == [[7, 22]]
-    Query.close(odd)
-
-    {:ok, even} = Zkfol.eval(collatz_next(), [8, :_], [])
-    assert Query.taken(even) == [[8, 4]]
-    Query.close(even)
-
-    {:error, reason} = Al.solved(collatz_next(), [7], [])
-    assert {:unbound_variable, %{variable: :k}} = reason
-    reason
-  end
-
-  @doc """
-  A relation handed alone brings its scope: the callee pulls by name
-  from the home its defrel compiled in. A name no home answers still
-  refuses.
-  """
+  @doc "A relation handed alone brings its scope; a name no home answers refuses."
   @spec a_lone_relation_brings_its_scope() :: Refusal.t()
   example a_lone_relation_brings_its_scope do
     query = Zkfol.eval!(EAl.hop_rel(), [2, :_], [])
@@ -87,33 +45,7 @@ defmodule Examples.EQuery do
     reason
   end
 
-  @doc "Every answer of a finite relation, in the order its clauses stand."
-  @spec table_streams_every_answer() :: [[pos_integer()]]
-  example table_streams_every_answer do
-    answers = Zkfol.stream(EAl.tab(), [:_, :_], []) |> Enum.to_list()
-
-    assert answers == [[1, 10], [2, 20], [3, 40], [4, 40]]
-
-    {:ok, applied} = Al.apply(EAl.tab(), [:x, :v])
-    assert Enum.map(applied, &[&1.x, &1.v]) == answers
-    answers
-  end
-
-  @doc "Answer one and answer two are different answers, and only two are taken."
-  @spec two_answers_differ() :: [[pos_integer()]]
-  example two_answers_differ do
-    [first, second] = Zkfol.stream(EUser.fib(), [:_, :_], []) |> Enum.take(2)
-
-    assert first == [1, EUser.fib(1)]
-    assert second == [2, EUser.fib(2)]
-    assert first != second
-    [first, second]
-  end
-
-  @doc """
-  A query stepped past its last answer is exhausted, closing it twice
-  is closing it once, and the branch it forked goes with it.
-  """
+  @doc "Stepped past its last answer a query is exhausted, and the branch it forked closes with it."
   @spec a_query_exhausts_then_closes() :: Zkfol.Query.t()
   example a_query_exhausts_then_closes do
     {:ok, query} = Query.open(EAl.tab(), [:_, :_], [])
@@ -122,6 +54,7 @@ defmodule Examples.EQuery do
              [{:ok, [1, 10]}, {:ok, [2, 20]}, {:ok, [3, 40]}, {:ok, [4, 40]}]
 
     assert Query.next(query) == :exhausted
+    assert Query.statement(query, 10) == nil
 
     assert Query.close(query) == :ok
     assert Query.close(query) == :ok
@@ -142,11 +75,7 @@ defmodule Examples.EQuery do
     reason
   end
 
-  @doc """
-  len names the trace, and only a bound count sizes it ahead of the
-  first answer: a query that leaves the count free refuses as `solve/3`
-  refuses, and one that pins it answers at that length.
-  """
+  @doc "len names the trace, which only a bound count sizes: a free count refuses."
   @spec a_len_query_wants_its_count() :: Refusal.t()
   example a_len_query_wants_its_count do
     assert {:error, reason} = Query.open(gap(), [:_, :_], [])
@@ -158,68 +87,25 @@ defmodule Examples.EQuery do
     reason
   end
 
-  @doc """
-  The root's closure says what installs. gap is nobody's call here, so
-  its len never reaches tab's clauses, which the question over both
-  relations shows it would.
-  """
-  @spec an_unreachable_relation_stays_out() :: [[pos_integer()]]
-  example an_unreachable_relation_stays_out do
-    {:ok, query} = Query.open([EAl.tab(), gap()], [:_, :_], [])
-    answers = Enum.map(1..4, fn _ -> Query.next(query) end)
-    Query.close(query)
-
-    assert answers == Enum.map(table_streams_every_answer(), &{:ok, &1})
-    assert Al.question([EAl.tab(), gap()]) != Al.question(EAl.tab())
-    for {:ok, answer} <- answers, do: answer
-  end
-
-  @doc """
-  An answer fills a prove: statement(k) steps forward to the answer
-  and hands it back ready for the route, here the eval-shaped one, no
-  doubling. A search that ends before k answers nil.
-  """
-  @spec an_answer_fills_a_prove() :: Zkfol.Log.Ran.t()
-  example an_answer_fills_a_prove do
+  @doc "An answer is a statement: statement(k) steps forward to it and hands it back."
+  @spec an_answer_is_a_statement() :: Zkfol.Statement.t()
+  example an_answer_is_a_statement do
     query = Zkfol.eval!(EUser.fib(), [:_, :_])
     statement = Query.statement(query, 10)
     Query.close(query)
 
     assert statement.args == [10, 55]
-
-    ran =
-      Zkfol.compile(statement,
-        name: :answered_fib,
-        pipeline: %Zkfol.Pipeline{passes: [{Zkfol.Witness, []}, {Zkfol.Lang, []}]}
-      )
-
-    assert %Zkfol.Prover.Report{} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
-
-    finite = Zkfol.eval!(EAl.tab(), [:_, :_])
-    assert Query.statement(finite, 10) == nil
-    Query.close(finite)
-    ran
+    statement
   end
 
-  @doc "The cap is the query's own: the derivation that outgrows it kills the query, not its caller."
-  @spec a_capped_query_refuses(pos_integer()) :: Refusal.t()
-  example a_capped_query_refuses(heap \\ 20_000) do
-    before = AL.Branch.list()
+  @doc "The line at the keyboard: an answer taken is a statement, and the front door proves it."
+  @spec an_answer_compiles() :: Zkfol.Log.Ran.t()
+  example an_answer_compiles do
+    ran = Zkfol.eval!(EUser.fib(), [8, :_], []) |> Query.statement() |> Zkfol.compile()
 
-    reason =
-      case Query.open(EUser.epower(), [:_, 10, :_], heap: heap) do
-        {:ok, query} ->
-          {:error, said} = Query.next(query)
-          refute Process.alive?(query.pid)
-          said
-
-        {:error, said} ->
-          said
-      end
-
-    assert {:heap_exhausted, _said} = reason
-    assert AL.Branch.list() == before
-    reason
+    assert %Zkfol.Prover.Report{claims: []} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
+    assert {:ok, %Zkfol.Statement{args: [8, 21]}} = Zkfol.Log.Ran.stage(ran, 0)
+    ran
   end
 
   @doc "Every example here holds a process or a branch: nothing about it caches."

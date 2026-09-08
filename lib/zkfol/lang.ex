@@ -1,13 +1,7 @@
 defmodule Zkfol.Lang do
   @moduledoc """
-  I am the relational surface: Prolog-shaped clauses over one index,
-  compiled to the core language by one rule. A relation owns an index
-  row and a value row per output; every call names a pointer row,
-  declared through the callee's index row, and reads the value rows
-  through it as composed cells. I name those rows and never number
-  them: the numbering is `Zkfol.Alloc`'s, so `compile/2` answers what
-  a root stands on and `lower/2` answers the predicate once the rows
-  are handed out.
+  I am the relational surface: Prolog-shaped clauses, and the relations a root of them
+  reaches.
 
       defrel fib(1, 1)
       defrel fib(2, 1)
@@ -17,56 +11,129 @@ defmodule Zkfol.Lang do
         fib(x - 2, v2)
         v = v1 + v2
       end
-
-      Lang.compile(fib())
-
-  A body statement may also reduce: `r = mod(e, m)` at a literal `m`
-  is `exists q in N. e = m*q + r and r < m`, and I own the quotient.
   """
 
-  @behaviour Zkfol.Pipeline
-
-  alias Zkfol.Ast
   alias Zkfol.Refusal
-  alias Zkfol.Statement
 
-  @typep env :: %{atom() => Ast.term_t()}
-  @typep pointers :: {%{{atom(), Ast.term_t()} => Ast.row_ref()}, pos_integer()}
-  @typep tags :: %{atom() => pos_integer()} | nil
+  defmodule Term do
+    @moduledoc """
+    I am the surface term: a polynomial over the leaves a clause writes, and the goals its
+    body writes over me.
 
-  @typedoc """
-  What a compiled root stands on, all of it symbolic: the predicate
-  over named rows, the members in closure order beside their widths,
-  each clause's call sites by pointer name, what each pointer aims
-  at in naming order, each member's tag value (empty when a lone
-  relation needs no tag), and how many slack and quotient cells a
-  column holds.
-  """
-  @type shape :: %{
-          pred: Ast.pred(),
-          members: [atom()],
-          arities: %{atom() => pos_integer()},
-          slots: %{atom() => [atom()]},
-          calls: %{atom() => [[Ast.row_ref()]]},
-          pointers: [{atom(), Ast.term_t()}],
-          tags: %{atom() => pos_integer()},
-          slack: non_neg_integer(),
-          quot: non_neg_integer()
-        }
+        t    ::= q | t + t | t * t | len | var | nil | [t | t] | name(t, ...)
+        goal ::= name(t, ...) | var(t, ...) | t = t | reify(goal)
+
+    Scoped, a var is the clause's own and `name(t, ...)` a relation in scope with what it
+    fixes.
+    """
+
+    @typedoc "What a term stands on: a name, the empty sequence, a bracket, a partial call, len."
+    @type leaf ::
+            {:var, atom()}
+            | nil
+            | :len
+            | {:cons, t(), t()}
+            | {:papply, atom(), [t()]}
+
+    @typedoc "A surface term: Figure 1's polynomial over my leaves."
+    @type t :: Zkfol.Ast.poly(leaf())
+
+    @typedoc "A goal of a clause body: a call, an equation, or an equation as a term."
+    @type goal :: {:call, atom() | {:var, atom()}, [t()]} | {:eq, t(), t()} | {:reify, goal()}
+
+    @doc "I am the immediate children of a node: none for a leaf."
+    @spec children(term()) :: [term()]
+    def children({tag, t, u}) when tag in [:add, :mul, :cons, :eq], do: [t, u]
+    def children({tag, _name, args}) when tag in [:papply, :call], do: args
+    def children({:reify, goal}), do: [goal]
+    def children(nodes) when is_list(nodes), do: nodes
+    def children(_leaf), do: []
+
+    @doc "I fold `fun` over every node, each parent before its children."
+    @spec reduce(term(), acc, (term(), acc -> acc)) :: acc when acc: var
+    def reduce(node, acc, fun),
+      do: Enum.reduce(children(node), fun.(node, acc), &reduce(&1, &2, fun))
+
+    @doc "I am the variable names a term carries, in the order it writes them."
+    @spec names(term()) :: [atom()]
+    def names(node),
+      do:
+        node
+        |> reduce([], fn
+          {:var, name}, acc -> [name | acc]
+          _node, acc -> acc
+        end)
+        |> Enum.reverse()
+
+    @doc "I am the relation a term passes and the arguments it fixes, nil where it passes none."
+    @spec passed(t(), MapSet.t()) :: {atom(), [t()]} | nil
+    def passed({:papply, name, prefix}, _bound), do: {name, prefix}
+    def passed({:var, name}, bound), do: if(not MapSet.member?(bound, name), do: {name, []})
+    def passed(_term, _bound), do: nil
+
+    @doc "I say whether a term is a sequence: a bracket or the empty one."
+    @spec sequence?(term()) :: boolean()
+    def sequence?(nil), do: true
+    def sequence?({:cons, _head, _tail}), do: true
+    def sequence?(_term), do: false
+
+    @doc "I say whether a head term names cells: a column, a pinned integer, or a bracket."
+    @spec seatable?(term()) :: boolean()
+    def seatable?({:var, _name}), do: true
+    def seatable?(nil), do: true
+    def seatable?({:cons, head, tail}), do: seatable?(head) and seatable?(tail)
+    def seatable?(term), do: is_integer(term)
+  end
 
   defmodule Rel do
     @moduledoc "I am a named relation: clauses of one head shape."
+
+    alias Zkfol.Lang.Term
     use TypedStruct
 
     typedstruct enforce: true do
       field(:name, atom())
-      field(:arity, pos_integer())
+      field(:arity, non_neg_integer())
       field(:clauses, [{[term()], [term()]}])
-      field(:layout, Zkfol.Matrix.t() | nil, default: nil, enforce: false)
       field(:home, module() | nil, default: nil, enforce: false)
       # `phi` lowers me where I am called instead of laying me; `al` is the goal AL posts.
       field(:phi, {module(), atom()} | nil, default: nil, enforce: false)
       field(:al, Macro.t() | nil, default: nil, enforce: false)
+    end
+
+    @doc "I am the callees my clauses name; a head-bound name is a passed relation, not a callee."
+    @spec calls(t()) :: [atom()]
+    def calls(%__MODULE__{clauses: clauses}),
+      do:
+        for(
+          {head, body} <- clauses,
+          bound = MapSet.new(Term.names(head)),
+          {:call, q, _args} <- body,
+          is_atom(q) and not MapSet.member?(bound, q),
+          uniq: true,
+          do: q
+        )
+
+    @doc "I am the names my clauses hand to a call: a relation where one answers to them."
+    @spec passes(t()) :: [atom()]
+    def passes(%__MODULE__{clauses: clauses}),
+      do:
+        for(
+          {head, body} <- clauses,
+          bound = MapSet.new(Term.names(head)),
+          {:call, _q, args} <- body,
+          arg <- args,
+          name <- passing(arg, bound),
+          uniq: true,
+          do: name
+        )
+
+    @spec passing(Term.t(), MapSet.t()) :: [atom()]
+    defp passing(arg, bound) do
+      case Term.passed(arg, bound) do
+        {name, fixed} -> [name | Enum.flat_map(fixed, &passing(&1, bound))]
+        nil -> []
+      end
     end
   end
 
@@ -85,15 +152,6 @@ defmodule Zkfol.Lang do
   @doc """
   I build a relation where a function runs: clauses as defrel writes
   them, `^` splicing the surrounding scope's values in.
-
-      Lang.rel :scaled do
-        scaled(1, ^k)
-
-        scaled(x, v) do
-          scaled(x - 1, prev)
-          v = ^k * prev
-        end
-      end
   """
   defmacro rel(name, do: block) do
     clauses = for form <- lines(block), do: rel_clause(name, form)
@@ -111,11 +169,11 @@ defmodule Zkfol.Lang do
 
   @spec rel_clause(atom(), Macro.t()) :: {[term()], [term()]}
   defp rel_clause(name, {name, _meta, args}) do
-    args = anonymous(args)
+    args = anonymous(List.wrap(args))
 
     case List.last(args) do
       [do: block] ->
-        {args |> Enum.drop(-1) |> Enum.map(&term/1), block |> lines() |> Enum.map(&goal/1)}
+        {args |> Enum.drop(-1) |> Enum.map(&term/1), block |> lines() |> goals()}
 
       _bare ->
         {Enum.map(args, &term/1), []}
@@ -125,7 +183,6 @@ defmodule Zkfol.Lang do
   defp rel_clause(name, {other, _meta, _args}),
     do: raise(ArgumentError, "the clause #{other} does not belong to the relation #{name}")
 
-  # `_` is an I-don't-care: each occurrence its own fresh name.
   @spec anonymous(Macro.t()) :: Macro.t()
   defp anonymous(ast) do
     {renamed, _n} =
@@ -140,8 +197,8 @@ defmodule Zkfol.Lang do
   @spec store(Macro.t(), [Macro.t()]) :: Macro.t()
   defp store(head, body) do
     {name, _meta, args} = head
-    {args, body} = anonymous({args, body})
-    clause = {Enum.map(args, &term/1), Enum.map(body, &goal/1)}
+    {args, body} = anonymous({List.wrap(args), body})
+    clause = {Enum.map(args, &term/1), goals(body)}
 
     quote do
       @lang_clauses {unquote(name), unquote(length(args)),
@@ -201,12 +258,10 @@ defmodule Zkfol.Lang do
   defp lines({:__block__, _meta, goals}), do: goals
   defp lines(goal), do: [goal]
 
-  # Surface terms: integers, variables, arithmetic, pinned values,
-  # the trace length, and reified equalities.
   @spec term(Macro.t()) :: term()
   defp term({:^, _meta, [expr]}), do: {:unquote, [], [expr]}
   defp term({:len, _meta, ctx}) when is_atom(ctx), do: :len
-  defp term({:reify, _meta, [inner]}), do: {:reify, goal(inner)}
+  defp term({:reify, _meta, [inner]}), do: {:reify, goal(inner, 0)}
   defp term(q) when is_integer(q), do: q
   defp term([]), do: nil
   defp term([{:|, _meta, [head, tail]}]), do: {:cons, term(head), term(tail)}
@@ -214,475 +269,132 @@ defmodule Zkfol.Lang do
   defp term({name, _meta, ctx}) when is_atom(name) and is_atom(ctx), do: {:var, name}
   defp term({:+, _meta, [a, b]}), do: {:add, term(a), term(b)}
   defp term({:*, _meta, [a, b]}), do: {:mul, term(a), term(b)}
+
+  defp term({:**, _meta, [a, q]}) when is_integer(q) and q > 0,
+    do: Enum.reduce(2..q//1, term(a), fn _k, acc -> {:mul, acc, term(a)} end)
+
+  defp term({:**, _meta, [_a, e]}),
+    do: raise(ArgumentError, "an exponent is a positive integer, not #{Macro.to_string(e)}")
+
   defp term({:-, _meta, [q]}) when is_integer(q), do: -q
   defp term({:-, _meta, [a]}), do: {:mul, term(a), -1}
   defp term({:-, _meta, [a, b]}) when is_integer(b), do: {:add, term(a), -b}
   defp term({:-, _meta, [a, b]}), do: {:add, term(a), {:mul, term(b), -1}}
 
-  # Surface goals: equations, reductions, guards, and calls.
-  @spec goal(Macro.t()) :: term()
-  defp goal({:=, _meta, [r, {:mod, _site, [e, m]}]}), do: {:mod, term(r), term(e), term(m)}
-  defp goal({:=, _meta, [a, b]}), do: {:eq, term(a), term(b)}
+  defp term({name, _meta, args}) when is_atom(name) and is_list(args),
+    do: {:papply, name, Enum.map(args, &term/1)}
 
-  defp goal({op, _meta, [a, b]}) when op in [:<, :>, :<=, :>=],
-    do: {:cmp, op, term(a), term(b)}
+  # The index names the existential a call of the library stands on, one per site.
+  @spec goals([Macro.t()]) :: [term()]
+  defp goals(body), do: for({form, k} <- Enum.with_index(body), do: goal(form, k))
 
-  defp goal({name, _meta, args}) when is_atom(name) and is_list(args),
+  @spec goal(Macro.t(), non_neg_integer()) :: term()
+  defp goal({:=, _meta, [r, {:mod, _site, [e, m]}]}, k),
+    do: {:call, :mod, [term(e), term(m), term(r), hole(:q, k)]}
+
+  defp goal({:=, _meta, [a, b]}, _k), do: {:eq, term(a), term(b)}
+
+  defp goal({op, _meta, [a, b]}, k) when op in [:<, :>, :<=, :>=],
+    do: {:call, compares(op), [term(a), term(b), hole(:s, k)]}
+
+  defp goal({:!=, _meta, [a, b]}, k),
+    do: {:call, :neq, [term(a), term(b), hole(:s, k)]}
+
+  defp goal({name, _meta, args}, _k) when is_atom(name) and is_list(args),
     do: {:call, name, Enum.map(args, &term/1)}
 
-  defp goal(form),
+  defp goal(form, _k),
     do: raise(ArgumentError, "a goal is an equation or a call, not #{Macro.to_string(form)}")
 
-  @doc """
-  As a pass I lower a derived statement's relations to its shape, the
-  first of them the root, and lay the derivation on the allocation
-  born of it, which is what `Zkfol.Al.relaid/2` is. Only a proof
-  wants the shape, so a statement that has not run rides through.
-  """
-  @impl Zkfol.Pipeline
-  @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{stage: %Statement.Derived{derivation: derivation}} = statement, _opts),
-    do: Zkfol.Al.relaid(statement, derivation)
+  @spec compares(atom()) :: atom()
+  defp compares(:>), do: :gt
+  defp compares(:<), do: :lt
+  defp compares(:>=), do: :gte
+  defp compares(:<=), do: :lte
 
-  def run(%Statement{} = statement, _opts), do: {:ok, statement}
-
-  @impl Zkfol.Pipeline
-  @spec verb() :: Zkfol.Pipeline.verdict()
-  def verb, do: :lowers
+  @spec hole(atom(), non_neg_integer()) :: term()
+  defp hole(tag, k), do: {:var, :"_#{tag}#{k}"}
 
   @doc """
-  I am the predicate of `root` against `rels`, standing on rows: what
-  `compile/2` names, `Zkfol.Alloc` numbers. Ask me when the rows are
-  all you want; ask `compile/2` when you mean to allocate yourself.
-
-      Lang.lower(fib(), [fib()])
+  I am the relations `root` reaches, in call order, each pulled from the list, its home,
+  `Zkfol.FOL` or `Zkfol.Prims`, and scoped once.
   """
-  @spec lower(Rel.t(), [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
-  def lower(%Rel{} = root, rels) do
-    with {:ok, shape} <- compile(root, rels),
-         do: Zkfol.Alloc.link(shape.pred, Zkfol.Alloc.assign(shape))
-  end
-
-  @doc """
-  I compile a root relation against the relations in scope, walking
-  its call closure and naming what it stands on: a relation's rows by
-  its own name, the tag row, one pointer row per distinct call target.
-  Which row each name lands on is `Zkfol.Alloc`'s to say, and it says
-  it once the derivation is in hand; I only name.
-
-      Lang.compile(fib())
-  """
-  @spec compile(Rel.t(), [Rel.t()] | nil) :: {:ok, shape()} | {:error, Refusal.t()}
-  def compile(%Rel{} = root, rels \\ nil) do
-    scope = Map.new(gathered(rels || [root]), &{&1.name, &1})
-
-    with {:ok, order} <- closure([root.name], scope, MapSet.new(), []),
-         tags = tags(order),
-         {:ok, branches, calls, {targets, _next}} <- branches(order, scope, tags, {%{}, 1}) do
-      {:ok,
-       %{
-         pred: Ast.disj(branches),
-         members: order,
-         arities: Map.new(order, &{&1, scope[&1].arity}),
-         slots: Map.new(order, &{&1, slots(scope[&1])}),
-         calls: calls,
-         pointers: aimed(targets),
-         tags: tags || %{},
-         slack: widest(order, scope, &slacks/1),
-         quot: widest(order, scope, &mods/1)
-       }}
+  @spec reached(Rel.t(), [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
+  def reached(%Rel{} = root, rels) do
+    with {:ok, reached} <-
+           gather([{root.name, root.home, true}], Map.new(rels, &{&1.name, &1}), []) do
+      scope = MapSet.new(reached, & &1.name)
+      {:ok, for(rel <- reached, do: scoped(rel, scope))}
     end
   end
 
-  @doc """
-  I am `rels` with every relation their clauses reach: a callee the
-  list misses pulls by name from the home module its defrel compiled
-  in, transitively. A name no home answers stays missing, for
-  `members/2` to refuse.
-  """
-  @spec gathered([Rel.t()]) :: [Rel.t()]
-  def gathered(rels), do: gather(rels, MapSet.new(rels, & &1.name))
+  @spec scoped(Rel.t(), MapSet.t()) :: Rel.t()
+  defp scoped(%Rel{clauses: clauses} = rel, scope) do
+    clauses =
+      for {head, body} <- clauses do
+        bound = MapSet.new(Term.names(head))
+        {head, for(goal <- body, do: scoped(goal, bound, scope))}
+      end
 
-  defp gather(rels, seen) do
-    pulled =
-      for %Rel{home: home} = rel <- rels,
-          home != nil,
-          {_head, body} <- rel.clauses,
-          {:call, name, _args} <- body,
-          not MapSet.member?(seen, name),
-          function_exported?(home, name, 0),
-          %Rel{} = callee <- [apply(home, name, [])],
-          uniq: true,
-          do: callee
-
-    case pulled do
-      [] -> rels
-      new -> gather(rels ++ new, MapSet.union(seen, MapSet.new(new, & &1.name)))
-    end
+    %{rel | clauses: clauses}
   end
 
-  @doc """
-  I am the relations `root` reaches in `rels`, in call order: what a
-  question asks, before anyone asks whether it lowers. A call to a
-  relation outside `rels` refuses.
-  """
-  @spec members(Rel.t(), [Rel.t()]) :: {:ok, [atom()]} | {:error, Refusal.t()}
-  def members(%Rel{} = root, rels),
-    do: closure([root.name], Map.new(gathered(rels), &{&1.name, &1}), MapSet.new(), [])
-
-  @doc """
-  I am a clause body's slack sites in order: a guard as it stands, a
-  mod site as the bound its remainder is under. The k-th takes the k-th
-  slack cell, whether the predicate reads it or the lay fills it.
-  """
-  @spec slacks([term()]) :: [{atom(), term(), term()}]
-  def slacks(body), do: Enum.flat_map(body, &slacked/1)
-
-  @doc """
-  I am a clause body's mod sites in order: each remainder, dividend,
-  and modulus. The k-th quotient takes the k-th quotient cell.
-  """
-  @spec mods([term()]) :: [{term(), term(), term()}]
-  def mods(body), do: for({:mod, r, e, m} <- body, do: {r, e, m})
-
-  @doc """
-  I am a surface term's value under an environment binding its
-  variables, and `:error` when the term is open: a name the
-  environment does not carry, or a form that is not arithmetic. A
-  reader that must tell ground from open reads me; one that knows its
-  site is ground asserts on the `:ok`.
-  """
-  @spec value(term(), %{atom() => term()}) :: {:ok, integer()} | :error
-  def value(q, _env) when is_integer(q), do: {:ok, q}
-  def value({:add, t, u}, env), do: combined(&+/2, t, u, env)
-  def value({:mul, t, u}, env), do: combined(&*/2, t, u, env)
-
-  def value({:var, nm}, env) do
-    case env do
-      %{^nm => q} when is_integer(q) -> {:ok, q}
-      _open -> :error
-    end
+  @spec scoped(term(), MapSet.t(), MapSet.t()) :: term()
+  defp scoped({:call, q, args}, bound, scope) do
+    callee = if is_atom(q) and MapSet.member?(bound, q), do: {:var, q}, else: q
+    {:call, callee, for(arg <- args, do: scoped(arg, bound, scope))}
   end
 
-  def value(_open, _env), do: :error
-
-  @spec combined((integer(), integer() -> integer()), term(), term(), %{atom() => term()}) ::
-          {:ok, integer()} | :error
-  defp combined(op, t, u, env) do
-    with {:ok, a} <- value(t, env), {:ok, b} <- value(u, env), do: {:ok, op.(a, b)}
+  defp scoped({:var, q} = var, bound, scope) do
+    if MapSet.member?(scope, q) and not MapSet.member?(bound, q), do: {:papply, q, []}, else: var
   end
 
-  @spec slacked(term()) :: [{atom(), term(), term()}]
-  defp slacked({:cmp, op, t, u}), do: [{op, t, u}]
-  defp slacked({:mod, r, _e, m}), do: [{:<, r, m}]
-  defp slacked(_goal), do: []
+  defp scoped({:papply, q, fixed}, bound, scope),
+    do: {:papply, q, for(arg <- fixed, do: scoped(arg, bound, scope))}
 
-  # How many cells of a kind a column holds: the sites of one clause
-  # bind together and each takes its own, while clauses share them,
-  # since at most one clause binds a column.
-  @spec widest([atom()], %{atom() => Rel.t()}, ([term()] -> list())) :: non_neg_integer()
-  defp widest(order, scope, sites) do
-    counts = for name <- order, {_head, body} <- scope[name].clauses, do: length(sites.(body))
-    Enum.max(counts, fn -> 0 end)
-  end
+  defp scoped({tag, t, u}, bound, scope) when tag in [:add, :mul, :cons, :eq],
+    do: {tag, scoped(t, bound, scope), scoped(u, bound, scope)}
 
-  # A member's slots by name: its head variables where a clause binds
-  # them all, positional names otherwise. Freshened locals join here
-  # when a clause's existential earns a row.
-  @spec slots(Rel.t()) :: [atom()]
-  defp slots(%Rel{arity: arity, clauses: clauses}) do
-    named =
-      Enum.find_value(clauses, fn {head, _body} ->
-        if Enum.all?(head, &match?({:var, _}, &1)), do: for({:var, nm} <- head, do: nm)
-      end)
+  defp scoped({:reify, goal}, bound, scope), do: {:reify, scoped(goal, bound, scope)}
+  defp scoped(leaf, _bound, _scope), do: leaf
 
-    named || Enum.map(1..arity, &:"a#{&1}")
-  end
+  @typep wanted :: {atom(), module() | nil, boolean()}
 
-  # The pointers in naming order, each saying its callee and address.
-  @spec aimed(%{{atom(), Ast.term_t()} => Ast.row_ref()}) :: [{atom(), Ast.term_t()}]
-  defp aimed(targets),
-    do: targets |> Enum.sort_by(fn {_aim, {:ptr, i}} -> i end) |> Enum.map(&elem(&1, 0))
+  @spec gather([wanted()], %{atom() => Rel.t()}, [Rel.t()]) ::
+          {:ok, [Rel.t()]} | {:error, Refusal.t()}
+  defp gather([], _known, seen), do: {:ok, Enum.reverse(seen)}
 
-  # A lone relation is anchored by its own descent; a closure's columns
-  # wear their relation, so a read can insist on whose column it reads.
-  @spec tags([atom()]) :: %{atom() => pos_integer()} | nil
-  defp tags([_lone]), do: nil
-  defp tags(order), do: order |> Enum.with_index(1) |> Map.new()
-
-  # The call graph, each relation once, unknown names refused.
-  @spec closure([atom()], %{atom() => Rel.t()}, MapSet.t(), [atom()]) ::
-          {:ok, [atom()]} | {:error, Refusal.t()}
-  defp closure([], _scope, _seen, acc), do: {:ok, Enum.reverse(acc)}
-
-  defp closure([name | rest], scope, seen, acc) do
+  defp gather([{name, home, needed?} | rest], known, seen) do
     cond do
-      MapSet.member?(seen, name) ->
-        closure(rest, scope, seen, acc)
+      Enum.any?(seen, &(&1.name == name)) ->
+        gather(rest, known, seen)
 
-      rel = scope[name] ->
-        called = for {_h, body} <- rel.clauses, {:call, n, _a} <- body, do: n
-        closure(called ++ rest, scope, MapSet.put(seen, name), [name | acc])
+      rel = known[name] || pulled(name, [home, Zkfol.FOL, Zkfol.Prims]) ->
+        gather(rest ++ wants(rel), Map.put(known, name, rel), [rel | seen])
+
+      needed? ->
+        {:error, {:relation_not_in_scope, %{relation: name}}}
 
       true ->
-        {:error, {:relation_not_in_scope, %{relation: name}}}
+        gather(rest, known, seen)
     end
   end
 
-  @spec branches([atom()], %{atom() => Rel.t()}, tags(), pointers()) ::
-          {:ok, [Ast.pred()], %{atom() => [[Ast.row_ref()]]}, pointers()}
-          | {:error, Refusal.t()}
-  defp branches(order, scope, tags, pointers) do
-    with {:ok, compiled, pointers} <-
-           Refusal.map_reduce(order, pointers, &rel_branches(scope[&1], scope, tags, &2)),
-         {branches, calls} = Enum.unzip(compiled),
-         do: {:ok, Enum.concat(branches), Map.new(Enum.zip(order, calls)), pointers}
-  end
+  # A passed name is wanted where it resolves and no relation where it does not.
+  @spec wants(Rel.t()) :: [wanted()]
+  defp wants(%Rel{home: home} = rel),
+    do:
+      for(
+        {names, needed?} <- [{Rel.calls(rel), true}, {Rel.passes(rel), false}],
+        name <- names,
+        do: {name, home, needed?}
+      )
 
-  @spec rel_branches(Rel.t(), %{atom() => Rel.t()}, tags(), pointers()) ::
-          {:ok, {[Ast.pred()], [[Ast.row_ref()]]}, pointers()} | {:error, Refusal.t()}
-  defp rel_branches(%Rel{name: name, clauses: clauses} = rel, scope, tags, pointers) do
-    with {:ok, compiled, pointers} <-
-           Refusal.map_reduce(clauses, pointers, &branch(&1, cells(rel), scope, tags, &2)),
-         {branches, calls} = Enum.unzip(compiled),
-         do: {:ok, {Enum.map(branches, &claim(&1, name, tags)), calls}, pointers}
-  end
-
-  # A relation's rows are its own name, one per argument: the index
-  # first, its values behind.
-  @spec cells(Rel.t()) :: [Ast.row_ref()]
-  defp cells(%Rel{name: name, arity: arity}), do: for(i <- 1..arity, do: {name, i})
-
-  # Every branch of a tagged closure claims its column; drop the claim
-  # and a column may wear one relation's tag while satisfying another's
-  # branch, which is the forgery the tag exists to refuse.
-  @spec claim(Ast.pred(), atom(), tags()) :: Ast.pred()
-  defp claim(branch, _name, nil), do: branch
-
-  defp claim({:conj, goals}, name, tags),
-    do: Ast.conj(goals ++ [Ast.eq(Ast.cell({:tag, 1}), Map.fetch!(tags, name))])
-
-  # One clause: the head binds the index and value rows, each call
-  # binds a pointer row and its outputs, then the equations close over
-  # the environment.
-  @spec branch({[term()], [term()]}, [Ast.row_ref()], %{atom() => Rel.t()}, tags(), pointers()) ::
-          {:ok, {Ast.pred(), [Ast.row_ref()]}, pointers()} | {:error, Refusal.t()}
-  defp branch({params, body}, rows, scope, tags, pointers) do
-    with :ok <- columns(params), do: branch_goals({params, body}, rows, scope, tags, pointers)
-  end
-
-  # A head names columns: variables and pinned integers, nothing computed.
-  @spec columns([term()]) :: :ok | {:error, Refusal.t()}
-  defp columns(params) do
-    case Enum.find(params, &(not (match?({:var, _}, &1) or is_integer(&1)))) do
-      nil -> :ok
-      bad -> {:error, {:head_not_a_column, %{head: bad}}}
-    end
-  end
-
-  @spec branch_goals(
-          {[term()], [term()]},
-          [Ast.row_ref()],
-          %{atom() => Rel.t()},
-          tags(),
-          pointers()
-        ) :: {:ok, {Ast.pred(), [Ast.row_ref()]}, pointers()} | {:error, Refusal.t()}
-  defp branch_goals({params, body}, rows, scope, tags, pointers) do
-    bound = Enum.zip(params, Enum.map(rows, &Ast.cell/1))
-
-    env =
-      bound
-      |> Enum.flat_map(fn
-        {{:var, name}, cell} -> [{name, cell}]
-        {_literal, _cell} -> []
-      end)
-      |> Map.new()
-
-    heads =
-      bound
-      |> Enum.flat_map(fn
-        {{:var, _name}, _cell} -> []
-        {literal, cell} -> [Ast.eq(cell, literal)]
-      end)
-
-    with {:ok, goals, ptrs, env, pointers} <- calls(body, scope, tags, env, pointers),
-         {:ok, equations} <- equations(body, env),
-         {:ok, guards} <- guards(body, env),
-         {:ok, quotients} <- quotients(body, env),
-         do: {:ok, {Ast.conj(heads ++ goals ++ equations ++ guards ++ quotients), ptrs}, pointers}
-  end
-
-  # Calls resolving to one target share their pointer row: a pointer
-  # is a position, whoever reads through it. I also say which row each
-  # call site got, in body order, so a backend reads them positionally.
-  @spec calls([term()], %{atom() => Rel.t()}, tags(), env(), pointers()) ::
-          {:ok, [Ast.pred()], [Ast.row_ref()], env(), pointers()} | {:error, Refusal.t()}
-  defp calls(body, scope, tags, env, pointers) do
-    body
-    |> Enum.filter(&match?({:call, _n, _a}, &1))
-    |> Refusal.map_reduce({env, pointers}, fn {:call, name, [at | outs]}, {env, pointers} ->
-      [index | value_rows] = cells(scope[name])
-
-      with {:ok, target} <- resolve(at, env),
-           {row, pointers} = point(pointers, name, target),
-           {:ok, identities, env} <- outputs(outs, value_rows, row, env),
-           goals = [schedule(index, row, target) | check(tags, name, row)],
-           do: {:ok, {goals ++ identities, row}, {env, pointers}}
-    end)
-    |> case do
-      {:ok, compiled, {env, pointers}} ->
-        {goals, ptrs} = Enum.unzip(compiled)
-        {:ok, Enum.concat(goals), ptrs, env, pointers}
-
-      refusal ->
-        refusal
-    end
-  end
-
-  # A tagged read insists the pointed column is the callee's.
-  @spec check(tags(), atom(), Ast.row_ref()) :: [Ast.pred()]
-  defp check(nil, _name, _pointer), do: []
-
-  defp check(tags, name, pointer),
-    do: [Ast.eq(Ast.cell({:tag, 1}, pointer), Map.fetch!(tags, name))]
-
-  # Calls resolving to one target share their pointer: a pointer is a
-  # position in one callee's extension, so its identity is the callee
-  # beside the address: two callees at one address are two pointers.
-  @spec point(pointers(), atom(), Ast.term_t()) :: {Ast.row_ref(), pointers()}
-  defp point({named, next} = pointers, callee, target) do
-    case named do
-      %{{^callee, ^target} => name} -> {name, pointers}
-      _named -> {{:ptr, next}, {Map.put(named, {callee, target}, {:ptr, next}), next + 1}}
-    end
-  end
-
-  # An affine self-call reads as the paper writes it: the index here is
-  # the index there plus the offset. Anything else pins the pointed
-  # index to the target directly.
-  @spec schedule(Ast.row_ref(), Ast.row_ref(), term()) :: Ast.pred()
-  defp schedule(index, pointer, {:add, {:cell, index}, q}) when is_integer(q),
-    do: Ast.eq(Ast.cell(index), Ast.add(Ast.cell(index, pointer), -q))
-
-  defp schedule(index, pointer, target), do: Ast.eq(Ast.cell(index, pointer), target)
-
-  # A call's outputs are the callee's value rows read through the
-  # pointer; a non-fresh output is identified with its cell by equation.
-  @spec outputs([term()], [Ast.row_ref()], Ast.row_ref(), env()) ::
-          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
-  defp outputs(outs, value_rows, pointer, env) do
-    outs
-    |> Enum.zip(value_rows)
-    |> Refusal.map_reduce(env, fn {out, row}, env -> output(out, Ast.cell(row, pointer), env) end)
-    |> case do
-      {:ok, identities, env} -> {:ok, Enum.concat(identities), env}
-      refusal -> refusal
-    end
-  end
-
-  @spec output(term(), Ast.term_t(), env()) ::
-          {:ok, [Ast.pred()], env()} | {:error, Refusal.t()}
-  defp output({:var, name}, cell, env) when not is_map_key(env, name),
-    do: {:ok, [], Map.put(env, name, cell)}
-
-  defp output(out, cell, env) do
-    with {:ok, term} <- resolve(out, env), do: {:ok, [Ast.eq(term, cell)], env}
-  end
-
-  @spec equations([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
-  defp equations(body, env) do
-    body
-    |> Enum.filter(&match?({:eq, _t, _u}, &1))
-    |> Refusal.map(fn {:eq, t, u} ->
-      with {:ok, t} <- resolve(t, env),
-           {:ok, u} <- resolve(u, env),
-           do: {:ok, Ast.eq(t, u)}
+  @spec pulled(atom(), [module() | nil]) :: Rel.t() | nil
+  defp pulled(name, sources) do
+    Enum.find_value(sources, fn source ->
+      source && Code.ensure_loaded?(source) && function_exported?(source, name, 0) &&
+        apply(source, name, [])
     end)
   end
-
-  # An inequality is an equation with room in it: `a > b` says that some
-  # natural s has a = b + s + 1, and the k-th slack site of a clause
-  # takes the k-th slack cell to be that s. The equation alone holds for
-  # a negative s, so the naturality rides beside it as its own node.
-  @spec guards([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
-  defp guards(body, env) do
-    sites =
-      body
-      |> slacks()
-      |> Enum.with_index(1)
-      |> Refusal.map(fn {{op, t, u}, k} ->
-        s = Ast.cell({:slack, k})
-
-        with {:ok, t} <- resolve(t, env),
-             {:ok, u} <- resolve(u, env),
-             do: {:ok, [slack(op, t, u, s), Ast.natural(s)]}
-      end)
-
-    with {:ok, pairs} <- sites, do: {:ok, Enum.concat(pairs)}
-  end
-
-  @spec slack(atom(), Ast.term_t(), Ast.term_t(), Ast.term_t()) :: Ast.pred()
-  defp slack(:>, a, b, s), do: Ast.eq(a, Ast.add(Ast.add(b, 1), s))
-  defp slack(:>=, a, b, s), do: Ast.eq(a, Ast.add(b, s))
-  defp slack(:<, a, b, s), do: slack(:>, b, a, s)
-  defp slack(:<=, a, b, s), do: slack(:>=, b, a, s)
-
-  # `r = mod(e, m)` is the division it means: the k-th quotient cell is
-  # the q in N of e = m*q + r. `r < m` rides the slack and bounds r
-  # above; natural(r) bounds it below. A non-literal modulus makes m*q
-  # a product of two unknowns, which nothing here can suspend.
-  @spec quotients([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
-  defp quotients(body, env) do
-    sites =
-      body
-      |> mods()
-      |> Enum.with_index(1)
-      |> Refusal.map(fn {{r, e, m}, k} ->
-        q = Ast.cell({:quot, k})
-
-        with :ok <- literal(m),
-             {:ok, r} <- resolve(r, env),
-             {:ok, e} <- resolve(e, env),
-             do: {:ok, [Ast.eq(e, Ast.add(Ast.mul(q, m), r)), Ast.natural(q), Ast.natural(r)]}
-      end)
-
-    with {:ok, pairs} <- sites, do: {:ok, Enum.concat(pairs)}
-  end
-
-  @spec literal(term()) :: :ok | {:error, Refusal.t()}
-  defp literal(m) when is_integer(m), do: :ok
-  defp literal(m), do: {:error, {:modulus_not_literal, %{modulus: m}}}
-
-  @spec resolve(term(), env()) :: {:ok, Ast.term_t()} | {:error, Refusal.t()}
-  defp resolve(q, _env) when is_integer(q), do: {:ok, q}
-  defp resolve(:len, _env), do: {:ok, :len}
-
-  defp resolve({:reify, {:eq, t, u}}, env) do
-    with {:ok, rt} <- resolve(t, env),
-         {:ok, ru} <- resolve(u, env),
-         do: {:ok, Ast.arithmetize(Ast.eq(rt, ru))}
-  end
-
-  defp resolve({:var, name}, env) do
-    case env do
-      %{^name => bound} -> {:ok, bound}
-      _env -> {:error, {:unbound_variable, %{variable: name}}}
-    end
-  end
-
-  defp resolve({:add, a, b}, env) do
-    with {:ok, a} <- resolve(a, env),
-         {:ok, b} <- resolve(b, env),
-         do: {:ok, Ast.add(a, b)}
-  end
-
-  defp resolve({:mul, a, b}, env) do
-    with {:ok, a} <- resolve(a, env),
-         {:ok, b} <- resolve(b, env),
-         do: {:ok, Ast.mul(a, b)}
-  end
-
-  # reify takes an equation; the surface admits reify of a call, which
-  # would need a derivation to stand where a term does.
-  defp resolve(term, _env), do: {:error, {:unliftable_term, %{term: term}}}
 end

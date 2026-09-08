@@ -1,55 +1,33 @@
-defmodule Examples.EUserTest do
-  use ExExample.ExUnit, for: Examples.EUser
-end
+# The query door forks a branch per query, and dropping a branch's
+# tables is a schema transaction, which dumps mnesia's log. The log
+# grows with every act the suite journals, so the forking module runs
+# first: last it costs three times as much.
+#
+# The proving benchmarks join only under BENCH=1.
+bench = if System.get_env("BENCH") == "1", do: [Examples.EBench], else: []
 
-defmodule Examples.EUairTest do
-  use ExExample.ExUnit, for: Examples.EUair
-end
-
-defmodule Examples.EFaceTest do
-  use ExExample.ExUnit, for: Examples.EFace
-end
-
-defmodule Examples.ELogTest do
-  use ExExample.ExUnit, for: Examples.ELog
-end
-
-defmodule Examples.EAstTest do
-  use ExExample.ExUnit, for: Examples.EAst
-end
-
-# The proving benchmarks; BENCH=1 mix test runs them. The frozen
-# emission shapes gate every run, from Examples.EUair.
-if System.get_env("BENCH") == "1" do
-  defmodule Examples.EBenchTest do
-    use ExExample.ExUnit, for: Examples.EBench
-  end
-end
-
-defmodule Examples.EFactsTest do
-  use ExExample.ExUnit, for: Examples.EFacts
-end
-
-defmodule Examples.EDoublingTest do
-  use ExExample.ExUnit, for: Examples.EDoubling
-end
-
-defmodule Examples.EPipelineTest do
-  use ExExample.ExUnit, for: Examples.EPipeline
-end
-
-defmodule Examples.EAlTest do
-  use ExExample.ExUnit, for: Examples.EAl
-end
-
-defmodule Examples.EAllocTest do
-  use ExExample.ExUnit, for: Examples.EAlloc
-end
-
-defmodule Examples.EMatrixTest do
-  use ExExample.ExUnit, for: Examples.EMatrix
-end
-
-defmodule Examples.EQueryTest do
-  use ExExample.ExUnit, for: Examples.EQuery
+for module <-
+      [
+        Examples.EQuery,
+        Examples.EProgramSpace,
+        Examples.EUser,
+        Examples.EUair,
+        Examples.EFace,
+        Examples.ELog,
+        Examples.EAst,
+        Examples.EFacts,
+        Examples.EDoubling,
+        Examples.EPipeline,
+        Examples.EAl,
+        Examples.EAlloc,
+        Examples.ESudoku,
+        Examples.EPassed,
+        Examples.EFol,
+        Examples.EForgery
+      ] ++ bench do
+  Module.create(
+    Module.concat(module, Test),
+    quote(do: use(ExExample.ExUnit, for: unquote(module))),
+    __ENV__
+  )
 end

@@ -43,7 +43,7 @@ ZkfolPipelineModel class >> example [
 		#passes -> {
 			{ #index -> 1. #name -> 'Doubling'. #verdict -> #rewrites } asDictionary.
 			{ #index -> 2. #name -> 'Witness'. #verdict -> #solves } asDictionary.
-			{ #index -> 3. #name -> 'Lang'. #verdict -> #lowers } asDictionary.
+			{ #index -> 3. #name -> 'Phi'. #verdict -> #lowers } asDictionary.
 			{ #index -> 4. #name -> 'Accumulator'. #verdict -> #expands } asDictionary }.
 		#trail -> {
 			{ #id -> 41. #basedon -> nil. #body -> '{:define, :composed_hop, %Zkfol.Pipeline{}}' } asDictionary.

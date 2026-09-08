@@ -4,11 +4,15 @@ defmodule Zkfol do
   route to a proof and returns the receipt. I journal the route as its
   define first, run the passes with that id threaded through their
   opts so the derivations land on the trail, journal the verdicts, and
-  prove the result under the statement's claims. The `Zkfol.Log.Ran` I
+  prove the result under the claims `:public` opens. The `Zkfol.Log.Ran` I
   return replays the whole act, its report riding the trail's proved
   event; a pass that errs leaves its refusal among the piped verdicts,
-  and the receipt still walks the trail. `opts` takes `:pipeline` and
-  `:name`; the rest ride through to the prover.
+  and the receipt still walks the trail. `opts` takes `:pipeline`,
+  `:name`, and `:public`, which names the parameters the act opens, by
+  head variable or by position; the rest ride through to the prover.
+
+      Zkfol.compile(corner(), args: [:_], public: [:v])
+      Zkfol.compile(grid_cell(), args: [:_], public: [1, {:grid, :a3}])
 
       ran = Zkfol.compile(%Zkfol.Statement{rels: [fib], args: [100]})
       Zkfol.Log.report(Zkfol.Log.snapshot(), ran).prove_ms
@@ -34,11 +38,17 @@ defmodule Zkfol do
 
   @doc "I am the whole act: define, run, verdicts, prove, receipt."
   @spec compile(target(), keyword()) :: Log.Ran.t()
-  def compile(target, opts \\ []), do: acted(Statement.of(target), opts, &proved/2)
+  def compile(target, opts \\ []), do: taken(target, opts, &proved/2)
 
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
   @spec emit(target(), keyword()) :: Log.Ran.t()
-  def emit(target, opts \\ []), do: acted(Statement.of(target), opts, &emitted/2)
+  def emit(target, opts \\ []), do: taken(target, opts, &emitted/2)
+
+  @spec taken(target(), keyword(), (Statement.t(), keyword() -> term())) :: Log.Ran.t()
+  defp taken(target, opts, settle) do
+    {args, opts} = Keyword.pop(opts, :args, [])
+    acted(Statement.of(target, args: args), opts, settle)
+  end
 
   @doc """
   I am the query door: no route, no proof, the relation run as AL
@@ -60,7 +70,7 @@ defmodule Zkfol do
   `opts` ride through to `Zkfol.Query.open/3`; `:heap` bounds the
   derivation.
   """
-  @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+  @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [Statement.datum() | :_], keyword()) ::
           {:ok, Query.t()} | {:error, Refusal.t()}
   def eval(rels, arguments, opts \\ []) do
     with {:ok, query} <- Query.open(rels, arguments, opts) do
@@ -85,7 +95,7 @@ defmodule Zkfol do
 
       Zkfol.eval!(fib, [8, :_], [])   #=> %Zkfol.Query{}
   """
-  @spec eval!(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [integer() | :_], keyword()) ::
+  @spec eval!(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [Statement.datum() | :_], keyword()) ::
           Query.t()
   def eval!(rels, arguments, opts \\ []) do
     case eval(rels, arguments, opts) do
@@ -105,7 +115,8 @@ defmodule Zkfol do
   exhaustion does; `Zkfol.Query.next/1` is the door that says which.
   `opts` ride through to `Zkfol.Query.open/3`.
   """
-  @spec stream(Lang.Rel.t() | [Lang.Rel.t()], [integer() | :_], keyword()) :: Enumerable.t()
+  @spec stream(Lang.Rel.t() | [Lang.Rel.t()], [Statement.datum() | :_], keyword()) ::
+          Enumerable.t()
   def stream(rels, arguments, opts \\ []) do
     Stream.resource(
       fn -> Query.open(rels, arguments, opts) end,
@@ -136,21 +147,23 @@ defmodule Zkfol do
   defp acted(statement, opts, settle) do
     {pipeline, opts} = Keyword.pop(opts, :pipeline, Pipeline.default())
     {name, opts} = Keyword.pop_lazy(opts, :name, fn -> named(statement) end)
-    define = Log.push({:define, name, pipeline})
+    {public, opts} = Keyword.pop(opts, :public, [])
+    define = Log.push({:define, name, pipeline, public})
 
     outcome = Pipeline.run(pipeline, statement, basedon: define)
     piped = Log.push({:piped, Pipeline.verdicts(pipeline, statement, outcome)}, define)
 
     # Whatever settles, settles onto the trail; the receipt is the same.
     with {:ok, final, _trace} <- outcome,
-         do: settle.(final, Keyword.merge(opts, name: name, basedon: piped))
+         {:ok, opened} <- Statement.opened(final, public),
+         do: settle.(opened, Keyword.merge(opts, name: name, basedon: piped))
 
-    %Log.Ran{pipeline: pipeline, source: statement, defined: define}
+    %Log.Ran{pipeline: pipeline, source: statement, defined: define, public: public}
   end
 
   @spec proved(Statement.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   defp proved(final, opts) do
-    prove = Keyword.put(opts, :claims, final.claims)
+    prove = Keyword.put(opts, :claims, Statement.claims(final))
 
     with {:ok, _report, intent} <-
            Prover.prove(Statement.pred(final), Statement.witness(final), prove),

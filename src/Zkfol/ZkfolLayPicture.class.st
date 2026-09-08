@@ -32,7 +32,7 @@ ZkfolLayPicture >> arrowLineFor: anArrow [
 	"One consumption edge as a line between the very cells: from the
 	 pointer cell to the consumed column's own bank, the arrowhead on
 	 what is read, the pointer row's color throughout, dashed when the
-	 pointer did not weld."
+	 read goes through a pointer."
 	| from to color line |
 	from := cellElements at: (anArrow at: #ptr) @ (anArrow at: #from) ifAbsent: [ ^ nil ].
 	to := cellElements at: (anArrow at: #to_row) @ (anArrow at: #to) ifAbsent: [ ^ nil ].
@@ -41,7 +41,7 @@ ZkfolLayPicture >> arrowLineFor: anArrow [
 		id: #zkfolLayArrowLine;
 		toHead: (BlArrowheadSimpleArrow new background: color);
 		yourself.
-	(anArrow at: #weld) ifNil: [
+	(anArrow at: #ptr) ifNotNil: [
 		line border: (line border copyWithStyle: BlStrokeStyle dashed) ].
 	^ line
 ]
@@ -282,7 +282,7 @@ ZkfolLayPicture >> setFromFeed: aDictionary [
 { #category : 'hover' }
 ZkfolLayPicture >> statusText [
 	"What the hovered cell is, said plainly: its bank and rows, its
-	 column, and its read's weld when it is a pointer's."
+	 column, and what its read is when it is a pointer's."
 	| region parts |
 	hovered ifNil: [ ^ '' ].
 	region := self regionOf: hovered x.
@@ -296,9 +296,9 @@ ZkfolLayPicture >> statusText [
 			((each at: #ptr) = hovered x) and: [ (each at: #from) = hovered y ] ]
 		ifFound: [ :arrow |
 			parts add: 'reads column ' , (arrow at: #to) printString.
-			parts add: ((arrow at: #weld)
-				ifNil: [ 'dynamic' ]
-				ifNotNil: [ :k | 'weld k=' , k printString ]) ]
+			parts add: ((arrow at: #ptr)
+				ifNil: [ 'shift k=' , ((arrow at: #from) - (arrow at: #to)) printString ]
+				ifNotNil: [ 'dynamic' ]) ]
 		ifNone: [ ].
 	^ ' · ' join: parts
 ]

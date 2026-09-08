@@ -1,10 +1,7 @@
 defmodule Zkfol.ZincPlus do
   @moduledoc """
-  I am the Zinc+ backend behind a NIF: `request/2` marshals a UAIR to
-  the one payload the prover thread takes, the call returns an id, and
-  the verdict arrives in-process as `{:zinc_plus, id, result}`. What
-  the pinned backend cannot carry refuses here: a mode it cannot
-  prove, a negative cell, a value or constant past its cell widths.
+  I am the Zinc+ backend behind a NIF: a UAIR goes in as a payload, the verdict comes back
+  as `{:zinc_plus, id, result}`.
   """
 
   use TypedStruct
@@ -16,20 +13,35 @@ defmodule Zkfol.ZincPlus do
   alias Zkfol.Uair.Composed
   alias Zkfol.Uair.Plain
 
-  # One addition of headroom under each cell width: narrow cells are i64,
-  # wide cells 768 or 7040 bits, and values must be non-negative past i64,
-  # since limbs carry no sign.
+  # One addition of headroom under each width the pinned backend offers.
   @i64_bound Integer.pow(2, 62)
   @big_bound Integer.pow(2, 766)
   @huge_bound Integer.pow(2, 7038)
 
-  @typedoc "A BitPoly lookup: {binary column, table width, chunk width}."
+  @typedoc "A word lookup: {column, table width, chunk width}."
   @type lookup :: {non_neg_integer(), pos_integer(), pos_integer()}
 
-  @typedoc """
-  The trace columns tagged by the cell width they need: narrow cells ride
-  as integers, wider ones as little-endian base-2^64 limbs.
-  """
+  typedstruct module: Selected, enforce: true do
+    @typedoc """
+    One Selected lookup group: the columns it spans, the multiset each claim holds, and the
+    cells of each claim as `{slot, row}`. A cell no selection names is unconstrained.
+    """
+    field(:columns, [non_neg_integer()])
+    field(:values, [non_neg_integer()])
+    field(:selections, [[{non_neg_integer(), non_neg_integer()}]])
+  end
+
+  typedstruct module: Tie, enforce: true do
+    @typedoc """
+    One cell the statement fixes: its column, its row, and the column its private value
+    fills at every row. Nothing of a tie is committed.
+    """
+    field(:column, non_neg_integer())
+    field(:row, non_neg_integer())
+    field(:target, {:broadcast, non_neg_integer()})
+  end
+
+  @typedoc "The trace columns tagged by the cell width they need."
   @type cells ::
           {:i64, [[integer()]]}
           | {:big, [[[non_neg_integer()]]]}
@@ -42,25 +54,16 @@ defmodule Zkfol.ZincPlus do
     field(:shifts, [{non_neg_integer(), pos_integer()}])
     field(:program, [{atom(), integer()}])
     field(:cells, Zkfol.ZincPlus.cells())
-    field(:bins, [[non_neg_integer()]], default: [])
-    field(:lookups, [Zkfol.ZincPlus.lookup()], default: [])
-    # Word lookups on integer columns: {column, width, chunk width}. A
-    # column declared here proves only if every cell is under 2^width,
-    # which is the range check the surface's comparisons need.
+    # A column declared here proves only if every cell is under 2^width.
     field(:word_lookups, [Zkfol.ZincPlus.lookup()], default: [])
+    # A group proves only if every selection holds the multiset.
+    field(:selected_lookups, [Zkfol.ZincPlus.Selected.t()], default: [])
+    field(:point_ties, [Zkfol.ZincPlus.Tie.t()], default: [])
     field(:reads, [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}], default: [])
     field(:num_vars, pos_integer())
-    # Bends one looked-up chunk lift after proving: the verdict must
-    # refuse, or the lookup was decorative.
-    field(:tamper, boolean(), default: false)
   end
 
-  @doc """
-  I queue an interpreted UAIR: its columns tagged by cell width, the
-  public prefix the verifier reads in the clear, the shifts, one postfix
-  constraint program, the binary shadow columns, and the BitPoly lookups
-  declared on them.
-  """
+  @doc "I queue an interpreted UAIR on the prover thread."
   @spec prove_fol(Payload.t()) :: {:ok, pos_integer()} | {:error, String.t()}
   def prove_fol(payload), do: Zkfol.ZincPlus.Native.prove_fol(payload)
 
@@ -80,8 +83,8 @@ defmodule Zkfol.ZincPlus do
   def pcs_params, do: Zkfol.ZincPlus.Native.pcs_params()
 
   @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
-  @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
-  def request(%Uair{} = uair, opts \\ []) do
+  @spec request(Uair.t()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
+  def request(%Uair{} = uair) do
     values = List.flatten(uair.columns)
     reads = reads(uair.mode)
 
@@ -95,14 +98,12 @@ defmodule Zkfol.ZincPlus do
           program: uair.program,
           cells: cells(uair, values),
           word_lookups: uair.word_lookups,
+          selected_lookups: uair.selected_lookups,
+          point_ties: uair.point_ties,
           reads: reads,
-          num_vars: Uair.num_vars(uair),
-          tamper: Keyword.get(opts, :tamper, false)
+          num_vars: Uair.num_vars(uair)
         })
 
-      # The backend answers in prose either way; it is read into a
-      # refusal here so no caller has to tell a rejected proof from a
-      # malformed lookup by matching on text.
       with {:error, said} <- queued, do: {:error, Refusal.from_backend(said)}
     end
   end
@@ -127,16 +128,13 @@ defmodule Zkfol.ZincPlus do
     )
   end
 
-  # The composed reads the mode owes the NIF; its pointer bounds ride the
-  # uair's word lookups, the way a naturality's does.
   @spec reads(Uair.mode()) :: [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}]
   defp reads(%Plain{}), do: []
 
   defp reads(%Composed{reads: reads}),
     do: for(r <- reads, do: {r.value_row, r.bit_rows, r.result_row})
 
-  # A claimed row is public, and the pointer query binds witness columns
-  # only; refuse by name before the NIF refuses by panic.
+  # The pointer query binds witness columns only; refuse by name before the NIF panics.
   @spec unclaimed(
           [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}],
           non_neg_integer()
@@ -149,8 +147,6 @@ defmodule Zkfol.ZincPlus do
     )
   end
 
-  # The widest value decides the transport; the limbing stays on this side
-  # of the NIF, so Rust only unpacks what it is handed.
   @spec cells(Uair.t(), [integer()]) :: cells()
   defp cells(uair, values) do
     cond do
@@ -165,7 +161,6 @@ defmodule Zkfol.ZincPlus do
   defp non_negative(values),
     do: Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}})
 
-  # Values as little-endian base-2^64 digits, the wide cells' transport.
   @spec limbed(Uair.t()) :: [[[non_neg_integer()]]]
   defp limbed(uair),
     do:

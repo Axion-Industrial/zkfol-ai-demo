@@ -40,17 +40,14 @@ defmodule Zkfol.Refusal do
          step_head_not_indexed step_beyond_history
          step_needs_an_equation not_order_two step_not_linear no_relations
          unbound_variable relation_not_in_scope
-         conflicting_schedule_offsets lookup_column_unshadowed
          read_row_claimed
          unliftable_term head_not_a_column arguments_exceed_rows
-         len_needs_a_bound_count residue modulus_not_literal
-         region_shape_mismatch region_uninterpreted existential_unfilled
-         lookup_width_mismatch lookup_chunk_indivisible naturality_undischarged)a,
+         len_needs_a_bound_count residue)a,
     out_of_range: ~w(precedes_base_case read_row_outside_witness
          pointer_row_outside_matrix claim_outside_witness witness_value_negative
          heap_exhausted unresolved_within_budget value_exceeds_cell
          constant_exceeds_cell)a,
-    false_statement: ~w(witness_invalid witness_unsatisfies_schedule verifier_rejected
+    false_statement: ~w(witness_unsatisfies_schedule verifier_rejected
          no_answer)a,
     transport: ~w(prover_timeout prover_died prover_failed send_failed)a
   }
@@ -106,39 +103,12 @@ defmodule Zkfol.Refusal do
   end
 
   @doc """
-  I am `map/2` threading a state through the walk, as `Enum.map_reduce/3`
-  would were a step able to refuse.
-  """
-  @spec map_reduce(Enumerable.t(), state, (term(), state -> {:ok, term(), state} | {:error, t()})) ::
-          {:ok, [term()], state} | {:error, t()}
-        when state: term()
-  def map_reduce(enum, state, fun) do
-    enum
-    |> Enum.reduce_while({:ok, [], state}, fn elem, {:ok, acc, state} ->
-      case fun.(elem, state) do
-        {:ok, value, state} -> {:cont, {:ok, [value | acc], state}}
-        refusal -> {:halt, refusal}
-      end
-    end)
-    |> case do
-      {:ok, values, state} -> {:ok, Enum.reverse(values), state}
-      refusal -> refusal
-    end
-  end
-
-  @doc """
   I read the backend's prose back into a refusal. zinc+ answers with a
   sentence, so the classifying happens once here rather than at every
   caller that has to tell a false statement from a dead prover.
   """
   @spec from_backend(String.t()) :: t()
   def from_backend("verifier failed" <> _rest = said), do: {:verifier_rejected, %{said: said}}
-
-  def from_backend("lookup column " <> _rest = said),
-    do: {:lookup_column_unshadowed, %{said: said}}
-
-  def from_backend("lookup width " <> _rest = said), do: {:lookup_width_mismatch, %{said: said}}
-  def from_backend("chunk width " <> _rest = said), do: {:lookup_chunk_indivisible, %{said: said}}
   def from_backend(said), do: {:prover_failed, %{said: said}}
 
   @doc """
@@ -193,13 +163,19 @@ defmodule Zkfol.Refusal do
   def message({:unbound_variable, %{variable: name}}),
     do: "the variable #{name} is not bound by the head or a call"
 
+  def message({:unbound_variable, %{goals: goals}}),
+    do: "the goals #{inspect(goals)} name a variable no clause binds"
+
+  def message({:unbound_variable, %{equation: {a, b}}}),
+    do: "the equation #{inspect(a)} = #{inspect(b)} binds no variable"
+
   def message({:read_row_claimed, %{row: row}}),
     do:
       "row #{row} is both claimed and part of a composed read; " <>
         "the pointer query binds witness columns only"
 
-  def message({:naturality_undischarged, %{term: term}}),
-    do: "natural(#{inspect(term)}) names no row; only a cell discharges as a lookup"
+  def message({:selection_outside_trace, %{cell: cell, column: x}}),
+    do: "no selection names #{inspect(cell)} at column #{x}: outside the trace"
 
   def message({:unliftable_term, %{term: term}}),
     do: "no clause lowers the term #{inspect(term)}"
@@ -209,9 +185,6 @@ defmodule Zkfol.Refusal do
 
   def message({:relation_not_in_scope, %{relation: name}}),
     do: "the relation #{name} is not in scope"
-
-  def message({:conflicting_schedule_offsets, %{row: row, offsets: offsets}}),
-    do: "pointer row #{row} has conflicting schedule offsets #{inspect(offsets)}"
 
   def message({:read_row_outside_witness, %{row: row}}),
     do: "the composed read names row #{row} outside the witness"
@@ -231,26 +204,11 @@ defmodule Zkfol.Refusal do
   def message({:no_answer, %{}}),
     do: "the question found no answer: nothing derives those values"
 
-  def message({:modulus_not_literal, %{modulus: m}}),
-    do: "mod needs a literal modulus, not #{inspect(m)}; pin a value with ^"
-
-  def message({:region_shape_mismatch, %{symbol: sym, rows: rows, region: width}}),
-    do: "region #{sym} holds #{width} rows; the interpretation lays #{rows}"
-
-  def message({:region_uninterpreted, %{symbol: sym}}),
-    do: "region #{sym} has no rows in the interpretation"
-
-  def message({:existential_unfilled, %{symbol: sym}}),
-    do: "#{sym} opens existential rows the lay never filled"
-
   def message({:residue, %{answer: answer}}),
     do: "the search answered with rows still open: #{inspect(answer)}; pin one and ask again"
 
   def message({:unresolved_within_budget, %{reductions: n}}),
     do: "no verdict within #{n} reductions; CLP or a bound count may reach it"
-
-  def message({:witness_invalid, %{}}),
-    do: "the derived witness does not satisfy the judgement"
 
   def message({:witness_unsatisfies_schedule, %{column: x}}),
     do: "the witness does not satisfy the scheduled statement at column #{x}"

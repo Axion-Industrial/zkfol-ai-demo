@@ -41,6 +41,22 @@ defmodule Zkfol.Prims do
     nth(n - 1, t, v)
   end
 
+  # One branch stands above, the other below: apart either way.
+  defrel neq(a, b, s) do
+    a = b + 1 + s
+    natural(s)
+  end
+
+  defrel neq(a, b, s) do
+    b = a + 1 + s
+    natural(s)
+  end
+
+  # AL narrows a free grid by `all_dif`; pairwise slack has no bound and exhausts the heap.
+  @phi {Zkfol.Ast, :distinct}
+  @al quote(do: all_dif(cells))
+  defrel all_distinct(cells)
+
   defrel mod(e, m, r, q) do
     e = m * q + r
     r < m

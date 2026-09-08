@@ -1,389 +1,366 @@
 defmodule Zkfol.Lay do
   @moduledoc """
   I am the lay as a value: how one allocation placed one derivation.
-  The shape names the rows, the alloc numbers them, the derivation
-  says what was established, and I add what only the placement knows:
-  each fact's column, each pointer's weld, each consumption on its
-  rows, each guard's slack, each reduction's quotient. The witness is
-  my matrix; the arrows, aims, and regions are readings of me. Born
-  in the solve's link-and-lay act, I ride
-  `Zkfol.Statement.Solved`, so what a viewer draws is what a value
-  holds.
-
-  Everything cross-position is index-form, the i-th entry speaking of
-  the derivation's i-th fact, so I ride the bridge whole. Reading me:
-  `columns` says which trace column the i-th fact was dealt onto;
-  `consumption` says, per fact, `{ptr_row, callee_index}`: it
-  consumed the callee-th fact through that committed pointer row;
-  `slack` says, per fact, the room its fired clause's guards left,
-  the k-th entry what the k-th slack row holds at that fact's column,
-  a clause with fewer guards saying less and the rest padding;
-  `quot` says the same of its reductions, the k-th entry the quotient
-  the k-th mod site divided out;
-  `welds` says `{ptr_row, k}`: every consumption through that row
-  lands exactly k columns back, so the pointer becomes a shift. The
-  columns are arranged precisely so the welds hold: one is the
-  choice, the other the property it achieves. The shape earns its
-  seat beyond labels: `witness` reads its tags, pointer rows, and
-  bank widths, `aims` its calls; only the named predicate inside it
-  is baggage, kept so I describe the whole linked act.
 
   ### Public API
 
-  - `of/4` — the placement computed once.
-  - `witness/1` — my matrix as the laid interpretation.
-  - `arrows/1` — one arrow per consumption between laid columns.
-  - `aims/1` — each pointer row beside the caller entailing it.
-  - `regions/1` — the alloc's banks by name and absolute rows.
+  - `of/2`: the placement computed once.
+  - `witness/1`: my matrix as the laid interpretation.
+  - `claims/2`: the cells the parameters an act opens hold, by row.
+  - `arrows/1`: one arrow per consumption between laid columns.
+  - `addresses/1`: each address row beside the member holding it.
+  - `regions/1`: the alloc's banks by name and absolute rows.
+  - `at/2`, `head/1`: where a slot's cell stands, and where a run of cells starts.
   """
 
   use TypedStruct
 
   alias Zkfol.Alloc
+  alias Zkfol.Alloc.Member
+  alias Zkfol.Alloc.Site
+  alias Zkfol.Alloc.Slot
+  alias Zkfol.Ast
   alias Zkfol.Derivation
   alias Zkfol.Interpretation
-  alias Zkfol.Lang
-  alias Zkfol.Lang.Rel
   alias Zkfol.Refusal
 
-  @typep site :: {[term()], [term()], [Zkfol.Ast.row_ref()]}
+  @typedoc "One fact standing on one member: where it stands and what its calls consumed."
+  @type stand :: %{
+          fact: Derivation.fact(),
+          member: atom(),
+          column: pos_integer(),
+          uses: [use()]
+        }
+
+  @typedoc "One consumption: the site that made it, and the fact it took."
+  @type use :: {Site.t(), Derivation.fact()}
+
+  @typedoc "Where a reading puts what it consumed: the column it names, or a column of its own."
+  @type aim :: pos_integer() | {:free, pos_integer()}
+
+  @typedoc "Which parameter an act opens: the head variable, or its 1-based position."
+  @type parameter :: atom() | pos_integer()
+
+  @typedoc "What an act opens: a parameter of the root or a member, or one cell of it by index."
+  @type opening :: parameter() | {atom(), parameter()} | {atom(), parameter(), integer()}
 
   typedstruct enforce: true do
-    field(:shape, Zkfol.Lang.shape())
     field(:alloc, Alloc.t())
     field(:derivation, Derivation.t())
-    field(:columns, [pos_integer()])
-    field(:welds, [{pos_integer(), pos_integer()}])
-    field(:consumption, [[{pos_integer(), non_neg_integer()}]])
-    field(:slack, [[integer()]])
-    field(:quot, [[integer()]])
+    field(:stands, [stand()])
   end
 
-  @doc """
-  I compute the placement once: consumption on its rows, the welds
-  measured off the edges, the columns arranged so welded consumers
-  sit exactly k above their callees. The derivation names the clause
-  each fact fired, so its site is a lookup.
-  """
-  @spec of(Derivation.t(), Alloc.t(), Zkfol.Lang.shape(), [Rel.t()]) :: t()
-  def of(
-        %Derivation{facts: facts, edges: edges, clauses: clauses} = derivation,
-        alloc,
-        shape,
-        members
-      ) do
-    arr = List.to_tuple(facts)
-    sites = sites(members, shape)
+  @doc "I take the join of the derivation and alloc to form information for laying."
+  @spec of(Derivation.t(), Alloc.t()) :: t()
+  def of(%Derivation{} = derivation, %Alloc{members: [root | _rest]} = alloc) do
+    lay = %__MODULE__{alloc: alloc, derivation: derivation, stands: []}
 
-    fired =
-      Enum.zip_with(facts, clauses, fn {name, _tuple}, clause ->
-        sites |> Map.fetch!(name) |> Enum.at(clause)
-      end)
-
-    consumption =
-      Enum.zip_with(fired, edges, fn {_head, _body, ptrs}, callees ->
-        for {p, callee} <- Enum.zip(ptrs, callees), do: {row(alloc, p), callee}
-      end)
-
-    schedules = measured(consumption, arr)
-
-    filled =
-      Enum.zip_with([facts, fired, edges], fn [fact, site, callees] ->
-        filled(fact, site, for(i <- callees, do: elem(arr, i)))
-      end)
-
-    %__MODULE__{
-      shape: shape,
-      alloc: alloc,
-      derivation: derivation,
-      columns: arrange(consumption, schedules),
-      welds: Enum.sort(schedules),
-      consumption: consumption,
-      slack: Enum.map(filled, &elem(&1, 0)),
-      quot: Enum.map(filled, &elem(&1, 1))
-    }
+    case Derivation.root(derivation, root.relation) do
+      nil -> lay
+      fact -> descend([{fact, root.name, {:free, 1}}], lay)
+    end
   end
 
-  @doc """
-  I am my matrix: each fact's tuple on its member's rows at its
-  column, the tag row wearing its relation, each pointer holding the
-  consumed column, each slack cell the room its guard left, each
-  quotient cell what its reduction divided out. An unread cell pads
-  zero, or one on a pointer row, since an unread pointer still names
-  a column. A cell unification left free reads zero.
-  """
-  @spec witness(t()) :: {:ok, Interpretation.t()} | {:error, Refusal.t()}
-  def witness(%__MODULE__{alloc: alloc, shape: shape, derivation: derivation} = lay) do
-    pointer_rows = pointer_rows(alloc, shape)
-    slack_rows = region_rows(alloc, shape, :slack)
-    quot_rows = region_rows(alloc, shape, :quot)
-    placed = List.to_tuple(lay.columns)
+  @doc "I am my matrix; an unread cell pads zero, or one on an address row."
+  @spec witness(t()) :: Interpretation.t()
+  def witness(%__MODULE__{alloc: alloc, stands: stands} = lay) do
+    cells = Map.new(Enum.flat_map(stands, &laid(&1, lay)))
 
-    columns =
-      [derivation.facts, lay.consumption, lay.slack, lay.quot, lay.columns]
-      |> Enum.zip()
-      |> Enum.sort_by(fn {_fact, _used, _spare, _quots, column} -> column end)
-      |> Enum.map(fn {{name, tuple}, used, spare, quots, _column} ->
-        cells = alloc |> Alloc.rows(name) |> Enum.zip(tuple) |> Map.new()
+    len = Enum.max([1 | for({{_row, x}, _value} <- cells, do: x)])
+    aimed = MapSet.new(addresses(lay), & &1.ptr)
 
-        cells =
-          if shape.tags == %{},
-            do: cells,
-            else: Map.put(cells, row(alloc, {:tag, 1}), Map.fetch!(shape.tags, name))
-
-        cells
-        |> Map.merge(Map.new(used, fn {ptr, callee} -> {ptr, elem(placed, callee)} end))
-        |> Map.merge(Map.new(Enum.zip(slack_rows, spare)))
-        |> Map.merge(Map.new(Enum.zip(quot_rows, quots)))
-      end)
-
-    matrix =
-      for r <- 1..Alloc.width(alloc) do
-        for cells <- columns do
-          cells
-          |> Map.get(r, if(MapSet.member?(pointer_rows, r), do: 1, else: 0))
-          |> Derivation.free_to_zero()
-        end
+    Interpretation.new(
+      for row <- 1..Alloc.width(alloc) do
+        for x <- 1..len,
+            do:
+              cells
+              |> Map.get({row, x}, if(row in aimed, do: 1, else: 0))
+              |> Derivation.free_to_zero()
       end
-
-    with :ok <-
-           Refusal.refute(
-             List.flatten(matrix),
-             &(&1 < 0),
-             &{:witness_value_negative, %{value: &1}}
-           ),
-         do: Alloc.interpret(alloc, banks(matrix, alloc))
+    )
   end
 
   @doc """
-  I am one arrow per consumption edge between laid columns: from the
-  consumer's column to the consumed fact's, named by the pointer row
-  it went through, wearing the weld k when the pointer welds.
+  I am the cells the parameters `public` opens hold, the member's presence beside each: a
+  bare parameter the root's, `{relation, parameter}` a member's, with `index` one cell.
   """
+  @spec claims(t(), [opening()]) :: {:ok, [Interpretation.claim()]} | {:error, Refusal.t()}
+  def claims(_lay, []), do: {:ok, []}
+
+  def claims(%__MODULE__{alloc: alloc} = lay, public) do
+    with {:ok, named} <- Refusal.flat_map(public, &opened(&1, lay)) do
+      {:ok,
+       Enum.uniq(
+         for {name, ref, x} <- named,
+             {label, at} <- [{name, ref} | presence(ref, alloc)] do
+           {label, Alloc.row(alloc, at), x}
+         end
+       )}
+    end
+  end
+
+  @doc "I am one arrow per consumption between laid columns, named by the address row if any."
   @spec arrows(t()) :: [
           %{
-            ptr: pos_integer(),
+            ptr: pos_integer() | nil,
+            from_row: pos_integer(),
             from: pos_integer(),
             to: pos_integer(),
-            to_row: pos_integer(),
-            weld: pos_integer() | nil
+            to_row: pos_integer()
           }
         ]
-  def arrows(%__MODULE__{alloc: alloc, derivation: derivation} = lay) do
-    schedules = Map.new(lay.welds)
-    placed = List.to_tuple(lay.columns)
-    facts = List.to_tuple(derivation.facts)
-
-    for {used, i} <- Enum.with_index(lay.consumption), {ptr, callee} <- used do
+  def arrows(%__MODULE__{alloc: alloc} = lay) do
+    for stand <- lay.stands,
+        {%Site{callee: callee, address: address}, _fact} = use <- stand.uses do
       %{
-        ptr: ptr,
-        from: elem(placed, i),
-        to: elem(placed, callee),
-        to_row: Alloc.offset(alloc, facts |> elem(callee) |> elem(0)) + 1,
-        weld: Map.get(schedules, ptr)
+        ptr: Alloc.aimed(alloc, address),
+        from_row: Alloc.presence(alloc, stand.member),
+        from: stand.column,
+        to: standing(lay, stand, use),
+        to_row: Alloc.presence(alloc, callee)
       }
     end
   end
 
-  @doc """
-  I am each pointer row beside the member entailing it: the caller,
-  whose clause makes the call, so a viewer groups the pointer with
-  the caller's bank while its label says the callee.
-  """
-  @spec aims(t()) :: [%{ptr: pos_integer(), member: atom()}]
-  def aims(%__MODULE__{shape: %{pointers: []}}), do: []
-
-  def aims(%__MODULE__{shape: shape, alloc: alloc}) do
-    callers =
-      for {name, per_clause} <- shape.calls, ptrs <- per_clause, {:ptr, n} <- ptrs, reduce: %{} do
-        acc -> Map.put_new(acc, n, name)
-      end
-
-    for {row, i} <- Enum.with_index(Alloc.rows(alloc, :ptr), 1),
-        member = callers[i],
-        do: %{ptr: row, member: member}
+  @doc "I am each address row beside the member holding it."
+  @spec addresses(t()) :: [%{ptr: pos_integer(), member: atom()}]
+  def addresses(%__MODULE__{alloc: alloc}) do
+    for member <- alloc.members,
+        calls <- member.sites,
+        %Site{address: address} <- calls,
+        ptr = Alloc.aimed(alloc, address),
+        uniq: true,
+        do: %{ptr: ptr, member: member.name}
   end
 
   @doc "I am the alloc's banks by name and absolute rows."
-  @spec regions(t()) :: [%{name: atom(), first: pos_integer(), last: pos_integer()}]
-  def regions(%__MODULE__{alloc: %Alloc{regions: regions} = alloc}) do
-    for {name, _width} <- regions do
+  @spec regions(t() | Alloc.t()) :: [
+          %{name: atom(), first: pos_integer(), last: pos_integer()}
+        ]
+  def regions(%__MODULE__{alloc: alloc}), do: regions(alloc)
+
+  def regions(%Alloc{} = alloc) do
+    for {name, _width} <- Alloc.regions(alloc) do
       rows = Alloc.rows(alloc, name)
       %{name: name, first: rows.first, last: rows.last}
     end
   end
 
+  @doc """
+  I am where the `index`-th cell of `slot`'s run stands: an address in the column
+  its member stands at, which `Ast.column/2` reads as a number.
+  """
+  @spec at(Slot.t(), non_neg_integer()) :: Ast.address()
+  def at(%Slot{at: {mul, add}}, index), do: Ast.address(:x, mul, add - index)
+
+  @doc """
+  I am where a run of `extent` cells has its head: the column one past its end,
+  its cells running leftward from there. A run of no fixed extent has no head.
+  """
+  @spec head({integer(), integer()} | non_neg_integer() | :open) :: Ast.address() | nil
+  def head({mul, add}), do: Ast.address(:x, mul, add + 1)
+  def head(count) when is_integer(count), do: head({0, count})
+  def head(:open), do: nil
+
   ############################################################
   #                   Private Implementation                 #
   ############################################################
 
-  # Each member's clauses as call sites, its calls' pointer names in
-  # body order, so the clause the derivation names indexes into them.
-  @spec sites([Rel.t()], Zkfol.Lang.shape()) :: %{atom() => [site()]}
-  defp sites(members, shape) do
-    Map.new(members, fn rel ->
-      {rel.name,
-       rel.clauses
-       |> Enum.zip(Map.fetch!(shape.calls, rel.name))
-       |> Enum.map(fn {{head, body}, ptrs} -> {head, body, ptrs} end)}
-    end)
-  end
+  @spec opened(opening(), t()) ::
+          {:ok, [{String.t(), Ast.row_ref(), pos_integer()}]} | {:error, Refusal.t()}
+  defp opened({relation, parameter, index}, lay), do: spent(relation, parameter, index, lay)
 
-  # What one fact left its committed banks to hold: the room each slack
-  # site of the clause that fired leaves, and what each mod site
-  # divided out, read where that clause bound its names.
-  @spec filled(Derivation.fact(), site(), [Derivation.fact()]) :: {[integer()], [integer()]}
-  defp filled({_name, tuple}, {_head, body, _ptrs} = site, used) do
-    env = env(site, tuple, used)
+  defp opened({relation, parameter}, lay), do: spent(relation, parameter, nil, lay)
 
-    {for({op, t, u} <- Lang.slacks(body), do: gap(op, ground(t, env), ground(u, env))),
-     for({_r, e, m} <- Lang.mods(body), do: div(ground(e, env), m))}
-  end
+  defp opened(parameter, %__MODULE__{alloc: alloc} = lay),
+    do: spent(Alloc.root(alloc).name, parameter, nil, lay)
 
-  # Where the fired clause bound its names: the head against the fact's
-  # own tuple, each call's outputs against the tuple it consumed past
-  # the index.
-  @spec env(site(), [term()], [Derivation.fact()]) :: %{atom() => term()}
-  defp env({head, body, _ptrs}, tuple, used) do
-    outputs =
-      for({:call, _name, [_at | outs]} <- body, do: outs)
-      |> Enum.zip(used)
-      |> Enum.flat_map(fn {outs, {_name, consumed}} -> Enum.zip(outs, Enum.drop(consumed, 1)) end)
-
-    Map.merge(
-      Map.new(for {{:var, nm}, q} <- Enum.zip(head, tuple), do: {nm, Derivation.free_to_zero(q)}),
-      Map.new(outputs, fn {{:var, nm}, q} -> {nm, Derivation.free_to_zero(q)} end)
-    )
-  end
-
-  # A site the placement fills is ground: the clause fired on it.
-  @spec ground(term(), %{atom() => term()}) :: integer()
-  defp ground(term, env) do
-    {:ok, q} = Lang.value(term, env)
-    q
-  end
-
-  @spec gap(atom(), integer(), integer()) :: integer()
-  defp gap(:>, a, b), do: a - b - 1
-  defp gap(:>=, a, b), do: a - b
-  defp gap(:<, a, b), do: b - a - 1
-  defp gap(:<=, a, b), do: b - a
-
-  # The absolute row a {symbol, offset} reference lands on.
-  @spec row(Alloc.t(), {atom(), pos_integer()}) :: pos_integer()
-  defp row(alloc, {sym, i}), do: Alloc.offset(alloc, sym) + i
-
-  # The matrix cut along the regions it was laid on.
-  @spec banks([[non_neg_integer()]], Alloc.t()) :: %{atom() => Interpretation.t()}
-  defp banks(matrix, %Alloc{regions: regions} = alloc) do
-    Map.new(regions, fn {name, width} ->
-      {name, matrix |> Enum.slice(Alloc.offset(alloc, name), width) |> Interpretation.new()}
-    end)
-  end
-
-  # An unread cell on a pointer row still names a column.
-  @spec pointer_rows(Alloc.t(), Zkfol.Lang.shape()) :: MapSet.t()
-  defp pointer_rows(_alloc, %{pointers: []}), do: MapSet.new()
-  defp pointer_rows(alloc, _shape), do: alloc |> Alloc.rows(:ptr) |> MapSet.new()
-
-  # A bank's rows in order, a clause's k-th site reading the k-th.
-  @spec region_rows(Alloc.t(), Zkfol.Lang.shape(), atom()) :: [pos_integer()]
-  defp region_rows(alloc, shape, sym) do
-    if Map.get(shape, sym, 0) == 0, do: [], else: Enum.to_list(Alloc.rows(alloc, sym))
-  end
-
-  # A pointer welds when every consumption through it is the same
-  # relation descending its first argument by one constant: measured
-  # off the edges.
-  @spec measured([[{pos_integer(), non_neg_integer()}]], tuple()) ::
-          %{pos_integer() => pos_integer()}
-  defp measured(consumption, facts) do
-    consumption
-    |> Enum.with_index()
-    |> Enum.flat_map(fn {used, i} ->
-      for {ptr, callee} <- used, do: {ptr, i, callee}
-    end)
-    |> Enum.group_by(&elem(&1, 0), fn {_ptr, i, j} -> delta(elem(facts, i), elem(facts, j)) end)
-    |> Enum.flat_map(fn {ptr, deltas} ->
-      case Enum.uniq(deltas) do
-        [k] when is_integer(k) and k > 0 -> [{ptr, k}]
-        _varying -> []
-      end
-    end)
-    |> Map.new()
-  end
-
-  @spec delta(Derivation.fact(), Derivation.fact()) :: integer() | nil
-  defp delta({name, [ci | _]}, {name, [ui | _]}) when is_integer(ci) and is_integer(ui),
-    do: ci - ui
-
-  defp delta(_consumer, _callee), do: nil
-
-  # A scheduled read welds its consumer exactly k above its callee;
-  # the rest keeps callees below their callers. The i-th answer is the
-  # i-th fact's column.
-  @spec arrange([[{pos_integer(), non_neg_integer()}]], %{pos_integer() => pos_integer()}) ::
-          [pos_integer()]
-  defp arrange(consumption, schedules) do
-    forest =
-      Map.new(
-        for {used, i} <- Enum.with_index(consumption),
-            {ptr, callee} <- used,
-            k = Map.get(schedules, ptr),
-            is_integer(k),
-            do: {callee, {i, -k}}
-      )
-
-    {walked, _seen} =
-      Enum.map_reduce(0..(length(consumption) - 1)//1, %{}, fn i, seen ->
-        {place, seen} = walk(forest, i, seen)
-        {{place, i}, seen}
-      end)
-
-    roots = for {{root, _delta}, _i} <- walked, uniq: true, do: root
-    grouped = Enum.group_by(walked, fn {{root, _delta}, _i} -> root end)
-
-    position =
-      roots
-      |> Enum.flat_map(fn root ->
-        grouped |> Map.fetch!(root) |> Enum.sort_by(fn {{_root, delta}, _i} -> delta end)
-      end)
-      |> Enum.with_index(1)
-      |> Map.new(fn {{_place, i}, column} -> {i, column} end)
-
-    Enum.map(0..(length(consumption) - 1)//1, &Map.fetch!(position, &1))
-  end
-
-  # pos(i) = pos(root) + delta, the forest carrying the deltas and
-  # `seen` each place once, so a chain walks its length, not its
-  # square.
-  @spec walk(map(), non_neg_integer(), map()) ::
-          {{non_neg_integer(), integer()}, map()}
-  defp walk(forest, i, seen) do
-    case seen do
-      %{^i => place} ->
-        {place, seen}
-
-      _seen ->
-        case forest do
-          %{^i => {parent, delta}} ->
-            {{root, above}, seen} = walk(forest, parent, seen)
-            place = {root, delta + above}
-            {place, Map.put(seen, i, place)}
-
-          _forest ->
-            {{i, 0}, seen}
-        end
+  @spec spent(atom(), parameter(), integer() | nil, t()) ::
+          {:ok, [{String.t(), Ast.row_ref(), pos_integer()}]} | {:error, Refusal.t()}
+  defp spent(relation, parameter, index, %__MODULE__{alloc: alloc} = lay) do
+    with {:ok, member} <-
+           held(Alloc.member(alloc, relation), {:relation_not_in_scope, %{relation: relation}}),
+         {:ok, slot} <-
+           held(Member.slot(member, parameter), {:unbound_variable, %{variable: parameter}}),
+         {:ok, columns} <- columns(slot, member, index, lay) do
+      {:ok,
+       for(x <- columns, ref <- spends(slot, member), do: {"#{member.name}.#{slot.name}", ref, x})}
     end
   end
+
+  # An index spends no row; opening it opens the presence at the column.
+  @spec spends(Slot.t(), Member.t()) :: [Ast.row_ref()]
+  defp spends(%Slot{rows: []}, %Member{present: present}), do: [present]
+  defp spends(%Slot{rows: rows}, _member), do: rows
+
+  @spec presence(Ast.row_ref(), Alloc.t()) :: [{String.t(), Ast.row_ref()}]
+  defp presence({sym, _i}, alloc) do
+    case Alloc.member(alloc, sym) do
+      %Member{present: present} -> [{"in", present}]
+      nil -> []
+    end
+  end
+
+  defp presence(_ref, _alloc), do: []
+
+  @spec held(term(), Refusal.t()) :: {:ok, term()} | {:error, Refusal.t()}
+  defp held(nil, refusal), do: {:error, refusal}
+  defp held(found, _refusal), do: {:ok, found}
+
+  @spec columns(Slot.t(), Member.t(), integer() | nil, t()) ::
+          {:ok, [pos_integer()]} | {:error, Refusal.t()}
+  defp columns(%Slot{rows: [_ | _]} = slot, _member, index, _lay)
+       when is_integer(index) and slot.at != nil,
+       do: {:ok, [Ast.column(head(index), 0)]}
+
+  defp columns(_slot, %Member{name: name} = member, index, _lay) when is_integer(index) do
+    with {:ok, x} <- held(Member.column(member, index), {:beyond_the_rows, %{relation: name}}),
+         do: {:ok, [x]}
+  end
+
+  defp columns(%Slot{rows: [_ | _]} = slot, member, _index, lay) when slot.at != nil do
+    with {:ok, {cells, x}} <-
+           held(spelt(slot, member, lay), {:beyond_the_rows, %{sequence: Slot.owner(slot)}}),
+         do: {:ok, for(p <- (length(cells) - 1)..0//-1, do: Ast.column(at(slot, p), x))}
+  end
+
+  defp columns(_slot, %Member{name: name}, _index, %__MODULE__{stands: stands}) do
+    with {:ok, %{fact: fact}} <-
+           held(Enum.find(stands, &(&1.member == name)), {:beyond_the_rows, %{relation: name}}),
+         do:
+           {:ok, for(stand <- stands, stand.member == name, stand.fact == fact, do: stand.column)}
+  end
+
+  @spec spelt(Slot.t(), Member.t(), t()) :: {[term()], pos_integer()} | nil
+  defp spelt(slot, %Member{name: name, slots: slots}, %__MODULE__{} = lay) do
+    with %{fact: {_relation, tuple}, column: x} <- Enum.find(lay.stands, &(&1.member == name)),
+         cells when is_list(cells) <- Enum.at(tuple, Enum.find_index(slots, &(&1 == slot))),
+         do: {cells, x},
+         else: (_unheld -> nil)
+  end
+
+  @spec descend([{Derivation.fact(), atom(), aim()}], t()) :: t()
+  defp descend([], %__MODULE__{stands: stands} = lay), do: %{lay | stands: Enum.reverse(stands)}
+
+  defp descend([{{_relation, tuple} = fact, name, aim} | rest], %__MODULE__{} = lay) do
+    %__MODULE__{alloc: alloc, derivation: derivation, stands: stands} = lay
+    member = Alloc.member(alloc, name)
+    taken = MapSet.new(for stand <- stands, stand.member == name, do: stand.column)
+    column = placed(aim, member, tuple, taken)
+
+    if Enum.any?(stands, &(&1.fact == fact and &1.member == name and &1.column == column)) do
+      descend(rest, lay)
+    else
+      sites = Enum.at(member.sites, Derivation.clause(derivation, fact) || length(member.sites))
+      uses = consumed(sites || [], Derivation.consumed(derivation, fact), alloc)
+      stand = %{fact: fact, member: name, column: column, uses: uses}
+
+      reached =
+        for {%Site{callee: callee, address: address}, took} <- uses,
+            do: {took, callee, aimed(address, column)}
+
+      descend(rest ++ reached, %{lay | stands: [stand | stands]})
+    end
+  end
+
+  # Inlining erases sites, not source calls: join by the occurrence in the original clause.
+  @spec consumed([Site.t()], [Derivation.fact()], Alloc.t()) :: [use()]
+  defp consumed(sites, facts, alloc = %Alloc{}) do
+    by_relation = Enum.group_by(facts, &elem(&1, 0))
+
+    for site = %Site{callee: callee, occurrence: occurrence} <- sites,
+        %Member{relation: relation} = Alloc.member(alloc, callee),
+        fact <- Enum.slice(Map.get(by_relation, relation, []), occurrence, 1),
+        do: {site, fact}
+  end
+
+  @spec aimed(Ast.address(), pos_integer()) :: aim()
+  defp aimed({:at, :x, _mul, _add} = address, column), do: Ast.column(address, column)
+  defp aimed({:at, {:cell, _ptr}, _mul, _add}, column), do: {:free, column}
+
+  # A fact two sites consumed stands under each, at the column each names.
+  @spec standing(t(), stand(), use()) :: pos_integer()
+  defp standing(
+         %__MODULE__{stands: stands},
+         stand,
+         {%Site{callee: callee, address: address}, fact}
+       ) do
+    with {:free, _near} <- aimed(address, stand.column),
+         do: Enum.find_value(stands, 1, &(&1.fact == fact and &1.member == callee and &1.column))
+  end
+
+  # A fact no site addressed stands where its steps put its count, else at a vacant column.
+  @spec placed(aim(), Member.t(), [term()], MapSet.t()) :: pos_integer()
+  defp placed(column, _member, _tuple, _taken) when is_integer(column), do: column
+
+  defp placed({:free, near}, %Member{steps: steps} = member, tuple, taken) do
+    with {j, _origin} <- steps,
+         count when is_integer(count) <- count_of(Enum.at(tuple, j)),
+         do: Member.column(member, count),
+         else: (_uncounted -> vacant(near, taken))
+  end
+
+  @spec count_of(term()) :: integer() | nil
+  defp count_of(q) when is_integer(q), do: q
+  defp count_of(cells) when is_list(cells), do: length(cells)
+  defp count_of(_open), do: nil
+
+  @spec vacant(pos_integer(), MapSet.t()) :: pos_integer()
+  defp vacant(column, used),
+    do: if(MapSet.member?(used, column), do: vacant(column + 1, used), else: column)
+
+  @spec laid(stand(), t()) :: [{{pos_integer(), pos_integer()}, term()}]
+  defp laid(%{member: name, column: x} = stand, %__MODULE__{alloc: alloc} = lay) do
+    member = Alloc.member(alloc, name)
+    {_relation, tuple} = stand.fact
+
+    chosen =
+      for {%Site{address: address}, _fact} = use <- stand.uses,
+          row = Alloc.aimed(alloc, address),
+          do: {{row, x}, standing(lay, stand, use)}
+
+    [{{Alloc.presence(alloc, name), x}, 1}] ++
+      Enum.flat_map(Enum.zip(tuple, member.slots), &spread(&1, x, alloc)) ++ chosen
+  end
+
+  # A slot of a member's own stands at its column; every cell of a sequence on its bank's axis.
+  @spec spread({term(), Slot.t()}, pos_integer(), Alloc.t()) ::
+          [{{pos_integer(), pos_integer()}, term()}]
+  defp spread({value, %Slot{rows: [_ | _], at: nil} = slot}, x, alloc),
+    do: onto(value, slot, x, alloc)
+
+  defp spread({value, %Slot{at: {_mul, _add}} = slot}, x, alloc) when is_list(value) do
+    Enum.flat_map(Enum.with_index(value), fn {cell, p} ->
+      column = Ast.column(at(slot, p), x)
+      [{{Alloc.presence(alloc, Slot.owner(slot)), column}, 1} | onto(cell, slot, column, alloc)]
+    end)
+  end
+
+  defp spread({_value, _slot}, _x, _alloc), do: []
+
+  @spec onto(term(), Slot.t(), pos_integer(), Alloc.t()) ::
+          [{{pos_integer(), pos_integer()}, term()}]
+  defp onto(value, %Slot{rows: rows}, column, alloc),
+    do:
+      for(
+        {cell, row} <- Enum.zip(spent(value, length(rows)), rows),
+        do: {{Alloc.row(alloc, row), column}, cell}
+      )
+
+  # An inner bracket is an earlier dimension, so its cells run onto rows first.
+  @spec spent(term(), non_neg_integer()) :: [term()]
+  defp spent(_cells, 0), do: []
+  defp spent([], k), do: List.duplicate(0, k)
+  defp spent([cell | tail], k) when is_list(cell), do: spent(cell ++ tail, k)
+  defp spent([head | tail], k), do: [head | spent(tail, k - 1)]
+  defp spent(cell, 1), do: [cell]
+  defp spent(_ended, k), do: List.duplicate(0, k)
 end
 
 defimpl Inspect, for: Zkfol.Lay do
   import Inspect.Algebra
 
   def inspect(%Zkfol.Lay{} = lay, _opts) do
-    welds = Enum.map_join(lay.welds, " ", fn {row, k} -> "C#{row} k=#{k}" end)
-
     regions =
       Enum.map_join(Zkfol.Lay.regions(lay), " ", fn %{name: name, first: first, last: last} ->
         "#{name}:#{first}-#{last}"
@@ -391,8 +368,7 @@ defimpl Inspect, for: Zkfol.Lay do
 
     concat([
       "#Zkfol.Lay<",
-      "#{length(lay.columns)} columns · #{regions}",
-      if(welds == "", do: "", else: " · welds " <> welds),
+      "#{Enum.max([1 | for(stand <- lay.stands, do: stand.column)])} columns · #{regions}",
       ">"
     ])
   end

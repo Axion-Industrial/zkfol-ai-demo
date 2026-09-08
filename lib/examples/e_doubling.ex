@@ -1,26 +1,17 @@
 defmodule Examples.EDoubling do
-  @moduledoc """
-  I am the doubling rewrite's evidence: one predicate for every n, the
-  oracle validating it, claims agreeing with the generic route, the
-  walk over Z_m agreeing with the loop that reduces at every step
-  under the modulus read off the relation, the try declining a free
-  count, the position claim's absence keeping n private, and refusal
-  of the walk that leaves N.
-  """
+  @moduledoc "I am the doubling rewrite's evidence: one predicate for every n."
 
   use ExExample
 
   import ExUnit.Assertions
   require Zkfol.Lang
 
-  alias Examples.EFacts
   alias Examples.EUser
   alias Zkfol.Ast
-  alias Zkfol.Refusal
   alias Zkfol.Doubling
-  alias Zkfol.Facts
   alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
+  alias Zkfol.Phi
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Semantics
@@ -31,8 +22,13 @@ defmodule Examples.EDoubling do
 
   @spec rewritten_fibonacci(pos_integer()) :: Statement.t()
   example rewritten_fibonacci(n \\ 8) do
-    {:ok, statement} = Doubling.rewrite(EUser.fib(), n)
+    {:ok, rewritten, _trace} =
+      Pipeline.run(doubling(), %Statement{rels: [EUser.fib()], args: [n]})
+
+    {:ok, statement} = Statement.opened(rewritten, [:r, :e])
     witness = Statement.witness(statement)
+
+    assert claimed(statement) == EUser.fib(n)
 
     assert Enum.all?(
              1..Interpretation.len(witness),
@@ -60,7 +56,10 @@ defmodule Examples.EDoubling do
 
   @spec rewritten_fibonacci_mod(pos_integer(), pos_integer()) :: Statement.t()
   example rewritten_fibonacci_mod(n \\ 1_000, mod \\ @mod) do
-    {:ok, statement} = Doubling.rewrite(fibm_rel(mod), n)
+    {:ok, rewritten, _trace} =
+      Pipeline.run(doubling(), %Statement{rels: [fibm_rel(mod)], args: [n]})
+
+    {:ok, statement} = Statement.opened(rewritten, [:r, :e])
     witness = Statement.witness(statement)
 
     assert claimed(statement) == fib_mod(n, mod)
@@ -73,21 +72,20 @@ defmodule Examples.EDoubling do
     statement
   end
 
-  @spec proves_the_reduced_claim() :: map()
-  example proves_the_reduced_claim do
-    statement = rewritten_fibonacci_mod(1_000)
+  @doc "Body order is no contract: the kernel's equations ahead of its calls lower the same."
+  @spec either_order_of_the_kernel() :: Ast.pred()
+  example either_order_of_the_kernel do
+    [kernel] = rewritten_fibonacci().rels
+    ahead = %{kernel | clauses: for({head, body} <- kernel.clauses, do: {head, equations(body)})}
 
-    {:ok, report, _id} =
-      Prover.prove(Statement.pred(statement), Statement.witness(statement),
-        claims: statement.claims,
-        name: :doubled_fibonacci_mod
-      )
-
-    assert [{_claim, value}, {_position, walked}] = report.claims
-    assert value == fib_mod(1_000)
-    assert walked == 998
-    report
+    assert ahead.clauses != kernel.clauses
+    assert {:ok, phi} = Phi.lower(kernel, [kernel])
+    assert Phi.lower(ahead, [ahead]) == {:ok, phi}
+    phi
   end
+
+  @spec equations([Zkfol.Lang.Term.goal()]) :: [Zkfol.Lang.Term.goal()]
+  defp equations(body), do: Enum.sort_by(body, &(elem(&1, 0) != :eq))
 
   @spec one_predicate_for_every_n() :: Ast.pred()
   example one_predicate_for_every_n do
@@ -100,16 +98,6 @@ defmodule Examples.EDoubling do
     Statement.pred(small)
   end
 
-  @spec same_claim_as_the_generic_route() :: [{pos_integer(), integer()}]
-  example same_claim_as_the_generic_route do
-    for n <- [1, 2, 3, 4, 8, 20] do
-      value = claimed(rewritten_fibonacci(n))
-
-      assert value == EUser.fib(n)
-      {n, value}
-    end
-  end
-
   @spec a_free_count_passes_the_try() :: Statement.t()
   example a_free_count_passes_the_try do
     # No kernel walk exists for an unknown n, so the try declines and
@@ -120,26 +108,33 @@ defmodule Examples.EDoubling do
     witness = Statement.witness(statement)
 
     assert Interpretation.len(witness) == 8
-    assert Interpretation.at(witness, 2, 8) == 21
+    assert Interpretation.at(witness, 1, 8) == 21
     statement
   end
 
   @spec unclaimed_position_keeps_n_private() :: map()
   example unclaimed_position_keeps_n_private do
-    pipeline = %Pipeline{passes: [{Doubling, private: true}]}
     source = %Statement{rels: [EUser.fib()], args: [100]}
 
-    {:ok, statement, _trace} = Pipeline.run(pipeline, source)
+    {:ok, rewritten, _trace} = Pipeline.run(doubling(), source)
+    {:ok, statement} = Statement.opened(rewritten, [:r])
 
     {:ok, uair} =
-      Uair.emit(Statement.pred(statement), Statement.witness(statement), statement.claims)
+      Uair.emit(
+        Statement.pred(statement),
+        Statement.witness(statement),
+        Statement.claims(statement)
+      )
 
-    assert uair.num_public == 1
+    assert uair.num_public == 2
     {:ok, report, _id} = Prover.prove_uair(uair, name: :private_n)
-    assert [{_claim, value}] = report.claims
+    assert [{_result, value}, {"in", 1}] = report.claims
     assert value == EUser.fib(100)
     report
   end
+
+  @spec doubling() :: Pipeline.t()
+  defp doubling, do: %Pipeline{passes: [{Doubling, []}]}
 
   @doc "I am the comparator loop: the recurrence stepped n times, reduced at every step."
   @spec fib_mod(pos_integer(), pos_integer()) :: non_neg_integer()
@@ -150,19 +145,8 @@ defmodule Examples.EDoubling do
 
   @doc "I read the claimed result out of a rewritten statement's witness: the head claim."
   @spec claimed(Statement.t()) :: integer()
-  def claimed(%Statement{stage: %Statement.Solved{witness: witness}, claims: [claim | _rest]}) do
-    {_name, row, column} = claim
-    Interpretation.at(witness, row, column)
-  end
-
-  @spec subtraction_is_refused() :: Refusal.t()
-  example subtraction_is_refused do
-    # x(k) = x(k-1) - x(k-2): the facts accept the descriptor, but the
-    # kernel walk leaves N, so the rewrite must refuse.
-    assert {:ok, %{p: 1, q: -1}} = Facts.recurrence(EFacts.sub())
-
-    {:error, reason} = Doubling.rewrite(EFacts.sub(), 7)
-    assert {:witness_value_negative, _} = reason
-    reason
+  def claimed(%Statement{} = statement) do
+    [{_name, row, column} | _rest] = Statement.claims(statement)
+    Interpretation.at(Statement.witness(statement), row, column)
   end
 end

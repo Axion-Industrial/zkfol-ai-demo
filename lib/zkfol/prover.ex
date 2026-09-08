@@ -71,7 +71,7 @@ defmodule Zkfol.Prover do
     EventBroker.subscribe_me(filter)
 
     try do
-      with :ok <- run(uair, id, opts),
+      with :ok <- run(uair, id),
            do: settled(id, Keyword.get(opts, :timeout, 60_000))
     after
       EventBroker.unsubscribe_me(filter)
@@ -107,8 +107,8 @@ defmodule Zkfol.Prover do
   end
 
   # Queue the uair under its intent, returning once it is in flight.
-  @spec run(Uair.t(), pos_integer(), keyword()) :: :ok | {:error, Refusal.t()}
-  defp run(uair, intent, opts), do: GenServer.call(__MODULE__, {:run, uair, intent, opts})
+  @spec run(Uair.t(), pos_integer()) :: :ok | {:error, Refusal.t()}
+  defp run(uair, intent), do: GenServer.call(__MODULE__, {:run, uair, intent})
 
   @impl true
   def init(inflight) do
@@ -119,8 +119,8 @@ defmodule Zkfol.Prover do
   end
 
   @impl true
-  def handle_call({:run, uair, intent, opts}, _from, inflight) do
-    case ZincPlus.request(uair, opts) do
+  def handle_call({:run, uair, intent}, _from, inflight) do
+    case ZincPlus.request(uair) do
       {:ok, req} -> {:reply, :ok, Map.put(inflight, req, {intent, uair.claims})}
       {:error, _reason} = error -> {:reply, error, inflight}
     end

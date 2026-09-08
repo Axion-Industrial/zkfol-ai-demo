@@ -1,14 +1,7 @@
 defmodule Zkfol.Witness do
   @moduledoc """
-  I am witness generation as a pass: the statement runs and its
-  derivation is the witness, so I carry a raw statement to
-  `Zkfol.Statement.Derived` through `Zkfol.Al.derived/3` and pass
-  every other stage through untouched. The derivation answers on its
-  own; `Zkfol.Lang` lays it against the predicate when a proof is
-  wanted.
-  The statement's arguments drive the derivation, `:args` in my
-  options overriding them; `:bind`, `:heap`, `:branch`, and
-  `:basedon` pass through.
+  I am witness generation as a pass: a raw statement runs and its derivation is the
+  witness, every other stage passing through untouched.
   """
 
   @behaviour Zkfol.Pipeline
@@ -20,9 +13,7 @@ defmodule Zkfol.Witness do
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
   def run(%Statement{stage: :raw} = statement, opts) do
-    args = Keyword.get(opts, :args, statement.args)
-
-    with {:ok, derivation} <- Al.derived(statement, args, opts),
+    with {:ok, derivation} <- Al.derived(statement, statement.args, opts),
          do: {:ok, Statement.derived(statement, derivation)}
   end
 
