@@ -6,7 +6,7 @@ defmodule Zkfol.Uair.Composed do
   constrains the bits to reconstruct the pointer on every branch. Every
   row I add derives from the witness, so the oracle stays the judge.
 
-  `emitted/3` then names those rows in committed-column coordinates,
+  `emitted/2` then names those rows in committed-column coordinates,
   which is what zinc+'s pointer query binds. The bits spell the cube
   index of the address, `len - a(x)`, so the committed columns'
   reversed layout reads directly: result(x) = value at the spelled
@@ -24,7 +24,6 @@ defmodule Zkfol.Uair.Composed do
 
   typedstruct enforce: true do
     field(:reads, [Uair.read()], default: [])
-    field(:lookups, [Uair.lookup()], default: [])
   end
 
   @typedoc "What the lowering derived, or `:plain` when there was nothing to lower."
@@ -79,9 +78,16 @@ defmodule Zkfol.Uair.Composed do
   def value_rows(lowering), do: Enum.map(lowering.pairs, &elem(&1, 0))
 
   @doc "I name the lowering's rows in committed-column coordinates."
-  @spec emitted(map(), %{pos_integer() => non_neg_integer()}, pos_integer()) :: t()
-  def emitted(lowering, cols, mu),
-    do: %__MODULE__{reads: reads(lowering, cols), lookups: lookups(lowering, cols, mu)}
+  @spec emitted(map(), %{pos_integer() => non_neg_integer()}) :: t()
+  def emitted(lowering, cols), do: %__MODULE__{reads: reads(lowering, cols)}
+
+  @doc """
+  I am the rows Definition 3.1(2) bounds: the bits hold a pointer under `len`, the Word
+  table over these rows holds it above zero.
+  """
+  @spec pointer_rows(lowering()) :: [pos_integer()]
+  def pointer_rows(:plain), do: []
+  def pointer_rows(lowering), do: lowering.dynamic
 
   # Holds that the pairs can be lowered against the witness at all:
   # every row they name exists, and every pointer row holds column
@@ -197,9 +203,4 @@ defmodule Zkfol.Uair.Composed do
       }
     end
   end
-
-  # The Word_mu lookup Definition 3.1(2) asks of each dynamic pointer column.
-  @spec lookups(map(), %{pos_integer() => non_neg_integer()}, pos_integer()) :: [Uair.lookup()]
-  defp lookups(lowering, cols, mu),
-    do: for(a <- lowering.dynamic, do: %{row: Map.fetch!(cols, a), table: {:word, mu}})
 end

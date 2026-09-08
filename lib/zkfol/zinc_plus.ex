@@ -44,6 +44,10 @@ defmodule Zkfol.ZincPlus do
     field(:cells, Zkfol.ZincPlus.cells())
     field(:bins, [[non_neg_integer()]], default: [])
     field(:lookups, [Zkfol.ZincPlus.lookup()], default: [])
+    # Word lookups on integer columns: {column, width, chunk width}. A
+    # column declared here proves only if every cell is under 2^width,
+    # which is the range check the surface's comparisons need.
+    field(:word_lookups, [Zkfol.ZincPlus.lookup()], default: [])
     field(:reads, [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}], default: [])
     field(:num_vars, pos_integer())
     # Bends one looked-up chunk lift after proving: the verdict must
@@ -79,9 +83,9 @@ defmodule Zkfol.ZincPlus do
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   def request(%Uair{} = uair, opts \\ []) do
     values = List.flatten(uair.columns)
+    reads = reads(uair.mode)
 
-    with {:ok, bins, lookups, reads} <- mode_payload(uair.mode),
-         :ok <- unclaimed(reads, uair.num_public),
+    with :ok <- unclaimed(reads, uair.num_public),
          :ok <- non_negative(values) do
       queued =
         prove_fol(%Payload{
@@ -90,8 +94,7 @@ defmodule Zkfol.ZincPlus do
           shifts: uair.shifts,
           program: uair.program,
           cells: cells(uair, values),
-          bins: bins,
-          lookups: lookups,
+          word_lookups: uair.word_lookups,
           reads: reads,
           num_vars: Uair.num_vars(uair),
           tamper: Keyword.get(opts, :tamper, false)
@@ -124,19 +127,13 @@ defmodule Zkfol.ZincPlus do
     )
   end
 
-  # The shadow columns, lookup tuples, and composed reads the mode owes
-  # the NIF. A composed mode's Word range obligation is not yet carried
-  # (the pointer query's region read); the emit-time oracle still
-  # judges every pointer.
-  @spec mode_payload(Uair.mode()) ::
-          {:ok, [[non_neg_integer()]], [lookup()],
-           [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}]}
-          | {:error, Refusal.t()}
-  defp mode_payload(%Plain{}), do: {:ok, [], [], []}
+  # The composed reads the mode owes the NIF; its pointer bounds ride the
+  # uair's word lookups, the way a naturality's does.
+  @spec reads(Uair.mode()) :: [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}]
+  defp reads(%Plain{}), do: []
 
-  defp mode_payload(%Composed{reads: reads}) do
-    {:ok, [], [], for(r <- reads, do: {r.value_row, r.bit_rows, r.result_row})}
-  end
+  defp reads(%Composed{reads: reads}),
+    do: for(r <- reads, do: {r.value_row, r.bit_rows, r.result_row})
 
   # A claimed row is public, and the pointer query binds witness columns
   # only; refuse by name before the NIF refuses by panic.

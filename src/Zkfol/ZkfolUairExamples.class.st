@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns traces_order kinds num_vars num_public shifts reads lookups origins)
+	^ #(columns traces_order kinds num_vars num_public shifts reads word_lookups origins)
 ]
 
 { #category : 'examples' }
@@ -72,7 +72,6 @@ ZkfolUairExamples >> classicAffine [
 		#num_vars -> 3.
 		#kinds -> #(#plain #scheduled #index).
 		#reads -> #().
-		#lookups -> #().
 		#shifts -> { #(1 1). #(1 2) }.
 		#columns -> {
 			#(1 1 1 2 3 5 354224848179261915075 573147844013817084101).
@@ -207,7 +206,6 @@ ZkfolUairExamples >> emittedFibonacci [
 		#num_vars -> 3.
 		#kinds -> #(#scheduled #scheduled #plain #plain #scheduled #scheduled).
 		#reads -> #().
-		#lookups -> #().
 		#shifts -> { #(0 1). #(0 2). #(1 1). #(1 2). #(4 1). #(5 1). #(5 1) }.
 		#columns -> {
 			#(1 2 3 4 5 6 7 8).
@@ -374,7 +372,6 @@ ZkfolUairExamples >> hopReversed [
 		#kinds -> #(#plain #pointer #bit #bit #result).
 		#shifts -> #().
 		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
-		#lookups -> { { #row -> 1. #table -> #(#word 2) } asDictionary }.
 		#columns -> self reversedHopColumns } asDictionary
 ]
 
@@ -392,7 +389,6 @@ ZkfolUairExamples >> orientedHop [
 		#kinds -> #(#plain #pointer #bit #bit #result).
 		#shifts -> #().
 		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(2 3). #result_row -> 4 } asDictionary }.
-		#lookups -> { { #row -> 1. #table -> #(#word 2) } asDictionary }.
 		#columns -> {
 			#(7 8 9).
 			#(2 1 3).
@@ -419,7 +415,6 @@ ZkfolUairExamples >> hopWithTwoReads [
 			#reads -> {
 				{ #row -> 2. #value_row -> 0. #bit_rows -> #(3 4). #result_row -> 5 } asDictionary.
 				{ #row -> 2. #value_row -> 1. #bit_rows -> #(3 4). #result_row -> 6 } asDictionary }.
-			#lookups -> { { #row -> 2. #table -> #(#word 2) } asDictionary }.
 			#columns -> {
 				#(10 20 30).
 				#(40 50 60).
@@ -572,7 +567,6 @@ ZkfolUairExamples >> miniatureHop [
 			#kinds -> #(#plain #pointer #plain #bit #bit #bit #result).
 			#shifts -> #().
 			#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(3 4 5). #result_row -> 6 } asDictionary }.
-			#lookups -> { { #row -> 1. #table -> #(#word 3) } asDictionary }.
 			#columns -> {
 				#(6 2 9 5 1 4 1 3).
 				#(1 3 2 5 4 1 2 1).

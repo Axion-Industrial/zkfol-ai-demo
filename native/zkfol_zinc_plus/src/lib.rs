@@ -24,7 +24,7 @@ use config::{
 };
 use runtime::{Op, RuntimeUair, Spec, SPEC};
 
-const BACKEND: &str = "zinc-plus-7cf72c4";
+const BACKEND: &str = "zinc-plus-66776a3";
 
 #[derive(rustler::NifMap)]
 struct PcsParams {
@@ -117,6 +117,7 @@ fn submit(
     payload: Payload,
     bins: Vec<Vec<u32>>,
     lookups: Vec<(usize, usize, usize)>,
+    word_lookups: Vec<(usize, usize, usize)>,
     reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
     tamper: bool,
@@ -134,6 +135,7 @@ fn submit(
             shifts,
             program,
             lookups,
+            word_lookups,
             reads,
         },
         payload,
@@ -311,6 +313,7 @@ struct Request {
     cells: Payload,
     bins: Vec<Vec<u32>>,
     lookups: Vec<(usize, usize, usize)>,
+    word_lookups: Vec<(usize, usize, usize)>,
     reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
     tamper: bool,
@@ -327,6 +330,7 @@ fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
         request.cells,
         request.bins,
         request.lookups,
+        request.word_lookups,
         request.reads,
         request.num_vars,
         request.tamper,

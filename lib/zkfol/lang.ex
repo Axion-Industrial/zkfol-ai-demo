@@ -601,19 +601,23 @@ defmodule Zkfol.Lang do
 
   # An inequality is an equation with room in it: `a > b` says that some
   # natural s has a = b + s + 1, and the k-th slack site of a clause
-  # takes the k-th slack cell to be that s. The cell is committed, so
-  # its bit decomposition is the obligation that s is a natural, and
-  # the site needs nothing else.
+  # takes the k-th slack cell to be that s. The equation alone holds for
+  # a negative s, so the naturality rides beside it as its own node.
   @spec guards([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
   defp guards(body, env) do
-    body
-    |> slacks()
-    |> Enum.with_index(1)
-    |> Refusal.map(fn {{op, t, u}, k} ->
-      with {:ok, t} <- resolve(t, env),
-           {:ok, u} <- resolve(u, env),
-           do: {:ok, slack(op, t, u, Ast.cell({:slack, k}))}
-    end)
+    sites =
+      body
+      |> slacks()
+      |> Enum.with_index(1)
+      |> Refusal.map(fn {{op, t, u}, k} ->
+        s = Ast.cell({:slack, k})
+
+        with {:ok, t} <- resolve(t, env),
+             {:ok, u} <- resolve(u, env),
+             do: {:ok, [slack(op, t, u, s), Ast.natural(s)]}
+      end)
+
+    with {:ok, pairs} <- sites, do: {:ok, Enum.concat(pairs)}
   end
 
   @spec slack(atom(), Ast.term_t(), Ast.term_t(), Ast.term_t()) :: Ast.pred()
@@ -623,21 +627,25 @@ defmodule Zkfol.Lang do
   defp slack(:<=, a, b, s), do: slack(:>=, b, a, s)
 
   # `r = mod(e, m)` is the division it means: the k-th quotient cell is
-  # the q of e = m*q + r, committed, so its bits are the q in N, while
-  # `r < m` rides the slack every site takes. A modulus that is not a
-  # literal makes m*q a product of two unknowns, which nothing here
-  # can suspend.
+  # the q in N of e = m*q + r. `r < m` rides the slack and bounds r
+  # above; natural(r) bounds it below. A non-literal modulus makes m*q
+  # a product of two unknowns, which nothing here can suspend.
   @spec quotients([term()], env()) :: {:ok, [Ast.pred()]} | {:error, Refusal.t()}
   defp quotients(body, env) do
-    body
-    |> mods()
-    |> Enum.with_index(1)
-    |> Refusal.map(fn {{r, e, m}, k} ->
-      with :ok <- literal(m),
-           {:ok, r} <- resolve(r, env),
-           {:ok, e} <- resolve(e, env),
-           do: {:ok, Ast.eq(e, Ast.add(Ast.mul(Ast.cell({:quot, k}), m), r))}
-    end)
+    sites =
+      body
+      |> mods()
+      |> Enum.with_index(1)
+      |> Refusal.map(fn {{r, e, m}, k} ->
+        q = Ast.cell({:quot, k})
+
+        with :ok <- literal(m),
+             {:ok, r} <- resolve(r, env),
+             {:ok, e} <- resolve(e, env),
+             do: {:ok, [Ast.eq(e, Ast.add(Ast.mul(q, m), r)), Ast.natural(q), Ast.natural(r)]}
+      end)
+
+    with {:ok, pairs} <- sites, do: {:ok, Enum.concat(pairs)}
   end
 
   @spec literal(term()) :: :ok | {:error, Refusal.t()}
