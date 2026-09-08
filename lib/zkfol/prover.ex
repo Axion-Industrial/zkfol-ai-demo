@@ -58,11 +58,7 @@ defmodule Zkfol.Prover do
     end
   end
 
-  @doc """
-  I prove an already-emitted `uair`, journaling it and awaiting it
-  through the log. `opts` takes `:name`, `:basedon`, and `:timeout`
-  (milliseconds or `:infinity`, one minute by default).
-  """
+  @doc "I prove `uair` through the log; `opts` takes `:name`, `:basedon`, `:timeout`, and the transport's own."
   @spec prove_uair(Uair.t(), keyword()) ::
           {:ok, Report.t(), pos_integer()} | {:error, Refusal.t()}
   def prove_uair(uair, opts \\ []) do
@@ -71,7 +67,7 @@ defmodule Zkfol.Prover do
     EventBroker.subscribe_me(filter)
 
     try do
-      with :ok <- run(uair, id),
+      with :ok <- run(uair, id, opts),
            do: settled(id, Keyword.get(opts, :timeout, 60_000))
     after
       EventBroker.unsubscribe_me(filter)
@@ -106,9 +102,8 @@ defmodule Zkfol.Prover do
     end
   end
 
-  # Queue the uair under its intent, returning once it is in flight.
-  @spec run(Uair.t(), pos_integer()) :: :ok | {:error, Refusal.t()}
-  defp run(uair, intent), do: GenServer.call(__MODULE__, {:run, uair, intent})
+  @spec run(Uair.t(), pos_integer(), keyword()) :: :ok | {:error, Refusal.t()}
+  defp run(uair, intent, opts), do: GenServer.call(__MODULE__, {:run, uair, intent, opts})
 
   @impl true
   def init(inflight) do
@@ -119,8 +114,8 @@ defmodule Zkfol.Prover do
   end
 
   @impl true
-  def handle_call({:run, uair, intent}, _from, inflight) do
-    case ZincPlus.request(uair) do
+  def handle_call({:run, uair, intent, opts}, _from, inflight) do
+    case ZincPlus.request(uair, opts) do
       {:ok, req} -> {:reply, :ok, Map.put(inflight, req, {intent, uair.claims})}
       {:error, _reason} = error -> {:reply, error, inflight}
     end
