@@ -423,6 +423,7 @@ defmodule Zkfol.Face do
     |> ColumnedList.priority(4)
     |> ColumnedList.items([
       {"Bank depths", walk.banks},
+      {"Parameters", walk.parameters},
       {"Slots", walk.slots},
       {"Members", walk.members}
     ])

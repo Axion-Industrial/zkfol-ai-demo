@@ -2,6 +2,9 @@ defmodule Examples.EPhi do
   @moduledoc """
   I expose the compiler's intermediate values. Start with `grid/0`, `row/0`,
   `empty/0`, `bound/0`, and `constrained/0`: each returns the value the next uses.
+  `cell/0` and `rows/0` expose the grid's trace addresses.
+  `parameters/0`, `matched_parameters/0`, and `shared_tail/0` follow a relation's
+  declarations through matching an element and sharing the remaining sequence.
   `walk/0` gives Fibonacci's actual lowering; `walk/2` takes another program.
   """
 
@@ -9,6 +12,7 @@ defmodule Examples.EPhi do
   import ExUnit.Assertions
 
   alias Examples.EUser
+  alias Zkfol.Alloc.Bank
   alias Zkfol.Ast
   alias Zkfol.Lang.Rel
   alias Zkfol.Phi
@@ -20,11 +24,23 @@ defmodule Examples.EPhi do
   @doc "I describe one nine-by-nine bank; no puzzle values are needed to name its cells."
   @spec grid() :: View.t()
   example grid do
-    View.bank(for(r <- 1..9, do: {:puzzle, r}), 9)
+    View.bank(%Bank{name: :puzzle, depth: 9}, 9)
+  end
+
+  @doc "I name the trace cell for source position [2, 2]; I do not read its puzzle value."
+  @spec cell() :: Ast.term_t()
+  example cell do
+    View.cell(grid(), [2, 2])
+  end
+
+  @doc "I name the grid's component rows in storage; these are addresses, not source row values."
+  @spec rows() :: [Ast.row_ref()]
+  example rows do
+    View.rows(grid())
   end
 
   @doc "I select the first source row, still referring to the grid's own cells."
-  @spec row() :: View.t()
+  @spec row() :: [Ast.term_t()]
   example row do
     View.slice(grid(), 0)
   end
@@ -41,9 +57,8 @@ defmodule Examples.EPhi do
     head = {:cons, {:var, :x}, {:var, :xs}}
     walk = Phi.match([head], [row()], empty())
     assert walk.env.x == View.cell(grid(), [0, 0])
-    assert walk.env.xs == View.shifted(row(), 1)
-    assert View.count(walk.env.xs) == View.count(row()) - 1
-    assert walk.banks == %{} and walk.slots == [] and walk.eqs == []
+    assert walk.env.xs == tl(row())
+    assert walk.parameters == %{} and walk.banks == %{} and walk.slots == [] and walk.eqs == []
     walk
   end
 
@@ -54,6 +69,42 @@ defmodule Examples.EPhi do
     assert walk.env == bound().env
     assert walk.eqs == [Ast.eq(bound().env.x, View.cell(grid(), [0, 1]))]
     assert walk.banks == bound().banks and walk.slots == bound().slots
+    walk
+  end
+
+  @doc "I declare total's input sequence; its answer waits for the clauses to bind it."
+  @spec parameters() :: Walk.t()
+  example parameters do
+    relation = EUser.total()
+    {_counter, walk} = Phi.parameters(relation, [:fresh, :fresh], %{total: relation})
+    walk
+  end
+
+  @doc "I match [h | t]: h reads the head cell and t refers to the remaining sequence."
+  @spec matched_parameters() :: Walk.t()
+  example matched_parameters do
+    before = parameters()
+    input = before.env[{:total, {:param, :a1}}]
+    answer = {:fresh, {:total, {:param, :s}}}
+    {head, _body} = List.last(EUser.total().clauses)
+    walk = Phi.match(head, [input, answer], before)
+
+    assert walk.banks == before.banks
+    assert walk.env.h == View.slice(input, 0)
+    assert walk.env.t == View.shifted(input, 1)
+    walk
+  end
+
+  @doc "I bind another parameter to the matched tail's access, with no storage of its own."
+  @spec shared_tail() :: Walk.t()
+  example shared_tail do
+    tail = matched_parameters().env.t
+    ref = {:continuation, {:param, :xs}}
+    walk = Walk.bind(empty(), ref, tail)
+
+    assert walk.env[ref] == tail
+    assert walk.parameters[ref] == :none
+    assert walk.banks == %{} and walk.slots == []
     walk
   end
 
@@ -68,7 +119,7 @@ defmodule Examples.EPhi do
   @doc "Constructing and peeling structure retains the original cells."
   @spec constructed_values_share_cells() :: Cons.t()
   example constructed_values_share_cells do
-    view = View.bank([{:input, 1}], 3)
+    view = View.bank(%Bank{name: :input, depth: 1}, 3)
     head = View.slice(view, 0)
     tail = View.shifted(view, 1)
     assert Cons.new(head, tail) == view

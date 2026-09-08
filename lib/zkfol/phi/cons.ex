@@ -6,6 +6,7 @@ defmodule Zkfol.Phi.Cons do
 
   - `new/2`: construct a pair, retaining a view when its peeled head is restored.
   - `peel/1`: observe a pair, view or stored node, with the equations its head requires.
+  - `ended/1`: the equations required for an existing value to be empty.
   """
 
   use TypedStruct
@@ -44,4 +45,11 @@ defmodule Zkfol.Phi.Cons do
        [Zkfol.Ast.eq(Ref.read(:tag, ref), 2)]}
 
   def peel(_other), do: :dead
+
+  @doc "I require an existing value to be empty, without changing its storage."
+  @spec ended(Zkfol.Phi.Value.t()) :: {:ok, [Zkfol.Ast.pred()]} | :dead
+  def ended([]), do: {:ok, []}
+  def ended(view = %View{col: col}) when col != nil, do: View.ended(view)
+  def ended(%Ref{id: id}), do: {:ok, [Zkfol.Ast.eq(id, 1)]}
+  def ended(_other), do: :dead
 end

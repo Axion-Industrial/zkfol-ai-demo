@@ -205,7 +205,7 @@ defmodule Examples.ENodes do
       Pipeline.run(Examples.EUser.plain(), %Statement{rels: [rel], args: args})
 
     assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
-    assert {:ok, _json} = Jexon.to_json(statement)
+    assert Examples.EFace.bridged(statement) == statement
     statement
   end
 end

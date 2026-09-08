@@ -10,6 +10,7 @@ defmodule Zkfol.Phi.Value do
   - `scalar/1`: the arithmetic reading of a value.
   - `count/1`: its known scalar count or outer sequence length.
   - `elements/1`: its elements for a primitive operation.
+  - `affine/1`: the coefficients of an expression in X, when it has that form.
   - `frame/2`, `unframe/2`: express values across a call's column frame.
   """
 
@@ -33,7 +34,7 @@ defmodule Zkfol.Phi.Value do
           | :fresh
 
   @typedoc "Where a call reaches: an affine frame of the column, or a pointer cell."
-  @type frame :: {integer(), integer()} | {:ptr, Ast.row_ref()}
+  @type frame :: Ast.address()
 
   @doc "I am a known scalar count or outer sequence length, nil when unknown."
   @spec count(t() | nil) :: integer() | nil
@@ -53,10 +54,26 @@ defmodule Zkfol.Phi.Value do
   def elements({:count, _q, form}), do: form
   def elements(form), do: form
 
+  @doc "I give back {m, a} for an expression m * X + a; other values have no affine form."
+  @spec affine(t()) :: {integer(), integer()} | nil
+  def affine(:x), do: {1, 0}
+  def affine(q) when is_integer(q), do: {0, q}
+  def affine({:count, q, _form}), do: affine(q)
+
+  def affine({:add, a, b}) do
+    with {m, k} <- affine(a), {0, q} <- affine(b), do: {m, k + q}, else: (_apart -> nil)
+  end
+
+  def affine({:mul, a, q}) when is_integer(q) do
+    with {m, k} <- affine(a), do: {m * q, k * q}
+  end
+
+  def affine(_value), do: nil
+
   @doc "I express a callee value at its call address in the caller."
   @spec frame(t(), frame()) :: t()
   def frame({:fresh, ref}, frame), do: frame({:cell, ref}, frame)
-  def frame(form, {1, 0}), do: form
+  def frame(form, {:at, :x, 1, 0}), do: form
   def frame(%Ref{id: id}, frame), do: %Ref{id: frame(id, frame)}
   def frame(%Cons{head: h, tail: t}, frame), do: Cons.new(frame(h, frame), frame(t, frame))
   def frame([h | t], frame), do: [frame(h, frame) | frame(t, frame)]
@@ -67,11 +84,18 @@ defmodule Zkfol.Phi.Value do
 
   def frame(form, frame) do
     Ast.postwalk(form, fn
-      leaf when leaf == :x or (is_tuple(leaf) and elem(leaf, 0) == :cell) ->
-        View.term(View.framed(View.of(leaf), frame))
+      :x ->
+        Ast.naming(frame)
 
       {:add, a, b} ->
         Ast.add(a, b)
+
+      cell when is_tuple(cell) and elem(cell, 0) == :cell ->
+        {row, address} = Ast.read(cell)
+
+        with {:at, base, m, a} <- Ast.reframe(address, frame),
+             do: Ast.at(row, base, m, a),
+             else: (_unreached -> throw({:refused, {:unliftable_term, %{term: cell}}}))
 
       node ->
         node
@@ -80,7 +104,7 @@ defmodule Zkfol.Phi.Value do
 
   @doc "I express the values a callee can retain in its own column frame."
   @spec unframe(t(), frame()) :: t()
-  def unframe(form, {1, 0}), do: form
+  def unframe(form, {:at, :x, 1, 0}), do: form
   def unframe(%Ref{} = ref, _frame), do: ref
   def unframe(%View{} = view, frame), do: View.reframed(view, frame)
   def unframe({:count, _q, _cell} = count, _frame), do: count
@@ -89,11 +113,17 @@ defmodule Zkfol.Phi.Value do
     do: form
 
   def unframe(form, frame) do
-    with leaf = %View{row: nil} <- View.of(form),
-         worn = %View{col: {_b, _m, _a}} <- View.reframed(leaf, frame) do
-      View.term(worn)
-    else
-      _unreached -> :fresh
+    case affine(form) do
+      {0, q} ->
+        q
+
+      {m, a} ->
+        with local = {:at, _, _, _} <- Ast.unframe(Ast.address(:x, m, a), frame),
+             do: Ast.naming(local),
+             else: (_unreached -> :fresh)
+
+      nil ->
+        :fresh
     end
   end
 

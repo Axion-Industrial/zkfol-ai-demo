@@ -89,6 +89,23 @@ defmodule Zkfol.Ast do
   @spec column(address(), integer()) :: integer()
   def column({:at, _base, mul, add}, base), do: mul * base + add
 
+  @doc "I substitute a call's address for X in an address; nested pointer reads cannot be expressed."
+  @spec reframe(address(), address()) :: address() | nil
+  def reframe({:at, :x, m, a}, {:at, base, scale, offset}),
+    do: address(base, m * scale, m * offset + a)
+
+  def reframe(_address, _call), do: nil
+
+  @doc "I recover an address in the callee's coordinates, when its scale divides exactly."
+  @spec unframe(address() | nil, address()) :: address() | nil
+  def unframe({:at, :x, 0, a}, {:at, :x, _scale, _offset}), do: address(:x, 0, a)
+
+  def unframe({:at, :x, m, a}, {:at, :x, scale, offset})
+      when scale != 0 and rem(m, scale) == 0,
+      do: address(:x, div(m, scale), a - div(m, scale) * offset)
+
+  def unframe(_address, _call), do: nil
+
   @doc "I am t + u, born canonical: constants fold and ride right, through a sum's own, zero vanishes."
   @spec add(poly(l), poly(l)) :: poly(l) when l: var
   def add(q, r) when is_integer(q) and is_integer(r), do: q + r

@@ -125,7 +125,10 @@ defmodule Zkfol.Nodes do
     ])
   end
 
-  defp node(ref, %View{row: {bank, 1}, col: {base, m, a}, axes: [%{row: 0, col: -1} | _]}) do
+  defp node(ref, %View{
+         row: {bank, 1},
+         col: {:at, base, m, a}
+       }) do
     Ast.eq(ref.id, Ast.at({__MODULE__, {:suffix, bank}}, base, m, a))
   end
 
@@ -278,7 +281,7 @@ defmodule Zkfol.Nodes do
 
   defp ground(%View{} = view, x, ctx) do
     len =
-      case View.len(view) do
+      case view.length do
         {m, a} -> m * x + a
         n -> n
       end
