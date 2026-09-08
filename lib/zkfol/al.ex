@@ -168,7 +168,6 @@ defmodule Zkfol.Al do
         :ok ->
           {:ok,
            %Ask{
-             name: prep.name,
              rels: rels,
              goal: plain(call(prep, goal(prep.root.arity, prep.bind, arguments))),
              arguments: arguments,

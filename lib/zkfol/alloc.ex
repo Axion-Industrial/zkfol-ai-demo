@@ -9,7 +9,7 @@ defmodule Zkfol.Alloc do
 
   ### Public API
 
-  - `new/2` — regions in order, publicity by name.
+  - `new/1` — regions in order.
   - `rows/2`, `offset/2` — where a symbol's bank landed.
   - `link/3` — named references to absolute rows, named lens to constants.
   - `interpret/2` — the family stacked into one `Zkfol.Interpretation`.
@@ -25,13 +25,11 @@ defmodule Zkfol.Alloc do
   typedstruct enforce: true do
     field(:regions, [{atom(), pos_integer()}])
     field(:slots, %{atom() => [atom()]}, default: %{})
-    field(:public, [atom()], default: [])
   end
 
-  @doc "I am the allocation of `regions` in order, `opts[:public]` naming the open ones."
-  @spec new([{atom(), pos_integer()}], keyword()) :: t()
-  def new(regions, opts \\ []),
-    do: %__MODULE__{regions: regions, public: Keyword.get(opts, :public, [])}
+  @doc "I am the allocation of `regions` in order."
+  @spec new([{atom(), pos_integer()}]) :: t()
+  def new(regions), do: %__MODULE__{regions: regions}
 
   @doc "I am the rows of `sym`: absolute, 1-based, in region order."
   @spec rows(t(), atom()) :: Range.t()
@@ -91,7 +89,7 @@ defmodule Zkfol.Alloc do
   I am the rows a statement stands on: each member's arguments in
   closure order, the tag row behind them, the pointer bank, the slack
   its guards bind, the quotients its reductions divide out, then the
-  objects it declares, publicity read off their layouts.
+  objects it declares.
   `Zkfol.Lang` names the derivation's rows; the numbering is mine,
   and an object's bank is as much mine as a member's.
   """
@@ -104,8 +102,7 @@ defmodule Zkfol.Alloc do
           if(shape.pointers == [], do: [], else: [{:ptr, length(shape.pointers)}]) ++
           region(:slack, Map.get(shape, :slack, 0)) ++
           region(:quot, Map.get(shape, :quot, 0)) ++
-          for(rel <- objects, do: {rel.name, rel.layout.rows}),
-        public: for(rel <- objects, rel.layout.public, do: rel.name)
+          for(rel <- objects, do: {rel.name, rel.layout.rows})
       )
 
     %{alloc | slots: Map.get(shape, :slots, %{})}

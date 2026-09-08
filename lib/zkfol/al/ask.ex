@@ -24,7 +24,6 @@ defmodule Zkfol.Al.Ask do
   @type outcome :: {:ok, answer()} | :exhausted | {:error, Zkfol.Refusal.t()}
 
   typedstruct enforce: true do
-    field(:name, atom())
     field(:rels, [Zkfol.Lang.Rel.t()])
     field(:goal, [struct()])
     field(:arguments, [integer() | :_])
