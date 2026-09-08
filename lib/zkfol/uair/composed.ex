@@ -61,7 +61,7 @@ defmodule Zkfol.Uair.Composed do
 
           results = pairs |> Enum.with_index(arity + length(dynamic) * mu + 1) |> Map.new()
 
-          {:ok, rewrite(pred, constraints(dynamic, bits), results),
+          {:ok, rewrite(pred, constraints(dynamic, bits, Interpretation.len(witness)), results),
            extend(witness, dynamic, pairs, mu),
            %{dynamic: dynamic, bits: bits, pairs: pairs, results: results}}
         end
@@ -138,13 +138,28 @@ defmodule Zkfol.Uair.Composed do
     )
   end
 
-  # Booleanity and reconstruction per pointer, riding every branch.
-  @spec constraints([pos_integer()], %{pos_integer() => [pos_integer()]}) :: [Ast.pred()]
-  defp constraints(dynamic, bits) do
+  # Booleanity, reconstruction, and region per pointer, riding every
+  # branch. The bits bound the address to the cube; the region product
+  # bounds it to 1..len, where the derivation's columns actually are.
+  @spec constraints([pos_integer()], %{pos_integer() => [pos_integer()]}, pos_integer()) ::
+          [Ast.pred()]
+  defp constraints(dynamic, bits, len) do
     Enum.flat_map(dynamic, fn a ->
       cube_index = Ast.add(Ast.len(), Ast.mul(Ast.cell(a), -1))
-      spelled(Map.fetch!(bits, a), cube_index)
+      spelled(Map.fetch!(bits, a), cube_index) ++ [in_region(a, len)]
     end)
+  end
+
+  # A pointer cell is a real column: it vanishes at some 1..len and
+  # nowhere else, so no address reaches the padding the cube admits.
+  @spec in_region(pos_integer(), pos_integer()) :: Ast.pred()
+  defp in_region(a, len) do
+    product =
+      1..len
+      |> Enum.map(&Ast.add(Ast.cell(a), -&1))
+      |> Enum.reduce(&Ast.mul(&2, &1))
+
+    Ast.eq(product, 0)
   end
 
   # Each dynamic deref becomes a plain read of its result row, and the bit

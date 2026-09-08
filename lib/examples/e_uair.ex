@@ -11,6 +11,7 @@ defmodule Examples.EUair do
 
   import ExUnit.Assertions
 
+  alias Examples.EAl
   alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
@@ -18,6 +19,7 @@ defmodule Examples.EUair do
   alias Zkfol.Al
   alias Zkfol.Lang
   alias Zkfol.Log
+  alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Refusal
   alias Zkfol.Statement
@@ -118,5 +120,33 @@ defmodule Examples.EUair do
     assert length(generic.program) == 187
 
     [kernel, generic]
+  end
+
+  @doc """
+  I am the pointer held to the region its reads reach. The bits spell `len - a` and
+  hold the address under the cube, which leaves `a = 0` spellable and aimed at the
+  padding no column of the derivation occupies; the region product is the whole lower
+  bound. Aimed at 0 with its bits respelled to match, every cell of the trace stays a
+  natural and the verifier rejects it; drop the product and the same trace proves.
+  """
+  @spec aimed_out_of_region_is_rejected() :: Refusal.t()
+  example aimed_out_of_region_is_rejected do
+    {:ok, statement, _trace} =
+      Pipeline.run(Pipeline.default(), %Statement{rels: [EAl.hop_rel()], args: [5]})
+
+    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
+    assert %Uair.Composed{reads: [%{row: address, bit_rows: [low, high | _rest]} | _]} = uair.mode
+    assert uair.len == 2
+
+    at = fn columns, column, value ->
+      List.update_at(columns, column, &List.replace_at(&1, 0, value))
+    end
+
+    aimed = uair.columns |> at.(address, 0) |> at.(low, 0) |> at.(high, 1)
+    assert Enum.all?(List.flatten(aimed), &(&1 >= 0))
+
+    {:error, reason} = Prover.prove_uair(%{uair | columns: aimed}, name: :aimed_out_of_region)
+    assert {:verifier_rejected, _said} = reason
+    reason
   end
 end
