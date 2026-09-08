@@ -307,6 +307,24 @@ defmodule Zkfol.Face do
     )
   end
 
+  @doc "I am the AL program the act ran, on the run's own branch; nil where none is alive."
+  @spec program(Log.t(), Log.Ran.t() | pos_integer()) :: AL.Object.t() | nil
+  def program(snap, %Log.Ran{defined: defined}), do: program(snap, defined)
+
+  def program(snap, defined) do
+    Enum.find_value(Log.thread(snap, defined), fn
+      %Log.Event{body: {:al_solved, %{branch: branch}}} -> alive(branch)
+      %Log.Event{} -> nil
+    end)
+  end
+
+  @spec alive(atom()) :: AL.Object.t() | nil
+  defp alive(:main), do: Zkfol.Al.program(:main)
+
+  defp alive(branch) do
+    if Enum.any?(AL.Branch.list(), &(&1.id == branch)), do: Zkfol.Al.program(branch)
+  end
+
   @doc """
   I am the route as the static structure it is: each pass with its
   options, the contract it implements, and what it says it does in
