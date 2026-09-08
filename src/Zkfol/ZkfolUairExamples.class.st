@@ -10,7 +10,7 @@ Class {
 ZkfolUairExamples >> assumedFields [
 	"The face's grid feed keys, and so what the drift guard holds
 	 reality to: the grid draws exactly these and derives nothing."
-	^ #(columns len kinds num_vars num_public shifts reads word_lookups origins)
+	^ #(columns len degree kinds num_vars num_public shifts reads origins)
 ]
 
 { #category : 'examples' }
