@@ -19,7 +19,7 @@ defmodule Examples.EAlloc do
 
   @spec successor_alloc() :: Alloc.t()
   example successor_alloc do
-    alloc = Alloc.new([a: 1, b: 1], public: [:a])
+    alloc = Alloc.new(a: 1, b: 1)
 
     assert Alloc.rows(alloc, :a) == 1..1
     assert Alloc.rows(alloc, :b) == 2..2

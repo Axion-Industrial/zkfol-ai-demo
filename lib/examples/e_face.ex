@@ -135,9 +135,6 @@ defmodule Examples.EFace do
     assert %{fact: [:fib, 8, 21], consumes: [[:fib, 7, 13], [:fib, 6, 8]], fan_in: 0} =
              List.last(feed.rows)
 
-    assert feed.extents == %{fib: 8}
-    assert feed.edges == 12
-
     ran = Zkfol.emit(%Statement{rels: [EUser.regs()], args: [5]})
     logged = ran |> Log.Ran.final_stage() |> Face.derivation()
 

@@ -72,13 +72,11 @@ defmodule Zkfol.Face do
             consumes: Enum.map(used, &fact_row/1),
             fan_in: Map.get(fans, fact, 0)
           }
-        end,
-      extents: d.facts |> Enum.frequencies_by(&elem(&1, 0)),
-      edges: d.edges |> List.flatten() |> length()
+        end
     }
   end
 
-  def derivation(nil), do: %{rows: [], extents: %{}, edges: 0}
+  def derivation(nil), do: %{rows: []}
 
   @spec fact_row(Zkfol.Derivation.fact()) :: [term()]
   defp fact_row({name, tuple}), do: [name | tuple]
@@ -371,9 +369,6 @@ defmodule Zkfol.Face do
     |> ColumnedList.column("Rows", fn {name, _width} ->
       rows = Zkfol.Alloc.rows(alloc, name)
       "#{rows.first}..#{rows.last}"
-    end)
-    |> ColumnedList.column("Public", fn {name, _width} ->
-      if name in alloc.public, do: "public", else: ""
     end)
   end
 

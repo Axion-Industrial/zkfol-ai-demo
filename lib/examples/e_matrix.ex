@@ -16,9 +16,9 @@ defmodule Examples.EMatrix do
 
   @spec clue_corner() :: Zkfol.Lang.Rel.t()
   example clue_corner do
-    puzzle = Matrix.new(:puzzle, {2, 2}, [{0, 0, 5}, {1, 1, 3}], public: true)
+    puzzle = Matrix.new(:puzzle, {2, 2}, [{0, 0, 5}, {1, 1, 3}])
 
-    assert %Zkfol.Lang.Rel{name: :puzzle, arity: 3, layout: %Matrix{public: true}} = puzzle
+    assert %Zkfol.Lang.Rel{name: :puzzle, arity: 3, layout: %Matrix{}} = puzzle
     assert Matrix.shape(puzzle) == {2, 2}
     assert Matrix.extensional?(puzzle)
     puzzle
@@ -50,7 +50,6 @@ defmodule Examples.EMatrix do
 
     assert Alloc.rows(alloc, :fib) == Alloc.rows(derivation, :fib)
     assert Alloc.rows(alloc, :puzzle) == (Alloc.width(derivation) + 1)..Alloc.width(alloc)
-    assert alloc.public == [:puzzle]
     alloc
   end
 

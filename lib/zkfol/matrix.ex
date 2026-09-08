@@ -1,14 +1,14 @@
 defmodule Zkfol.Matrix do
   @moduledoc """
-  I am the matrix metaclass: a declared shape, a publicity, and the
-  reading of an extensional relation's facts as dense data (an absent
-  cell reads 0, the sentinel). An object is a relation whose clauses
-  are facts and whose layout is me; an object with no facts is an
-  existential the prover fills.
+  I am the matrix metaclass: a declared shape and the reading of an
+  extensional relation's facts as dense data (an absent cell reads 0,
+  the sentinel). An object is a relation whose clauses are facts and
+  whose layout is me; an object with no facts is an existential the
+  prover fills.
 
   ### Public API
 
-  - `new/4` — declare a shape, facts optional.
+  - `new/3` — declare a shape, facts optional.
   - `extensional?/1`, `shape/1`, `data/1` — read the object back.
   """
 
@@ -20,20 +20,19 @@ defmodule Zkfol.Matrix do
   typedstruct enforce: true do
     field(:rows, pos_integer())
     field(:cols, pos_integer())
-    field(:public, boolean(), default: false)
   end
 
   @typedoc "One fact: 0-based row, 0-based column, the value."
   @type fact :: {non_neg_integer(), non_neg_integer(), non_neg_integer()}
 
-  @doc "I declare a `{rows, cols}` matrix named `name` with `facts`; `opts[:public]` opens it."
-  @spec new(atom(), {pos_integer(), pos_integer()}, [fact()], keyword()) :: Rel.t()
-  def new(name, {rows, cols}, facts \\ [], opts \\ []) do
+  @doc "I declare a `{rows, cols}` matrix named `name` with `facts`."
+  @spec new(atom(), {pos_integer(), pos_integer()}, [fact()]) :: Rel.t()
+  def new(name, {rows, cols}, facts \\ []) do
     %Rel{
       name: name,
       arity: 3,
       clauses: for({r, c, v} <- facts, do: {[r, c, v], []}),
-      layout: %__MODULE__{rows: rows, cols: cols, public: Keyword.get(opts, :public, false)}
+      layout: %__MODULE__{rows: rows, cols: cols}
     }
   end
 
