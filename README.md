@@ -5,23 +5,31 @@ arithmetised to a uniform AIR and proved through Zinc+.
 
 ## The pipeline
 
-| Stage                                                | Module                 |
-|------------------------------------------------------|------------------------|
+Evaluation asks AL for a derivation. Proving also lowers the relations to a uniform
+AIR and places that derivation on the compiler's allocation.
+
+| Role                                               | Module                 |
+|----------------------------------------------------|------------------------|
 | Figure 1 syntax + Figure 2 arithmetisation           | `Zkfol.Ast`            |
-| Definition 2.16 interpretations                      | `Zkfol.Interpretation` |
+| Definition 2.16 interpretations                     | `Zkfol.Interpretation` |
 | Figure 3 semantics + judgement (the one oracle)      | `Zkfol.Semantics`      |
-| the relational surface: `defrel`/`rel` to predicates | `Zkfol.Lang`           |
+| the relational surface: `defrel`/`rel` to clauses    | `Zkfol.Lang`           |
 | order-2 descriptors read off a relation              | `Zkfol.Facts`          |
-| the doubling rewrite to a log-depth kernel           | `Zkfol.Doubling`       |
+| the doubling rewrite to a log-depth kernel          | `Zkfol.Doubling`       |
 | the AL backend: the derivation is the witness        | `Zkfol.Al`             |
-| witness generation as a pass                         | `Zkfol.Witness`        |
-| statement to UAIR, proved on Zinc+ through the NIF   | `Zkfol.Uair`           |
+| witness generation as a pass                        | `Zkfol.Witness`        |
+| relation lowering to symbolic AIR and allocation    | `Zkfol.Phi`            |
+| slots, banks, and call-site layout                  | `Zkfol.Alloc`          |
+| the derivation placed on that allocation            | `Zkfol.Lay`            |
+| committed AIR and pointer reads for the backend     | `Zkfol.Uair`           |
+| proving on Zinc+ through the NIF                    | `Zkfol.Prover`         |
 | the front door: one call from relations to a receipt | `Zkfol`                |
-| the system shaped for a viewer                       | `Zkfol.Face`           |
+| the system shaped for a viewer                     | `Zkfol.Face`           |
 
 The only essential state is the command log (`Zkfol.Log`): events are appended,
-never rewritten; every other datum, witness to report, is derived on demand. Worked examples in `lib/examples/` (`ExExample`) are the
-documentation, the fixtures, and the tests at once: `Examples.EUser` is the book
+never rewritten; every other datum, witness to report, is derived on demand.
+Worked examples in `lib/examples/` (`ExExample`) are the documentation, fixtures,
+and tests at once: `Examples.EUser` is the book
 of relations, and every performance claim is an assertion in `Examples.EBench`,
 re-derived on the machine that runs it. Every refusal is a typed value,
 `{reason, detail}`, indexed in `Zkfol.Refusal`.
@@ -36,41 +44,47 @@ honest-prover-only. The cell widths and trace limits live in
 
 ## Environment
 
-`mix deps.get` builds the app and its Rust NIF.
+Fetch dependencies, then compile the app and its Rust NIF. A Rust toolchain is required.
 
 ```sh
-mix test          # every example on its own store (.mnesiastore-test/), safe beside a live node
+mix deps.get
+mix compile
+mix test          # examples on the isolated .mnesiastore-test/ store
 mix dialyzer      # type checking
-mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'   # the benchmark
+```
+
+`mix test` selects the test environment automatically and can run beside the live node.
+For a standalone benchmark on the test store:
+
+```sh
+MIX_ENV=test mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'
 ```
 
 ## In iex
 
 `iex --sname fol -S mix` opens the live node; its log lives in `.mnesiastore/`.
-The front door is one call, evaluation needs no proof, and the benchmark
-examples double as a smoke test:
+The front door returns a receipt for a proof; evaluation opens a query holding its first answer:
 
 ```elixir
-Examples.EUser.compiled()          # one act: relations to a proof, the receipt on the log
-query = Zkfol.eval!(Examples.EUser.fib(), [:_, :_])   # answers without proving
-Zkfol.Query.next(query)            # the next answer, prolog's ;
-Examples.EBench.measured_fibonacci()
-Examples.EBench.report()
+ran = Zkfol.compile(Examples.EUser.fib(), args: [8])
+query = Zkfol.eval!(Examples.EUser.fib(), [:_, :_])
+Zkfol.Query.taken(query)           # [[1, 1]]
+Zkfol.Query.next(query)            # {:ok, [2, 1]}
+Zkfol.Query.close(query)
 ```
 
 ## Installation in GT
 
 The inspector side lives under `src/` as Tonel packages, `BaselineOfZkfol` and
-`Zkfol`, reading the running node over gt_bridge. Inspecting a receipt dresses
-it in the act's pipeline and trail; an emitted statement wears the Uair pointer
-grid with its deref chains, hover, and failures views; a route wears its passes;
-a pass module its record and examples. The live GT examples compose on the
+`Zkfol`, reading the running node over gt_bridge. Inspect a receipt for its Pipeline
+and Trail views. From Objects, open `lay` for Grid and Join, or `emitted uair` for
+Pointer grid, Cost, Commitment, and Failures. The live GT examples compose on the
 Elixir examples, so the backing node must run this tree; the node-free examples
 run against recorded feed fixtures. A fresh `load` also rides AL's GToolkit
 tooling in, so the AL GUI displays alongside the grid.
 
 ```st
-"fresh / CI: pins the gt_bridge mix.exs asks for, rides AL's GUI in, loads Zkfol"
+"fresh image: load Zkfol and the bridge and AL tooling declared by its baseline"
 Metacello new
 	repository: 'github://bellissimogiorno/20260627-zkfol-zinc-playground:main/src';
 	baseline: #Zkfol;
@@ -78,6 +92,6 @@ Metacello new
 ```
 
 When you are hacking a work-in-progress bridge or AL, `load: #dev` loads only
-`Zkfol` against what is already in the image and touches no pin. Until this
-package lands on `main`, load it from your checkout instead:
+`Zkfol` against what is already in the image and touches no pin. To load your
+local checkout:
 `repository: 'tonel://<repo>/src'; baseline: #Zkfol; load: #dev`.
