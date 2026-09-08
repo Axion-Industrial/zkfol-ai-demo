@@ -247,16 +247,16 @@ defmodule Zkfol.Face do
 
   def program(snap, defined) do
     Enum.find_value(Log.thread(snap, defined), fn
-      %Log.Event{body: {:al_solved, %{branch: branch}}} -> alive(branch)
+      %Log.Event{body: {:al_solved, %{program: program}}} -> alive(program)
       %Log.Event{} -> nil
     end)
   end
 
-  @spec alive(atom()) :: AL.Object.t() | nil
-  defp alive(:main), do: Zkfol.Al.program(:main)
+  @spec alive(AL.Object.t()) :: AL.Object.t() | nil
+  defp alive(program = %AL.Object{branch: :main}), do: program
 
-  defp alive(branch) do
-    if Enum.any?(AL.Branch.list(), &(&1.id == branch)), do: Zkfol.Al.program(branch)
+  defp alive(program = %AL.Object{branch: branch}) do
+    if Enum.any?(AL.Branch.list(), &(&1.id == branch)), do: program
   end
 
   @doc "I am the route as structure: each pass, its options, its callbacks, its first sentence."
