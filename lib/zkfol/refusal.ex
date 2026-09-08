@@ -91,6 +91,9 @@ defmodule Zkfol.Refusal do
   defp said({:step_beyond_history, %{extra: vars}}),
     do: {:restructure, "the step combines more than the history: #{inspect(vars)}"}
 
+  defp said({:step_obligations, %{goals: goals}}),
+    do: {:restructure, "the recurrence has additional obligations: #{inspect(goals)}"}
+
   defp said({:step_needs_an_equation, _detail}),
     do: {:restructure, "the step needs one equation defining its value"}
 
