@@ -210,6 +210,29 @@ defmodule Examples.EFace do
     feed
   end
 
+  @doc "An answering branch of another member cannot hide a false root equation."
+  @spec a_false_composite_judgement() :: map()
+  example a_false_composite_judgement do
+    statement = EUser.shared_index()
+    lay = Statement.lay(statement)
+
+    stands =
+      Enum.map(lay.stands, fn
+        %{fact: {:paired, [n, value]}} = stand -> %{stand | fact: {:paired, [n, value + 1]}}
+        stand -> stand
+      end)
+
+    forged = %{statement | stage: %{statement.stage | lay: %{lay | stands: stands}}}
+    feed = Face.judgement(forged)
+    assert false in feed.holds
+
+    assert Enum.any?(Enum.with_index(feed.holds), fn {holds, x} ->
+             not holds and Enum.any?(feed.evals, &(Enum.at(&1, x) == 0))
+           end)
+
+    feed
+  end
+
   @doc "What the judgement feed says is what the oracle and the lay say."
   @spec the_judgement_is_derived() :: %{atom() => term()}
   example the_judgement_is_derived do
@@ -231,7 +254,7 @@ defmodule Examples.EFace do
     assert length(feed.rows) == Zkfol.Alloc.width(Statement.alloc(statement))
 
     for x <- 1..len do
-      assert Enum.count(feed.evals, &(Enum.at(&1, x - 1) == 0)) >= length(Ast.conjuncts(pred))
+      assert Enum.at(feed.holds, x - 1) == Zkfol.Semantics.holds?(pred, witness, x)
     end
 
     for branch <- feed.trees, column <- branch, goal <- column, node <- nodes(goal) do
