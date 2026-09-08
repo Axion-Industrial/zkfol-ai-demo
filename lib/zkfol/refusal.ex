@@ -3,21 +3,10 @@ defmodule Zkfol.Refusal do
   I am the index of every refusal the compiler can make. A refusal is
   `{reason, detail}`: an atom naming it, and the values behind it.
 
-      {:error, {:precedes_base_case, %{n: 0, base: 1}}}
-
-  The prose is not stored, it is derived. A refusal carries no sentence
-  at the place it is made, so the wording lives here once, the reason is
-  what callers match on, and no one greps for a substring.
-
-  A refusal's kind says what the caller should do, and is a property
-  of the reason rather than a thing each site repeats:
-
-  - `:restructure` — the statement's shape is not one I compile. Rewrite it.
-  - `:out_of_range` — a bound was exceeded. Shrink it, or raise the bound.
-  - `:false_statement` — nothing is wrong with the statement except that
-    it is not true. The honest refusal, and the only one that is a result.
-  - `:transport` — the prover died, timed out, or never answered. Nothing
-    is wrong with the statement at all. Retry.
+  - `:restructure`: the statement's shape is not one I compile; rewrite it.
+  - `:out_of_range`: a bound was exceeded; shrink it, or raise the bound.
+  - `:false_statement`: the statement is not true; the only kind that is a result.
+  - `:transport`: the prover died, timed out, or never answered; retry.
   """
 
   @typedoc "The values the message needs, and a view can point at."
@@ -31,38 +20,6 @@ defmodule Zkfol.Refusal do
   refusals it is able to make: `Refusal.t(Refusal.restructure())`.
   """
   @type t(reason) :: {reason, detail()}
-
-  # The index proper, grouped by the response rather than repeating it:
-  # a refusal is named once, under what it asks the caller to do. Adding
-  # one means a name here and a message clause below.
-  @by_kind %{
-    restructure: ~w(not_an_index_relation facts_not_consecutive fact_not_ground step_clauses
-         step_head_not_indexed step_beyond_history
-         step_needs_an_equation not_order_two step_not_linear no_relations
-         unbound_variable relation_not_in_scope
-         read_row_claimed
-         unliftable_term head_not_a_column arguments_exceed_rows
-         len_needs_a_bound_count residue)a,
-    out_of_range: ~w(precedes_base_case read_row_outside_witness
-         pointer_row_outside_matrix claim_outside_witness witness_value_negative
-         heap_exhausted unresolved_within_budget value_exceeds_cell
-         constant_exceeds_cell)a,
-    false_statement: ~w(witness_unsatisfies_schedule verifier_rejected
-         no_answer)a,
-    transport: ~w(prover_timeout prover_died prover_failed send_failed)a
-  }
-
-  @index for {kind, reasons} <- @by_kind, reason <- reasons, into: %{}, do: {reason, kind}
-
-  @union fn reasons -> Enum.reduce(reasons, &{:|, [], [&1, &2]}) end
-
-  @typedoc "Every refusal the compiler can make."
-  @type reason :: unquote(@union.(Map.keys(@index)))
-
-  for {kind, reasons} <- @by_kind, reasons != [] do
-    @typedoc "The refusals that ask the caller to #{kind}."
-    @type unquote({kind, [], nil}) :: unquote(@union.(reasons))
-  end
 
   @doc """
   I hold that no element of `enum` satisfies `bad?`. The first that does is
@@ -122,112 +79,172 @@ defmodule Zkfol.Refusal do
 
   @doc "I read `refusal` out as prose, for a human at the end of the line."
   @spec message(t()) :: String.t()
-  def message({:not_an_index_relation, %{relation: name, arity: arity}}),
-    do: "#{name}/#{arity} is not a relation between an index and one value"
+  def message(refusal), do: refusal |> said() |> elem(1)
 
-  def message({:facts_not_consecutive, %{indices: indices}}),
-    do: "an order-2 recurrence needs facts at two consecutive indices, got #{inspect(indices)}"
+  @spec said(t()) :: {atom(), String.t()}
+  defp said({:not_an_index_relation, %{relation: name, arity: arity}}),
+    do: {:restructure, "#{name}/#{arity} is not a relation between an index and one value"}
 
-  def message({:fact_not_ground, %{fact: fact}}),
-    do: "a base fact is a ground index and value, got #{inspect(fact)}"
-
-  def message({:step_clauses, %{clauses: n}}), do: "#{n} step clauses; need exactly one"
-
-  def message({:step_head_not_indexed, %{head: head}}),
-    do: "the step head is an index and a value, not #{inspect(head)}"
-
-  def message({:step_beyond_history, %{extra: vars}}),
-    do: "the step combines more than the history: #{inspect(vars)}"
-
-  def message({:step_needs_an_equation, _detail}),
-    do: "the step needs one equation defining its value"
-
-  def message({:not_order_two, %{offsets: offsets}}),
-    do: "an order-2 recurrence calls itself once and twice back, got #{inspect(offsets)}"
-
-  def message({:step_not_linear, %{term: term}}),
-    do: "the step is not a linear combination of the history: #{inspect(term)}"
-
-  def message({:precedes_base_case, %{n: n, base: base}}),
-    do: "n=#{n} precedes the base case index #{base}"
-
-  def message({:arguments_exceed_rows, %{args: args, rows: rows}}),
-    do: "#{args} arguments for a relation of #{rows} rows"
-
-  def message({:len_needs_a_bound_count, %{}}),
-    do: "len is the trace length, which only a bound count names"
-
-  def message({:no_relations, _detail}),
-    do: "the statement carries no relations; supply its witness instead"
-
-  def message({:unbound_variable, %{variable: name}}),
-    do: "the variable #{name} is not bound by the head or a call"
-
-  def message({:unbound_variable, %{goals: goals}}),
-    do: "the goals #{inspect(goals)} name a variable no clause binds"
-
-  def message({:unbound_variable, %{equation: {a, b}}}),
-    do: "the equation #{inspect(a)} = #{inspect(b)} binds no variable"
-
-  def message({:read_row_claimed, %{row: row}}),
+  defp said({:facts_not_consecutive, %{indices: indices}}),
     do:
-      "row #{row} is both claimed and part of a composed read; " <>
-        "the pointer query binds witness columns only"
+      {:restructure,
+       "an order-2 recurrence needs facts at two consecutive indices, got #{inspect(indices)}"}
 
-  def message({:selection_outside_trace, %{cell: cell, column: x}}),
-    do: "no selection names #{inspect(cell)} at column #{x}: outside the trace"
+  defp said({:fact_not_ground, %{fact: fact}}),
+    do: {:restructure, "a base fact is a ground index and value, got #{inspect(fact)}"}
 
-  def message({:unliftable_term, %{term: term}}),
-    do: "no clause lowers the term #{inspect(term)}"
+  defp said({:step_clauses, %{clauses: n}}),
+    do: {:restructure, "#{n} step clauses; need exactly one"}
 
-  def message({:head_not_a_column, %{head: head}}),
-    do: "a clause head names its column with a constant or a variable, not #{inspect(head)}"
+  defp said({:step_head_not_indexed, %{head: head}}),
+    do: {:restructure, "the step head is an index and a value, not #{inspect(head)}"}
 
-  def message({:relation_not_in_scope, %{relation: name}}),
-    do: "the relation #{name} is not in scope"
+  defp said({:step_beyond_history, %{extra: vars}}),
+    do: {:restructure, "the step combines more than the history: #{inspect(vars)}"}
 
-  def message({:read_row_outside_witness, %{row: row}}),
-    do: "the composed read names row #{row} outside the witness"
+  defp said({:step_needs_an_equation, _detail}),
+    do: {:restructure, "the step needs one equation defining its value"}
 
-  def message({:pointer_row_outside_matrix, %{row: row}}),
-    do: "pointer row #{row} leaves the matrix: a composed read needs 1 <= A <= len"
+  defp said({:not_order_two, %{offsets: offsets}}),
+    do:
+      {:restructure,
+       "an order-2 recurrence calls itself once and twice back, got #{inspect(offsets)}"}
 
-  def message({:claim_outside_witness, %{claim: name, row: row, column: x}}),
-    do: "claim #{inspect(name)} names cell (#{row}, #{x}) outside the witness"
+  defp said({:step_not_linear, %{term: term}}),
+    do: {:restructure, "the step is not a linear combination of the history: #{inspect(term)}"}
 
-  def message({:witness_value_negative, %{value: value}}),
-    do: "witness value #{value} is negative; cells carry no sign"
+  defp said({:no_relations, _detail}),
+    do: {:restructure, "the statement carries no relations; supply its witness instead"}
 
-  def message({:no_answer, %{relation: name}}),
-    do: "the question found no answer: nothing derives #{name} at those values"
+  defp said({:unbound_variable, %{variable: name}}),
+    do: {:restructure, "the variable #{name} is not bound by the head or a call"}
 
-  def message({:no_answer, %{}}),
-    do: "the question found no answer: nothing derives those values"
+  defp said({:unbound_variable, %{goals: goals}}),
+    do: {:restructure, "the goals #{inspect(goals)} name a variable no clause binds"}
 
-  def message({:residue, %{answer: answer}}),
-    do: "the search answered with rows still open: #{inspect(answer)}; pin one and ask again"
+  defp said({:unbound_variable, %{equation: {a, b}}}),
+    do: {:restructure, "the equation #{inspect(a)} = #{inspect(b)} binds no variable"}
 
-  def message({:unresolved_within_budget, %{reductions: n}}),
-    do: "no verdict within #{n} reductions; CLP or a bound count may reach it"
+  defp said({:relation_not_in_scope, %{relation: name}}),
+    do: {:restructure, "the relation #{name} is not in scope"}
 
-  def message({:witness_unsatisfies_schedule, %{column: x}}),
-    do: "the witness does not satisfy the scheduled statement at column #{x}"
+  defp said({:read_row_claimed, %{row: row}}),
+    do:
+      {:restructure,
+       "row #{row} is both claimed and part of a composed read; " <>
+         "the pointer query binds witness columns only"}
 
-  def message({:value_exceeds_cell, %{value: value}}),
-    do: "witness value #{value} does not fit 7040-bit cells"
+  defp said({:unliftable_term, %{term: term}}),
+    do: {:restructure, "no clause lowers the term #{inspect(term)}"}
 
-  def message({:constant_exceeds_cell, %{constant: k}}),
-    do: "predicate constant #{k} does not fit the program's i64 cells"
+  defp said({:unroll_budget, %{relation: name}}),
+    do: {:restructure, "saying #{name} in place ran past the unroll budget; no clause of it ends"}
 
-  def message({:send_failed, %{reason: reason}}), do: "the send failed: " <> clip(reason)
+  defp said({:unliftable_count, %{}}),
+    do: {:restructure, "the call's count lifts to no frame, and no pointer stands for it"}
 
-  def message({:prover_timeout, %{intent: id}}),
-    do: "the prover did not settle intent #{id} in time"
+  defp said({:symbol_not_allocated, %{symbol: sym}}),
+    do: {:restructure, "the bank #{sym} stands on no member"}
 
-  def message({:prover_died, _detail}), do: "the prover died before the verdict"
+  defp said({:head_not_a_column, %{head: head}}),
+    do:
+      {:restructure,
+       "a clause head names its column with a constant or a variable, not #{inspect(head)}"}
 
-  # What the backend said, kept as it said it.
-  def message({_reason, %{said: said}}), do: said
+  defp said({:arguments_exceed_rows, %{args: args, rows: rows}}),
+    do: {:restructure, "#{args} arguments for a relation of #{rows} rows"}
+
+  defp said({:len_needs_a_bound_count, %{}}),
+    do: {:restructure, "len is the trace length, which only a bound count names"}
+
+  defp said({:residue, %{answer: answer}}),
+    do:
+      {:restructure,
+       "the search answered with rows still open: #{inspect(answer)}; pin one and ask again"}
+
+  defp said({:publicity_is_the_acts, %{claims: claims}}),
+    do:
+      {:restructure,
+       "publicity is the act's, and the statement already claims #{inspect(claims)}"}
+
+  defp said({:precedes_base_case, %{n: n, base: base}}),
+    do: {:out_of_range, "n=#{n} precedes the base case index #{base}"}
+
+  defp said({:read_row_outside_witness, %{row: row}}),
+    do: {:out_of_range, "the composed read names row #{row} outside the witness"}
+
+  defp said({:pointer_row_outside_matrix, %{row: row}}),
+    do:
+      {:out_of_range, "pointer row #{row} leaves the matrix: a composed read needs 1 <= A <= len"}
+
+  defp said({:claim_outside_witness, %{claim: name, row: row, column: x}}),
+    do: {:out_of_range, "claim #{inspect(name)} names cell (#{row}, #{x}) outside the witness"}
+
+  defp said({:beyond_the_rows, %{relation: name}}),
+    do: {:out_of_range, "a claim on #{name} reaches beyond the rows it stands on"}
+
+  defp said({:beyond_the_rows, %{sequence: seq}}),
+    do: {:out_of_range, "a claim on the sequence #{seq} reaches beyond the cells it holds"}
+
+  defp said({:selection_outside_trace, %{cell: cell, column: x}}),
+    do: {:out_of_range, "no selection names #{inspect(cell)} at column #{x}: outside the trace"}
+
+  defp said({:witness_value_negative, %{value: value}}),
+    do: {:out_of_range, "witness value #{value} is negative; cells carry no sign"}
+
+  defp said({:heap_exhausted, %{said: said}}), do: {:out_of_range, said}
+
+  defp said({:unresolved_within_budget, %{reductions: n}}),
+    do: {:out_of_range, "no verdict within #{n} reductions; CLP or a bound count may reach it"}
+
+  defp said({:value_exceeds_cell, %{value: value}}),
+    do: {:out_of_range, "witness value #{value} does not fit 7040-bit cells"}
+
+  defp said({:constant_exceeds_cell, %{constant: k}}),
+    do: {:out_of_range, "predicate constant #{k} does not fit the program's i64 cells"}
+
+  defp said({:witness_unsatisfies_schedule, %{column: x}}),
+    do: {:false_statement, "the witness does not satisfy the scheduled statement at column #{x}"}
+
+  defp said({:verifier_rejected, %{said: said}}), do: {:false_statement, said}
+
+  defp said({:no_answer, %{relation: name}}),
+    do:
+      {:false_statement, "the question found no answer: nothing derives #{name} at those values"}
+
+  defp said({:no_answer, %{}}),
+    do: {:false_statement, "the question found no answer: nothing derives those values"}
+
+  defp said({:send_failed, %{reason: reason}}),
+    do: {:transport, "the send failed: " <> clip(reason)}
+
+  defp said({:prover_timeout, %{intent: id}}),
+    do: {:transport, "the prover did not settle intent #{id} in time"}
+
+  defp said({:prover_died, _detail}), do: {:transport, "the prover died before the verdict"}
+  defp said({:prover_failed, %{said: said}}), do: {:transport, said}
+
+  # The index is read off said/1's clauses while the module still compiles.
+  {:v1, :defp, _meta, clauses} = Module.get_definition(__MODULE__, {:said, 1})
+
+  @index Map.new(
+           for {_meta, [{reason, _detail}], _guards, {kind, _prose}} <- clauses,
+               do: {reason, kind}
+         )
+
+  @union fn reasons -> Enum.reduce(reasons, &{:|, [], [&1, &2]}) end
+
+  @typedoc "Every refusal the compiler can make."
+  @type reason :: unquote(@union.(Map.keys(@index)))
+
+  for {kind, reasons} <- Enum.group_by(@index, &elem(&1, 1), &elem(&1, 0)) do
+    @typedoc "The refusals that ask the caller to #{kind}."
+    @type unquote({kind, [], nil}) :: unquote(@union.(reasons))
+  end
+
+  @doc "I am every reason the index knows."
+  @spec reasons() :: [reason()]
+  def reasons, do: Map.keys(@index)
 
   @clip 120
 

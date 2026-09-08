@@ -13,6 +13,7 @@ for module <-
         Examples.EFacts,
         Examples.EDoubling,
         Examples.EPipeline,
+        Examples.ERefusal,
         Examples.EAl,
         Examples.EAlloc,
         Examples.ESudoku,
