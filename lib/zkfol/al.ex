@@ -98,7 +98,7 @@ defmodule Zkfol.Al do
   @spec solved(Statement.t() | Rel.t() | [Rel.t()], [integer() | :_], keyword()) ::
           {:ok, Statement.Solved.t()} | {:error, Refusal.t()}
   def solved(target, arguments, opts \\ []) do
-    statement = statement(target)
+    statement = Statement.of(target)
 
     with {:ok, derivation} <- derived(statement, arguments, opts),
          {:ok, laid} <- relaid(statement, derivation),
@@ -256,12 +256,6 @@ defmodule Zkfol.Al do
   defp rels(%Rel{} = root), do: {:ok, Lang.gathered([root])}
   defp rels([%Rel{} | _rest] = list), do: {:ok, Lang.gathered(list)}
   defp rels(_none), do: {:error, {:no_relations, %{}}}
-
-  # A target as the statement it stands for: what the link half lays on.
-  @spec statement(Statement.t() | Rel.t() | [Rel.t()]) :: Statement.t()
-  defp statement(%Statement{} = statement), do: statement
-  defp statement(%Rel{} = root), do: %Statement{rels: [root]}
-  defp statement(rels) when is_list(rels), do: %Statement{rels: rels}
 
   # The oracle on the whole witness: banks stacked, every region in it.
   @spec judged(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}

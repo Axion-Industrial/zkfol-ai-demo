@@ -29,13 +29,16 @@ defmodule Zkfol do
   alias Zkfol.Statement
   alias Zkfol.Uair
 
+  @typedoc "What a door takes: a statement, a root relation, or the relations in scope."
+  @type target :: Statement.t() | Lang.Rel.t() | [Lang.Rel.t()]
+
   @doc "I am the whole act: define, run, verdicts, prove, receipt."
-  @spec compile(Statement.t(), keyword()) :: Log.Ran.t()
-  def compile(%Statement{} = statement, opts \\ []), do: acted(statement, opts, &proved/2)
+  @spec compile(target(), keyword()) :: Log.Ran.t()
+  def compile(target, opts \\ []), do: acted(Statement.of(target), opts, &proved/2)
 
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
-  @spec emit(Statement.t(), keyword()) :: Log.Ran.t()
-  def emit(%Statement{} = statement, opts \\ []), do: acted(statement, opts, &emitted/2)
+  @spec emit(target(), keyword()) :: Log.Ran.t()
+  def emit(target, opts \\ []), do: acted(Statement.of(target), opts, &emitted/2)
 
   @doc """
   I am the query door: no route, no proof, the relation run as AL
