@@ -79,6 +79,11 @@ defmodule Zkfol.Statement do
   def alloc(statement = %__MODULE__{}),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.alloc)
 
+  @doc "I am the compiler's retained walk: its clause inputs, bindings and constraints."
+  @spec lowering(t()) :: Zkfol.Phi.Walk.t() | nil
+  def lowering(%__MODULE__{stage: %Solved{lowering: lowering}}), do: lowering
+  def lowering(%__MODULE__{}), do: nil
+
   @doc "I am the derivation: the run's own once derived, the lay's once solved."
   @spec derivation(t()) :: Zkfol.Derivation.t() | nil
   def derivation(%__MODULE__{stage: derivation = %Zkfol.Derivation{}}), do: derivation

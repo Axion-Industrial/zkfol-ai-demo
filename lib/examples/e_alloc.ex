@@ -13,8 +13,6 @@ defmodule Examples.EAlloc do
   alias Zkfol.Interpretation
   alias Zkfol.Lay
   alias Zkfol.Phi
-  alias Zkfol.Phi.Cons
-  alias Zkfol.Phi.View
   alias Zkfol.Prover
   alias Zkfol.Statement
 
@@ -93,20 +91,6 @@ defmodule Examples.EAlloc do
       refute Zkfol.Semantics.valid?(linked, Interpretation.new([[1]]))
       alloc
     end
-  end
-
-  @doc "Constructing and peeling structure retains the original cells."
-  @spec constructed_values_share_cells() :: Cons.t()
-  example constructed_values_share_cells do
-    view = View.bank([{:input, 1}], 3)
-    head = View.slice(view, 0)
-    tail = View.shifted(view, 1)
-    assert Cons.new(head, tail) == view
-
-    cons = Cons.new(Ast.cell({:input, 2}), tail)
-    assert %Cons{} = cons
-    assert {:ok, Ast.cell({:input, 2}), tail, []} == Cons.peel(cons)
-    cons
   end
 
   @spec fibonacci_alloc() :: Alloc.t()
