@@ -1,0 +1,50 @@
+defmodule Zkfol.Prims do
+  @moduledoc """
+  I am the library the surface's comparisons, reductions and reads call:
+  each is a relation whose body is its meaning, written once.
+  """
+
+  use Zkfol.Lang
+
+  @phi {Zkfol.Ast, :natural}
+  @al quote(do: x >= 0)
+  defrel natural(x)
+
+  @al quote(do: a > b)
+  defrel gt(a, b, s) do
+    a = b + 1 + s
+    natural(s)
+  end
+
+  @al quote(do: a >= b)
+  defrel gte(a, b, s) do
+    a = b + s
+    natural(s)
+  end
+
+  @al quote(do: a < b)
+  defrel lt(a, b, s) do
+    b = a + 1 + s
+    natural(s)
+  end
+
+  @al quote(do: a <= b)
+  defrel lte(a, b, s) do
+    b = a + s
+    natural(s)
+  end
+
+  @phi {Zkfol.Ast, :nth}
+  defrel nth(1, [v | _], v)
+
+  defrel nth(n, [_ | t], v) do
+    nth(n - 1, t, v)
+  end
+
+  defrel mod(e, m, r, q) do
+    e = m * q + r
+    r < m
+    natural(r)
+    natural(q)
+  end
+end

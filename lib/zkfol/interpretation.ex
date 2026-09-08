@@ -1,10 +1,7 @@
 defmodule Zkfol.Interpretation do
   @moduledoc """
-  I am an interpretation of the matrix symbol C: Definition 2.16 of the paper.
-
-  I hold one rectangular matrix of non-negative integers, indexed 1-based as
-  `C@i,x` (row `i`, column `x`). The number of rows is the arity; the number
-  of columns is len(C).
+  I am an interpretation of the matrix symbol C, Definition 2.16 of the paper: one
+  rectangular matrix of integers, `C@i,x` its row `i` column `x`, 1-based.
   """
 
   use TypedStruct
@@ -16,11 +13,8 @@ defmodule Zkfol.Interpretation do
     field(:rows, tuple())
   end
 
-  @doc """
-  I build an interpretation from a list of equal-length rows of
-  non-negative integers. I raise on anything else.
-  """
-  @spec new([[non_neg_integer()]]) :: t()
+  @doc "I build an interpretation from equal-length rows of integers; a cell may be negative."
+  @spec new([[integer()]]) :: t()
   def new([first | _] = rows) when first != [] do
     widths = rows |> Enum.map(&length/1) |> Enum.uniq()
 
@@ -28,24 +22,24 @@ defmodule Zkfol.Interpretation do
       raise ArgumentError, "rows must have equal length, got #{inspect(widths)}"
     end
 
-    for row <- rows, entry <- row, not is_integer(entry) or entry < 0 do
-      raise ArgumentError, "entries must be non-negative integers, got #{inspect(entry)}"
+    for row <- rows, entry <- row, not is_integer(entry) do
+      raise ArgumentError, "entries must be integers, got #{inspect(entry)}"
     end
 
     %__MODULE__{rows: rows |> Enum.map(&List.to_tuple/1) |> List.to_tuple()}
   end
 
   @doc "I am my rows as lists: the shape `new/1` accepts."
-  @spec rows(t()) :: [[non_neg_integer()]]
+  @spec rows(t()) :: [[integer()]]
   def rows(%__MODULE__{rows: rows}),
     do: rows |> Tuple.to_list() |> Enum.map(&Tuple.to_list/1)
 
   @doc "I return C@i,x."
-  @spec at(t(), pos_integer(), pos_integer()) :: non_neg_integer()
+  @spec at(t(), pos_integer(), pos_integer()) :: integer()
   def at(%__MODULE__{rows: rows}, i, x), do: rows |> elem(i - 1) |> elem(x - 1)
 
   @doc "I return `{:ok, C@i,x}`, or `:error` when the cell lies outside me."
-  @spec fetch(t(), pos_integer(), pos_integer()) :: {:ok, non_neg_integer()} | :error
+  @spec fetch(t(), pos_integer(), pos_integer()) :: {:ok, integer()} | :error
   def fetch(%__MODULE__{rows: rows}, i, x) do
     with true <- i in 1..tuple_size(rows)//1,
          row = elem(rows, i - 1),
