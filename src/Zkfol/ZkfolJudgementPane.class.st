@@ -11,7 +11,8 @@ Class {
 { #category : 'views' }
 ZkfolJudgementPane >> equationTreeOn: aView title: aTitle items: aBlock [
 	"The shared tree: each node its value beside its term, its side of
-	 the equation named, cells hopping to the columns that justify them."
+	 the equation named, cells hopping to the columns that justify them;
+	 the undefined cell says ⊥ quietly."
 	^ aView columnedTree
 		title: aTitle;
 		priority: 1;
@@ -20,10 +21,13 @@ ZkfolJudgementPane >> equationTreeOn: aView title: aTitle items: aBlock [
 		column: 'Value' text: [ :node |
 			| v scoring |
 			v := node at: #value.
-			scoring := ((node at: #text) includesSubstring: ' = ') and: [ v ~= 0 ].
-			scoring
-				ifTrue: [ v asRopedText foreground: Color red darker; bold ]
-				ifFalse: [ v asRopedText foreground: Color darkGray ] ] width: 90;
+			v = #error
+				ifTrue: [ '⊥' asRopedText foreground: Color lightGray ]
+				ifFalse: [
+					scoring := ((node at: #text) includesSubstring: ' = ') and: [ v ~= 0 ].
+					scoring
+						ifTrue: [ v asRopedText foreground: Color red darker; bold ]
+						ifFalse: [ v asRopedText foreground: Color darkGray ] ] ] width: 90;
 		column: 'Side' text: [ :node |
 			(node at: #role ifAbsent: [ '' ]) asRopedText foreground: Color gray ] width: 60;
 		column: 'Term' text: [ :node | node at: #text ] weight: 3;
@@ -34,13 +38,14 @@ ZkfolJudgementPane >> equationTreeOn: aView title: aTitle items: aBlock [
 ZkfolJudgementPane >> formulaLineFor: aNode [
 	"An equation inline with the witness pushed through it:
 	 the formula, then left = right as evaluated, then the score when
-	 it objects. A header line is a branch, bold with its total."
+	 it objects. A header line is a branch, bold with its total; the
+	 undefined cell says ⊥ quietly."
 	| rope v left right |
 	v := aNode at: #value ifAbsent: [ nil ].
 	(aNode at: #header ifAbsent: [ false ]) ifTrue: [
 		rope := (aNode at: #text) asRopedText bold foreground: Color black.
 		(v notNil and: [ v ~= 0 ]) ifTrue: [
-			rope append: (('  (' , v printString , ')') asRopedText
+			rope append: (('  (' , (self shown: v) , ')') asRopedText
 				foreground: Color gray) ].
 		^ rope ].
 	rope := (aNode at: #text) asRopedText foreground: Color darkGray.
@@ -50,14 +55,24 @@ ZkfolJudgementPane >> formulaLineFor: aNode [
 		detect: [ :c | (c at: #role ifAbsent: [ '' ]) = 'right' ] ifNone: [ nil ].
 	(left notNil and: [ right notNil ]) ifTrue: [
 		rope append: ('   ->   ' asRopedText foreground: Color gray).
-		rope append: (((left at: #value) printString , ' = ' , (right at: #value) printString)
+		rope append: (((self shown: (left at: #value)) , ' = ' , (self shown: (right at: #value)))
 			asRopedText foreground: (v = 0
 				ifTrue: [ Color darkGray ]
-				ifFalse: [ Color red darker ])) ].
+				ifFalse: [ v = #error
+					ifTrue: [ Color lightGray ]
+					ifFalse: [ Color red darker ] ])) ].
 	(v notNil and: [ v ~= 0 ]) ifTrue: [
-		rope append: (('   (' , v printString , ')') asRopedText
-			foreground: Color red darker) ].
+		rope append: (('   (' , (self shown: v) , ')') asRopedText
+			foreground: (v = #error
+				ifTrue: [ Color lightGray ]
+				ifFalse: [ Color red darker ])) ].
 	^ rope
+]
+
+{ #category : 'views' }
+ZkfolJudgementPane >> shown: aValue [
+	"A value as the view says it: the undefined cell is ⊥."
+	^ aValue = #error ifTrue: [ '⊥' ] ifFalse: [ aValue printString ]
 ]
 
 { #category : 'views' }
