@@ -25,6 +25,11 @@ defmodule Zkfol.Al do
 
   @class :zkfol
 
+  # Heap words a derivation may take before it refuses as heap_exhausted;
+  # apply collects every answer at once, so it asks under a tighter cap.
+  @heap 256_000_000
+  @apply_heap 20_000_000
+
   @typedoc "An emitted AL program: goal structs ready for AL.eval/3."
   @type program :: [struct()]
 
@@ -164,7 +169,7 @@ defmodule Zkfol.Al do
          {:ok, prep} <- prepared(rels, arguments, opts) do
       branch = AL.Branch.fork(:tip, based(landing(prep.branch)))
 
-      case install(prep.program, branch, prep.heap || 256_000_000) do
+      case install(prep.program, branch, prep.heap || @heap) do
         :ok ->
           {:ok,
            %Ask{
@@ -231,7 +236,7 @@ defmodule Zkfol.Al do
           {:ok, Derivation.t()} | {:error, Refusal.t()}
   defp derive_rels(rels, args, opts) do
     with {:ok, prep} <- prepared(rels, args, opts) do
-      on_question(prep, 256_000_000, fn branch, heap ->
+      on_question(prep, @heap, fn branch, heap ->
         with {:ok, tree} <- derive(prep, branch, heap) do
           derivation = Derivation.of(tree, prep.names, prep.len?)
           count = length(derivation.facts)
@@ -435,7 +440,7 @@ defmodule Zkfol.Al do
       template = Enum.map(names, &v/1)
       query = plain(quote(do: findall(unquote(template), unquote([site]), rs)))
 
-      on_question(prep, 20_000_000, fn branch, heap ->
+      on_question(prep, @apply_heap, fn branch, heap ->
         with {:ok, bindings, _nothing} <-
                ask(query, branch, heap, root.name, fn _state -> nil end) do
           rows = bindings |> AL.Var.deref(:"$rs") |> AL.Var.subst(bindings)
