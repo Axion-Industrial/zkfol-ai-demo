@@ -62,7 +62,7 @@ defmodule Zkfol.Face do
 
   @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
   @spec text(Statement.t()) :: String.t()
-  def text(%Statement{stage: %Solved{} = solved} = statement) do
+  def text(statement = %Statement{stage: %Solved{} = solved}) do
     elided = %{solved | lay: :"…elided…"}
     inspected(%{statement | stage: elided})
   end
@@ -153,25 +153,14 @@ defmodule Zkfol.Face do
 
   @spec lay_labels(Zkfol.Lay.t()) :: [String.t()]
   defp lay_labels(%Zkfol.Lay{alloc: alloc}) do
-    numbered(Map.merge(member_rows(alloc), derived_rows(alloc)), alloc)
+    for {ref, r} <- Enum.with_index(Zkfol.Alloc.refs(alloc), 1), do: "C#{r} · #{row_text(ref)}"
   end
 
-  @spec derived_rows(Zkfol.Alloc.t()) :: %{pos_integer() => String.t()}
-  defp derived_rows(alloc) do
-    (Zkfol.Alloc.rows(alloc, :in) || [])
-    |> Enum.zip(Zkfol.Alloc.names(alloc))
-    |> Map.new(fn {r, name} -> {r, "in #{name}"} end)
-  end
-
-  @spec numbered(%{pos_integer() => String.t()}, Zkfol.Alloc.t()) :: [String.t()]
-  defp numbered(named, alloc) do
-    for r <- 1..Zkfol.Alloc.width(alloc) do
-      case named do
-        %{^r => label} -> "C#{r} · #{label}"
-        _named -> "C#{r}"
-      end
-    end
-  end
+  @spec row_text(Ast.row_ref()) :: String.t()
+  defp row_text({:in, name}), do: "in #{name}"
+  defp row_text({name, {:param, sym}}), do: "#{name} #{sym}"
+  defp row_text({name, {:own, {sym, _site}}}), do: "#{name} #{sym}"
+  defp row_text({name, i}), do: "#{name} #{inspect(i)}"
 
   @doc "I am the emitted UAIR for its grid, every row's kind named."
   @spec grid(Uair.t()) :: %{atom() => term()}
@@ -466,15 +455,6 @@ defmodule Zkfol.Face do
   defp surface_leaf({:reify, goal}), do: "reify(" <> goal_text(goal) <> ")"
   defp surface_leaf(_pinned), do: "^"
 
-  @spec member_rows(Zkfol.Alloc.t()) :: %{pos_integer() => String.t()}
-  defp member_rows(alloc) do
-    for member <- alloc.members,
-        {r, slot} <-
-          Enum.zip(Zkfol.Alloc.rows(alloc, member.name) || [], Zkfol.Alloc.Member.rows(member)),
-        into: %{},
-        do: {r, "#{member.name} #{slot}"}
-  end
-
   @spec conjuncts_of(Ast.pred()) :: [Ast.pred()]
   defp conjuncts_of({:conj, goals}), do: goals
   defp conjuncts_of(pred), do: [pred]
@@ -548,7 +528,10 @@ defmodule Zkfol.Face do
   @spec ordered(Statement.t()) :: [Lang.Rel.t()]
   defp ordered(%Statement{rels: rels, stage: %Solved{lay: lay}}) do
     named = Map.new(rels, &{&1.name, &1})
-    for member <- lay.alloc.members, rel = named[member.relation], do: rel
+
+    for %Zkfol.Alloc.Member{relation: relation} <- lay.alloc.members,
+        rel = named[relation],
+        do: rel
   end
 
   @spec inspected(term()) :: String.t()

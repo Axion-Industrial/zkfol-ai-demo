@@ -1,17 +1,18 @@
 defmodule Zkfol.Phi.Walk do
   @moduledoc """
   I am what a walk of goals came to: the members it made and what they
-  say, the equations and sites of the clause being said, the rows it
-  spent, the env its goals bound, and whether a conjunct died.
+  say, and the bindings, constraints and storage of one clause.
+  Bank depths belong to storage; `env` holds only symbolic bindings.
+  An impossible walk is `:dead`.
 
   ### Public API
 
-  - `join/2`: one walk then another.
-  - `dead/1`: the walk of a conjunct nothing can hold.
+  - `constrain/2`: retain the equations required by an observation.
   """
 
   use TypedStruct
 
+  alias Zkfol.Alloc.Bank
   alias Zkfol.Alloc.Member
   alias Zkfol.Alloc.Site
   alias Zkfol.Alloc.Slot
@@ -19,29 +20,15 @@ defmodule Zkfol.Phi.Walk do
 
   typedstruct do
     field(:env, map(), default: %{})
-    field(:members, [Member.t()], default: [])
-    field(:saids, [{atom(), Ast.pred()}], default: [])
+    field(:banks, %{atom() => pos_integer()}, default: %{})
+    field(:members, [Member.t() | Bank.t()], default: [])
+    field(:predicates, [Ast.pred()], default: [])
     field(:eqs, [Ast.pred()], default: [])
-    field(:sites, [{non_neg_integer(), Site.t() | nil}], default: [])
-    field(:spent, [Slot.t()], default: [])
-    field(:dead?, boolean(), default: false)
+    field(:sites, [{non_neg_integer(), Site.t()}], default: [])
+    field(:slots, [Slot.t()], default: [])
   end
 
-  @doc "I am one walk then another: the later's env and death, the rest appended."
-  @spec join(t(), t()) :: t()
-  def join(%__MODULE__{} = a, %__MODULE__{} = b) do
-    %__MODULE__{
-      env: b.env,
-      members: a.members ++ b.members,
-      saids: a.saids ++ b.saids,
-      eqs: a.eqs ++ b.eqs,
-      sites: a.sites ++ b.sites,
-      spent: a.spent ++ b.spent,
-      dead?: a.dead? or b.dead?
-    }
-  end
-
-  @doc "I am the walk of a conjunct nothing can hold: it says nothing and lays nothing."
-  @spec dead(map()) :: t()
-  def dead(env), do: %__MODULE__{env: env, dead?: true}
+  @doc "I collect conjuncts in reverse order without copying the clause accumulated so far."
+  @spec constrain(t(), [Ast.pred()]) :: t()
+  def constrain(walk = %__MODULE__{}, eqs), do: %{walk | eqs: Enum.reverse(eqs, walk.eqs)}
 end

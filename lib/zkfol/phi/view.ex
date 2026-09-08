@@ -25,7 +25,9 @@ defmodule Zkfol.Phi.View do
   end
 
   @spec placed(extent()) :: col()
-  defp placed(extent), do: with({:at, base, m, a} <- Zkfol.Lay.head(extent), do: {base, m, a})
+  defp placed({m, a}), do: {:x, m, a + 1}
+  defp placed(n) when is_integer(n), do: placed({0, n})
+  defp placed(:open), do: nil
 
   @spec normal(extent()) :: extent()
   defp normal({0, n}), do: n
@@ -96,18 +98,6 @@ defmodule Zkfol.Phi.View do
   def shifted(%__MODULE__{axes: [axis | rest]} = view, i),
     do: %{moved(view, axis, i) | axes: [%{axis | extent: less(axis.extent, i)} | rest]}
 
-  @doc """
-  I am myself a cell earlier, where `cell` is the cell before my start:
-  how a peeled tail is respelt whole. Any other cell fronts me as a
-  sequence.
-  """
-  @spec consed(t(), term()) :: t() | nonempty_improper_list(term(), t())
-  def consed(%__MODULE__{col: col} = view, cell) do
-    if col != nil and slice(view, -1) == cell,
-      do: shifted(view, -1),
-      else: [cell | view]
-  end
-
   @spec moved(t(), axis(), integer()) :: t()
   defp moved(%__MODULE__{row: {bank, r0}, col: {base, m, a}} = view, axis, i),
     do: %{view | row: {bank, r0 + i * axis.row}, col: {base, m, a + i * axis.col}}
@@ -118,7 +108,7 @@ defmodule Zkfol.Phi.View do
   defp less(:open, _i), do: :open
 
   @doc "I am myself as the caller sees me: my column's base worn in `frame`."
-  @spec framed(t(), Zkfol.Phi.frame()) :: t()
+  @spec framed(t(), Zkfol.Phi.Value.frame()) :: t()
   def framed(%__MODULE__{col: {:x, mc, ac}} = view, {m, a}) when is_integer(m) do
     axes = for axis <- view.axes, do: %{axis | extent: scaled(axis.extent, m, a)}
     %{view | col: {:x, mc * m, mc * a + ac}, axes: axes}
@@ -137,7 +127,7 @@ defmodule Zkfol.Phi.View do
   defp scaled(extent, _m, _a), do: extent
 
   @doc "I am myself as the callee sees me, `framed`'s inverse; the unreached lose their column."
-  @spec reframed(t(), Zkfol.Phi.frame()) :: t()
+  @spec reframed(t(), Zkfol.Phi.Value.frame()) :: t()
   def reframed(%__MODULE__{row: nil, col: {:x, 0, _q}} = literal, _frame), do: literal
 
   def reframed(%__MODULE__{col: {:x, mc, ac}} = view, {m, a}) when is_integer(m) do

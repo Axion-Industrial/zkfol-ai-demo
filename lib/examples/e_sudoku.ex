@@ -7,7 +7,7 @@ defmodule Examples.ESudoku do
   import ExUnit.Assertions
 
   alias Examples.EUser
-  alias Zkfol.Alloc.Member
+  alias Zkfol.Alloc.Bank
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
@@ -120,6 +120,25 @@ defmodule Examples.ESudoku do
   example families_proved do
     {:ok, report, _id} = Prover.prove_uair(families_selected(), name: :families)
     report
+  end
+
+  @doc "Different private grids prove on the same allocation; every family shares one puzzle bank."
+  @spec private_grids_share_one_allocation() :: [Prover.Report.t()]
+  example private_grids_share_one_allocation do
+    {:ok, pred, alloc} = Zkfol.Phi.compile(families(), nil, act())
+    assert [%Bank{depth: 9}] = Enum.filter(alloc.members, &is_struct(&1, Bank))
+    relabelled = for row <- @solution, do: for(n <- row, do: rem(n, 9) + 1)
+
+    for grid <- [@solution, relabelled] do
+      assert {:ok, ^pred, ^alloc} = Zkfol.Phi.compile(families(), nil, [grid])
+      {:ok, derivation} = Zkfol.Al.derived(families(), [grid])
+      witness = derivation |> Zkfol.Lay.of(alloc) |> Zkfol.Lay.witness()
+
+      assert {:ok, report = %Prover.Report{}, _id} =
+               Prover.prove(Zkfol.Alloc.link(pred, alloc), witness)
+
+      report
+    end
   end
 
   @doc "A trade down one column keeps that column's multiset; the selections across it refuse."
@@ -444,8 +463,7 @@ defmodule Examples.ESudoku do
 
     banks = Statement.alloc(statement).members
 
-    assert for(bank <- banks, Member.bank?(bank), do: bank.name) ==
-             [:"peeled rows", :"peeled a2"]
+    assert for(%Bank{name: name} <- banks, do: name) == [:"peeled rows", :"peeled a2"]
 
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
     assert length(uair.point_ties) == 81

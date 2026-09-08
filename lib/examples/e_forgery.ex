@@ -184,21 +184,24 @@ defmodule Examples.EForgery do
 
     for stand <- lay.stands,
         {_relation, tuple} = stand.fact,
-        {value, %Slot{at: {mul, _add}} = slot} <-
+        {value, slot = %Slot{allocation: {:bank, bank, {:at, :x, mul, _add}}}} <-
           Enum.zip(tuple, Alloc.member(alloc, stand.member).slots),
         mul > 0,
         is_list(value),
         {cell, p} <- Enum.with_index(value),
         column = Ast.column(Lay.at(slot, p), stand.column),
-        {held, ref} <- Enum.zip(List.flatten([cell]), slot.rows),
-        do: {held, Slot.owner(slot), Alloc.row(alloc, ref), column}
+        {held, ref} <- Enum.zip(List.flatten([cell]), Alloc.slot_rows(alloc, slot)),
+        do: {held, bank, Alloc.row(alloc, ref), column}
   end
 
   # A sequence the act handed no datum holds the run's answer, which nothing need read back.
   @spec freed(Statement.t()) :: [atom()]
   defp freed(%Statement{args: args} = statement) do
     [root | _rest] = Statement.alloc(statement).members
-    for {:_, %Slot{} = slot} <- Enum.zip(args, root.slots), Slot.bank?(slot), do: Slot.owner(slot)
+
+    for {:_, %Slot{allocation: {:bank, owner, _at}}} <-
+          Enum.zip(args, root.slots),
+        do: owner
   end
 
   # A value the act handed but did not open is a private witness: free, never a forgery.
@@ -210,20 +213,18 @@ defmodule Examples.EForgery do
     opened = MapSet.new(claimed(statement), fn {cell, _from, _to} -> cell end)
 
     scalars =
-      for {arg, %Slot{rows: [ref]} = slot} <- Enum.zip(args, root.slots),
+      for {arg, %Slot{allocation: {:cell, ref}}} <-
+            Enum.zip(args, root.slots),
           arg != :_,
-          not Slot.bank?(slot),
-          not Slot.index?(slot),
-          Slot.owner(slot) == root.name,
           into: MapSet.new(),
           do: Alloc.row(alloc, ref)
 
     banks =
-      for {arg, %Slot{} = slot} <- Enum.zip(args, root.slots),
+      for {arg, %Slot{allocation: {:bank, owner, _at}}} <-
+            Enum.zip(args, root.slots),
           is_list(arg),
-          Slot.bank?(slot),
           into: MapSet.new(),
-          do: Slot.owner(slot)
+          do: owner
 
     query = Derivation.root(lay.derivation, root.relation)
 
@@ -306,21 +307,17 @@ defmodule Examples.EForgery do
   defp standing(%Alloc{} = alloc) do
     root = Alloc.root(alloc)
 
-    for member <- [
-          root
-          | for(
-              slot <- root.slots,
-              Slot.bank?(slot),
-              do: Alloc.member(alloc, Slot.owner(slot))
-            )
-        ],
-        do: Alloc.presence(alloc, member.name)
+    banks =
+      for %Slot{allocation: {:bank, owner, _at}} <- root.slots,
+          do: owner
+
+    for name <- [root.name | banks], do: Alloc.presence(alloc, name)
   end
 
   @spec presence(Statement.t()) :: [pos_integer()]
   defp presence(%Statement{} = statement) do
     alloc = Statement.alloc(statement)
-    for member <- alloc.members, do: Alloc.presence(alloc, member.name)
+    for {:in, _name} = ref <- Alloc.refs(alloc), do: Alloc.row(alloc, ref)
   end
 
   # A pointer moved is aimed elsewhere: every reading through it must meet the same value.

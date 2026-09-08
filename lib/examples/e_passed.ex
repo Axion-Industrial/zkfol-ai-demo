@@ -7,6 +7,7 @@ defmodule Examples.EPassed do
   import ExUnit.Assertions
 
   alias Zkfol.{Al, Alloc, Derivation, Lay, Prover}
+  alias Zkfol.Interpretation
   alias Zkfol.Phi
   alias Zkfol.Pipeline
   alias Zkfol.Semantics
@@ -76,6 +77,45 @@ defmodule Examples.EPassed do
       end
 
       witness
+    end
+  end
+
+  defrel reads(xs, i, first, selected) do
+    nth(1, [42], constant)
+    constant = 42
+    nth(1, xs, first)
+    nth(i, xs, selected)
+  end
+
+  @doc "Stored terms share one read predicate across private indices, beside an optimized read."
+  @spec stored_indexed_reads() :: [Lay.t()]
+  example stored_indexed_reads do
+    {:ok, pred, alloc} = Phi.compile(reads(), nil, [[9, [4, 5], 7], 1, :_, :_])
+    linked = Alloc.link(pred, alloc)
+
+    for {xs, i} <- [{[9, [4, 5], 7], 1}, {[11, [6, 8], 13], 3}] do
+      assert {:ok, ^pred, ^alloc} = Phi.compile(reads(), nil, [xs, i, :_, :_])
+      {:ok, derivation} = Al.derived(reads(), [xs, i, :_, :_])
+      assert Derivation.root(derivation, :reads) == {:reads, [xs, i, hd(xs), Enum.at(xs, i - 1)]}
+      lay = Lay.of(derivation, alloc)
+      witness = Lay.witness(lay)
+      assert Semantics.valid?(linked, witness)
+      assert {:ok, %Prover.Report{}, _id} = Prover.prove(linked, witness)
+
+      for {parameter, wrong} <- [{4, 1}, {2, 0}, {2, length(xs) + 1}] do
+        {:ok, [{_name, row, column} | _cells]} = Lay.claims(lay, [parameter])
+
+        forged =
+          witness
+          |> Interpretation.rows()
+          |> List.update_at(row - 1, &List.replace_at(&1, column - 1, wrong))
+          |> Interpretation.new()
+
+        refute Semantics.valid?(linked, forged)
+        assert {:error, _refusal} = Prover.prove(linked, forged)
+      end
+
+      lay
     end
   end
 

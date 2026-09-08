@@ -155,8 +155,7 @@ defmodule Zkfol.Al do
   @spec capped_eval(Ask.t()) ::
           {:ok, AL.Var.store(), Derivation.t()} | {:no, term()} | {:error, Refusal.t()}
   defp capped_eval(%Ask{} = ask) do
-    # A Φ relation is the linker's reading of the run, never a fact the run established.
-    names = MapSet.new(Enum.reject(ask.rels, & &1.phi), & &1.name)
+    names = MapSet.new(ask.rels, & &1.name)
 
     {pid, ref} =
       spawn_monitor(fn ->
