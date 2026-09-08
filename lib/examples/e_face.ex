@@ -84,14 +84,28 @@ defmodule Examples.EFace do
     feed
   end
 
-  @doc "I compile my own act: a cached one's branch is already gone."
-  @spec the_act_forwards_its_program() :: AL.Object.t()
-  example the_act_forwards_its_program do
-    ran = Zkfol.compile(%Statement{rels: [EUser.fib()], args: [8]})
-    program = Face.program(Zkfol.Log.snapshot(), ran)
+  @doc "The program rides its branch: an act finds it on its trail, a query on its ask."
+  @spec the_program_on_its_branch() :: AL.Object.t()
+  example the_program_on_its_branch do
+    ran = Zkfol.compile(EUser.fib(), args: [8])
+    snap = Zkfol.Log.snapshot()
 
-    assert %AL.Object{id: :zkfol, branch: branch} = program
-    assert Enum.any?(AL.Branch.list(), &(&1.id == branch))
+    assert %AL.Object{id: :zkfol, branch: branch} = program = Face.program(snap, ran)
+
+    assert Enum.any?(
+             Zkfol.Log.thread(snap, ran.defined),
+             &match?(
+               %Zkfol.Log.Event{body: {:al_solved, %{branch: ^branch}}},
+               &1
+             )
+           )
+
+    query = Zkfol.eval!(EUser.fib(), [8, :_])
+    assert %AL.Object{id: :zkfol} = Zkfol.Al.program(query.ask.branch.id)
+    Zkfol.Query.close(query)
+
+    refused = Zkfol.emit(%Statement{rels: []}, name: :nothing)
+    assert Face.program(Zkfol.Log.snapshot(), refused) == nil
     program
   end
 

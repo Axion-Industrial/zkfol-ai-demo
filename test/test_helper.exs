@@ -1,9 +1,8 @@
-# Every solve without a branch: lands on one shared branch; installs
-# retract by name, so examples stay isolated without paying the fork
-# and discard per call. The branch goes when the suite does, so the
-# store the next run forks from is the one this run started with.
+# Every solve lands on the head branch. The suite checks out a fork
+# and discards it after, so its installs and their command log go with
+# it and the store the next run finds is the one this run found.
 branch = AL.Branch.fork()
-Application.put_env(:zkfol, :branch, branch.id)
+AL.Branch.checkout(branch)
 
 # The proving examples are tagged :prove; ZKFOL_PROVE=1 mix test runs them
 # too, and with them the whole program space, which is minutes rather than

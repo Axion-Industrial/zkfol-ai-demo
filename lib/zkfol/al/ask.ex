@@ -1,8 +1,8 @@
 defmodule Zkfol.Al.Ask do
   @moduledoc """
-  I am one stepping ask: the question installed on a branch of my own, the
-  goal that runs against it, the arguments the answer is shaped to, and AL's
-  search state between answers.
+  I am one stepping ask: the question installed on the branch I landed on, the
+  goal that runs against it, the arguments the answer is shaped to, the heap a
+  run of me may spend, and AL's search state between answers.
   """
 
   use TypedStruct
@@ -18,6 +18,9 @@ defmodule Zkfol.Al.Ask do
     field(:goal, [struct()])
     field(:arguments, [Zkfol.Statement.datum() | :_])
     field(:branch, AL.Branch.t())
+    field(:heap, pos_integer())
+    # My methods carry the trace size as a last argument, which a fact is not.
+    field(:len?, boolean())
     field(:state, AL.t() | nil, default: nil)
   end
 end
