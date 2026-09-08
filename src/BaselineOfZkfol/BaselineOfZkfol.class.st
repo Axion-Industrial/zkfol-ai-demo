@@ -1,5 +1,5 @@
 "
-Metacello baseline for the Zkfol GToolkit tooling. `load` (fresh / CI) pins the BEAM bridge (Gt4beam v0.19.0), rides AL's tooling in on top via its own dev group so the AL GUI displays alongside the Uair grid, then loads Zkfol. `load: #dev` loads only Zkfol against an already-present, possibly work-in-progress gt4beam and AL, so hacking either never hits a pin.
+Metacello baseline for the Zkfol GToolkit tooling. `load` (fresh / CI) pins the BEAM bridge (Gt4beam v0.20.1), rides AL's tooling in on top via its own dev group so the AL GUI displays alongside the Uair grid, then loads Zkfol. `load: #dev` loads only Zkfol against an already-present, possibly work-in-progress gt4beam and AL, so hacking either never hits a pin.
 "
 Class {
 	#name : 'BaselineOfZkfol',
@@ -15,7 +15,7 @@ BaselineOfZkfol >> baseline: spec [
 		for: #common
 		do: [ spec
 				baseline: 'Gt4beam'
-				with: [ spec repository: 'github://mariari/ElixirGtBridge:v0.19.0/src' ].
+				with: [ spec repository: 'github://mariari/ElixirGtBridge:v0.20.1/src' ].
 			spec
 				baseline: 'AL'
 				with: [ spec
