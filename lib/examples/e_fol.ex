@@ -10,7 +10,6 @@ defmodule Examples.EFol do
   alias Examples.EUser
   alias Zkfol.Alloc
   alias Zkfol.FOL
-  alias Zkfol.Phi
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Refusal
