@@ -399,11 +399,13 @@ defmodule Zkfol.Face do
     |> ColumnedList.column("Predicate", &phi_text/1)
   end
 
-  defview bindings_view(%Zkfol.Phi.Walk{env: env}, builder) do
+  defview bindings_view(walk = %Zkfol.Phi.Walk{env: env}, builder) do
     builder.columned_list()
     |> ColumnedList.title("Bindings")
     |> ColumnedList.priority(2)
-    |> ColumnedList.items(Enum.sort(env))
+    |> ColumnedList.items(
+      for {name, _access} <- Enum.sort(env), do: {name, Zkfol.Phi.Walk.fetch(walk, name)}
+    )
     |> ColumnedList.column("Name", fn {name, _access} -> inspect(name) end)
     |> ColumnedList.column("Access", fn {_name, access} -> inspected(access) end)
     |> ColumnedList.send(fn {_name, access} -> access end)
@@ -422,7 +424,8 @@ defmodule Zkfol.Face do
     |> ColumnedList.title("Storage")
     |> ColumnedList.priority(4)
     |> ColumnedList.items([
-      {"Bank depths", walk.banks},
+      {"Owned banks", walk.banks},
+      {"Element shapes", walk.shapes},
       {"Parameters", walk.parameters},
       {"Slots", walk.slots},
       {"Members", walk.members}

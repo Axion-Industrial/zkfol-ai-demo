@@ -2,7 +2,7 @@ defmodule Zkfol.Phi.View do
   @moduledoc """
   I describe a sequence's access to existing trace cells.
 
-  A sequence's elements are scalars or fixed-width records. Selecting a record
+  A sequence's elements are unknown, scalars, or fixed-width records. Selecting a record
   returns an ordinary list of cell references: list matching handles its head
   and tail, and no puzzle cells are copied.
 
@@ -13,7 +13,7 @@ defmodule Zkfol.Phi.View do
 
   ### Public API
 
-  - `bank/2`: a sequence with its records' component rows.
+  - `bank/3`: a sequence with its records' component rows.
   - `cell/2`, `cells/1`, `slice/2`, `shifted/2`: access and traversal over the same cells.
   - `count/1`, `size/1`, `width/1`, `finite?/1`, `rows/1`: shape and access span.
   - `framed/2`, `reframed/2`, `stepped/2`: express the view at a call's column.
@@ -22,7 +22,6 @@ defmodule Zkfol.Phi.View do
 
   use TypedStruct
 
-  alias Zkfol.Alloc.Bank
   alias Zkfol.Ast
 
   @type extent :: non_neg_integer() | {integer(), integer()} | :open
@@ -32,22 +31,43 @@ defmodule Zkfol.Phi.View do
     use TypedStruct
 
     typedstruct enforce: true do
-      field(:width, non_neg_integer())
+      field(:width, non_neg_integer() | {:at_least, non_neg_integer()})
     end
   end
+
+  defmodule Element do
+    @moduledoc "I access an element whose shape is unresolved."
+    use TypedStruct
+
+    typedstruct enforce: true do
+      field(:row, Zkfol.Ast.row_ref())
+      field(:col, Zkfol.Ast.address())
+    end
+  end
+
+  defmodule Fields do
+    @moduledoc "I access the remaining fields of an opened record whose width is unresolved."
+    use TypedStruct
+
+    typedstruct enforce: true do
+      field(:element, Zkfol.Phi.View.Element.t())
+      field(:offset, non_neg_integer(), default: 0, enforce: false)
+    end
+  end
+
+  @type element :: :unknown | :scalar | Record.t()
 
   typedstruct enforce: true do
     field(:row, Zkfol.Ast.row_ref())
     field(:col, Ast.address() | nil)
     field(:length, extent())
-    field(:element, :scalar | Record.t())
+    field(:element, element())
   end
 
   @doc "I access `len` elements in a bank, starting at column `len + 1`."
-  @spec bank(Bank.t(), extent()) :: t()
-  def bank(%Bank{name: name, depth: width}, len) do
+  @spec bank(atom(), element(), extent()) :: t()
+  def bank(name, element, len) do
     len = normal(len)
-    element = if width == 1, do: :scalar, else: %Record{width: width}
     %__MODULE__{row: {name, 1}, col: placed(len), length: len, element: element}
   end
 
@@ -67,7 +87,7 @@ defmodule Zkfol.Phi.View do
   @doc "I return the number of scalar cells when the sequence length is known."
   @spec size(t()) :: non_neg_integer() | nil
   def size(view = %__MODULE__{length: n}),
-    do: if(is_integer(n), do: n * width(view))
+    do: if(is_integer(n) and width(view) != nil, do: n * width(view))
 
   @doc "I say whether my sequence has a known length and a column address."
   @spec finite?(t()) :: boolean()
@@ -75,14 +95,17 @@ defmodule Zkfol.Phi.View do
   def finite?(%__MODULE__{length: n}), do: is_integer(n)
 
   @doc "I return the number of component rows used by each element."
-  @spec width(t()) :: non_neg_integer()
-  def width(%__MODULE__{element: %Record{width: n}}), do: n
-  def width(%__MODULE__{}), do: 1
+  @spec width(t()) :: non_neg_integer() | nil
+  def width(%__MODULE__{element: %Record{width: n}}) when is_integer(n), do: n
+  def width(%__MODULE__{element: %Record{}}), do: nil
+  def width(%__MODULE__{element: :scalar}), do: 1
+  def width(%__MODULE__{element: :unknown}), do: nil
 
   @doc "I give back rows starting with the given view"
   @spec rows(t()) :: [Zkfol.Ast.row_ref()]
   def rows(view = %__MODULE__{row: {bank, first}}) do
-    Enum.map(first..(first + width(view) - 1)//1, &{bank, &1})
+    width = width(view) || throw({:refused, {:unliftable_term, %{term: view}}})
+    Enum.map(first..(first + width - 1)//1, &{bank, &1})
   end
 
   @doc "I map source indices to the existing trace cell they name."
@@ -104,7 +127,18 @@ defmodule Zkfol.Phi.View do
   end
 
   @doc "I select one scalar or a record of references to existing cells."
-  @spec slice(t(), integer()) :: [Zkfol.Ast.term_t()] | Zkfol.Ast.term_t()
+  @spec slice(t(), integer()) ::
+          [Zkfol.Ast.term_t()] | Zkfol.Ast.term_t() | Element.t() | Fields.t()
+  def slice(view = %__MODULE__{element: :unknown}, i) do
+    {row, col} = Ast.read(cell(view, [i]))
+    %Element{row: row, col: col}
+  end
+
+  def slice(view = %__MODULE__{element: %Record{width: {:at_least, _}}}, i) do
+    {row, col} = Ast.read(cell(view, [i]))
+    %Fields{element: %Element{row: row, col: col}}
+  end
+
   def slice(view = %__MODULE__{element: :scalar}, i), do: cell(view, [i])
 
   def slice(view = %__MODULE__{}, i),

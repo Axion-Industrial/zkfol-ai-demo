@@ -12,7 +12,6 @@ defmodule Examples.EPhi do
   import ExUnit.Assertions
 
   alias Examples.EUser
-  alias Zkfol.Alloc.Bank
   alias Zkfol.Ast
   alias Zkfol.Lang.Rel
   alias Zkfol.Phi
@@ -24,7 +23,7 @@ defmodule Examples.EPhi do
   @doc "I describe one nine-by-nine bank; no puzzle values are needed to name its cells."
   @spec grid() :: View.t()
   example grid do
-    View.bank(%Bank{name: :puzzle, depth: 9}, 9)
+    View.bank(:puzzle, %View.Record{width: 9}, 9)
   end
 
   @doc "I name the trace cell for source position [2, 2]; I do not read its puzzle value."
@@ -58,7 +57,7 @@ defmodule Examples.EPhi do
     walk = Phi.match([head], [row()], empty())
     assert walk.env.x == View.cell(grid(), [0, 0])
     assert walk.env.xs == tl(row())
-    assert walk.parameters == %{} and walk.banks == %{} and walk.slots == [] and walk.eqs == []
+    assert walk.parameters == %{} and walk.banks == [] and walk.slots == [] and walk.eqs == []
     walk
   end
 
@@ -104,7 +103,39 @@ defmodule Examples.EPhi do
 
     assert walk.env[ref] == tail
     assert walk.parameters[ref] == :none
-    assert walk.banks == %{} and walk.slots == []
+    assert walk.banks == [] and walk.slots == []
+    walk
+  end
+
+  @doc "I declare a sequence whose elements have not yet been observed."
+  @spec record_parameters() :: Walk.t()
+  example record_parameters do
+    relation = EUser.rows()
+    {_counter, walk} = Phi.parameters(relation, [:fresh, :fresh], %{rows: relation})
+    assert Walk.fetch(walk, {:rows, {:param, :a1}}).element == :unknown
+    walk
+  end
+
+  @doc "I match [[a, b] | t], establishing a two-field record for every element of the sequence."
+  @spec matched_record() :: Walk.t()
+  example matched_record do
+    before = record_parameters()
+    input = Walk.fetch(before, {:rows, {:param, :a1}})
+    {head, _body} = List.last(EUser.rows().clauses)
+    walk = Phi.match(head, [input, {:fresh, {:rows, {:param, :s}}}], before)
+    assert Walk.fetch(walk, :t).element == %View.Record{width: 2}
+    walk
+  end
+
+  @doc "I hand the tail to a new walk; it can read the next record without owning its bank."
+  @spec shared_record() :: Walk.t()
+  example shared_record do
+    tail = Walk.fetch(matched_record(), :t)
+    {head, _body} = List.last(EUser.rows().clauses)
+    walk = Phi.match(head, [tail, :fresh], empty())
+    assert Walk.fetch(walk, :a) == View.cell(tail, [0, 0])
+    assert Walk.fetch(walk, :b) == View.cell(tail, [0, 1])
+    assert walk.banks == [] and walk.slots == []
     walk
   end
 
@@ -119,7 +150,7 @@ defmodule Examples.EPhi do
   @doc "Constructing and peeling structure retains the original cells."
   @spec constructed_values_share_cells() :: Cons.t()
   example constructed_values_share_cells do
-    view = View.bank(%Bank{name: :input, depth: 1}, 3)
+    view = View.bank(:input, :scalar, 3)
     head = View.slice(view, 0)
     tail = View.shifted(view, 1)
     assert Cons.new(head, tail) == view

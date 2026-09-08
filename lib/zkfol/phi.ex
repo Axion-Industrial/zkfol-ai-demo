@@ -40,6 +40,7 @@ defmodule Zkfol.Phi do
   alias Zkfol.Phi.Ref
   alias Zkfol.Phi.Cons
   alias Zkfol.Phi.View
+  alias Zkfol.Phi.View.{Element, Fields, Record}
   alias Zkfol.Phi.Value
   alias Zkfol.Phi.Walk
   alias Zkfol.Phi.Walk.Clause
@@ -165,7 +166,7 @@ defmodule Zkfol.Phi do
           for(bank = %Bank{} <- walk.members, do: runs(bank))
       )
 
-    {pred, members} = Zkfol.Nodes.lower(pred, walk.members)
+    {pred, members} = Zkfol.Nodes.lower(Value.shaped(pred, walk.shapes), walk.members)
     {:ok, pred, Alloc.numbered(members, name), walk}
   catch
     {:refused, refusal} -> {:error, refusal}
@@ -199,7 +200,7 @@ defmodule Zkfol.Phi do
     ctx = %{
       ctx
       | ancestors: [{member, binds} | ctx.ancestors],
-        taken: Enum.into([name | Map.keys(initial.banks)], ctx.taken),
+        taken: Enum.into([name | initial.banks], ctx.taken),
         member: name
     }
 
@@ -234,7 +235,8 @@ defmodule Zkfol.Phi do
     walk = %Walk{
       members: [member | banks] ++ Enum.flat_map(live, & &1.members),
       predicates: [predicate | Enum.flat_map(live, & &1.predicates)],
-      clauses: clauses
+      clauses: clauses,
+      shapes: Walk.shapes([initial | live])
     }
 
     {name, binds, walk}
@@ -277,7 +279,7 @@ defmodule Zkfol.Phi do
               (extent == :open and (form == :fresh or match?({:fresh, _}, form))) ->
             Walk.bind(empty, ref, %Ref{id: Ast.cell(ref)}, {:node, ref})
 
-          extent == nil ->
+          extent == nil or is_struct(form, Element) or is_struct(form, Fields) ->
             access = if k == j, do: Ast.add(:x, o), else: form
             Walk.bind(empty, ref, access)
 
@@ -293,8 +295,14 @@ defmodule Zkfol.Phi do
             Walk.bind(empty, ref, access)
 
           true ->
-            depth = Enum.max([1 | for(c <- List.wrap(form), is_list(c), do: length(c))])
-            Walk.bank(empty, ref, extent, depth)
+            element =
+              case form do
+                [record | _] when is_list(record) -> %Record{width: length(record)}
+                [_ | _] -> :scalar
+                _unknown -> :unknown
+              end
+
+            Walk.bank(empty, ref, extent, element)
         end
       end
 
@@ -309,7 +317,12 @@ defmodule Zkfol.Phi do
           {[value()], [Slot.t()], [Bank.t()]}
   defp allocate_parameters(refs, initial, clauses) do
     declarations = [initial | clauses]
-    read = MapSet.new(Enum.flat_map(clauses, &Zkfol.Nodes.reads(Ast.conj(&1.eqs))))
+    shapes = Walk.shapes(declarations)
+
+    constraints =
+      for %Walk{eqs: [_ | _] = eqs} <- clauses, do: Value.shaped(Ast.conj(eqs), shapes)
+
+    read = MapSet.new(Enum.flat_map(constraints, &Zkfol.Nodes.reads/1))
 
     parameters =
       for ref = {_name, {:param, sym}} <- refs do
@@ -318,19 +331,20 @@ defmodule Zkfol.Phi do
             if(ref in read, do: {:cell, ref}, else: :none)
 
         access = Enum.find_value(declarations, & &1.env[ref]) || {:fresh, ref}
-        {access, %Slot{name: sym, allocation: allocation}}
+        {Value.shaped(access, shapes), %Slot{name: sym, allocation: allocation}}
       end
-
-    depths =
-      declarations
-      |> Enum.map(& &1.banks)
-      |> Enum.reduce(%{}, fn banks, acc ->
-        Map.merge(acc, banks, fn _bank, a, b -> max(a, b) end)
-      end)
 
     banks =
       for {_access, %Slot{allocation: {:bank, bank, _address}}} <- parameters,
-          do: %Bank{name: bank, depth: Map.fetch!(depths, bank)}
+          do: %Bank{
+            name: bank,
+            depth:
+              case shapes[{bank, 1}] do
+                %Record{width: {:at_least, width}} -> max(1, width)
+                %Record{width: width} -> max(1, width)
+                _shape -> 1
+              end
+          }
 
     {binds, slots} = Enum.unzip(parameters)
     {binds, slots, banks}
@@ -597,11 +611,11 @@ defmodule Zkfol.Phi do
   defp compile_goal({:eq, a, b}, walk, _ctx),
     do: sided(a, b, walk) || sided(b, a, walk) || :stalled
 
-  defp compile_goal({:call, q, args}, walk = %Walk{env: env}, ctx) do
+  defp compile_goal({:call, q, args}, walk, ctx) do
     {callee, args} =
       case q do
         {:var, _r} ->
-          {:rel, p, fixed} = resolve(q, env)
+          {:rel, p, fixed} = resolve(q, walk)
           {ctx.scope[p], fixed ++ args}
 
         _name ->
@@ -618,11 +632,11 @@ defmodule Zkfol.Phi do
 
   # A name or a sum takes the other side's value; a structure must be said itself.
   @spec sided(term(), term(), Walk.t()) :: Walk.t() | :dead | nil
-  defp sided(pattern, other, walk = %Walk{env: env}) do
+  defp sided(pattern, other, walk) do
     case pattern do
-      {:var, _v} -> unify(pattern, resolve(other, env), walk)
-      {op, _a, _b} when op in [:add, :mul] -> unify(pattern, resolve(other, env), walk)
-      _structure -> unify(resolve(pattern, env), resolve(other, env), walk)
+      {:var, _v} -> unify(pattern, resolve(other, walk), walk)
+      {op, _a, _b} when op in [:add, :mul] -> unify(pattern, resolve(other, walk), walk)
+      _structure -> unify(resolve(pattern, walk), resolve(other, walk), walk)
     end
   catch
     {:refused, {:unbound_variable, _detail}} -> nil
@@ -635,11 +649,11 @@ defmodule Zkfol.Phi do
   # Said in place where the values select a clause and the steps are finite, continued where
   # it names a relation being laid, laid as a member otherwise.
   @spec compile_call(Rel.t(), [term()], Walk.t(), ctx()) :: Walk.t() | :dead
-  defp compile_call(callee, args, walk = %Walk{env: env}, ctx) do
+  defp compile_call(callee, args, walk, ctx) do
     # A primitive's clauses consume scalar values, just as its specialized lowering does.
     values =
       for arg <- args do
-        case handed(arg, env) do
+        case handed(arg, walk) do
           {:count, _q, form} when callee.phi != nil -> form
           value -> value
         end
@@ -728,6 +742,8 @@ defmodule Zkfol.Phi do
 
   @spec finite?(value()) :: boolean()
   defp finite?(%Ref{}), do: false
+  defp finite?(%Element{}), do: false
+  defp finite?(%Fields{}), do: false
   defp finite?(%View{} = view), do: View.finite?(view)
   defp finite?(%Cons{head: h, tail: t}), do: finite?(h) and finite?(t)
   defp finite?([h | t]), do: finite?(h) and finite?(t)
@@ -745,6 +761,8 @@ defmodule Zkfol.Phi do
     do: with(a when a != nil <- size(h), b when b != nil <- size(t), do: a + b)
 
   defp size([h | t]), do: with(a when a != nil <- size(h), b when b != nil <- size(t), do: a + b)
+  defp size(%Element{}), do: nil
+  defp size(%Fields{}), do: nil
   defp size(:fresh), do: nil
   defp size({:fresh, _ref}), do: nil
   defp size({:rel, _p, _f}), do: nil
@@ -762,12 +780,16 @@ defmodule Zkfol.Phi do
   defp inline_clause(name, {k, head, body, inner}, args, caller, ctx) do
     if length(ctx.site) > 3000, do: throw({:refused, {:unroll_budget, %{relation: name}}})
 
-    with walk = %Walk{members: [], slots: [], sites: [], banks: banks} when map_size(banks) == 0 <-
+    with walk = %Walk{members: [], slots: [], sites: [], banks: []} <-
            compile_goals(body, inner, %{ctx | site: [k, name | ctx.site]}) do
-      outputs = for pattern <- head, do: resolve(pattern, walk.env)
+      outputs = for pattern <- head, do: resolve(pattern, walk)
       free = walk.eqs == [] and not Enum.any?(outputs, &arithmetic?/1)
 
-      case match(args, outputs, Walk.constrain(caller, Enum.reverse(walk.eqs))) do
+      case match(
+             args,
+             outputs,
+             Walk.constrain(Walk.refine(caller, walk.shapes), Enum.reverse(walk.eqs))
+           ) do
         walk = %Walk{} -> {if(free, do: :substitution, else: :constrained), walk}
         :dead -> :residual
       end
@@ -790,6 +812,7 @@ defmodule Zkfol.Phi do
   @spec call_constraints(Rel.t(), [term()], placement(), Walk.t(), ctx()) ::
           Walk.t() | :dead
   defp call_constraints(callee, args, {name, binds, frame, made}, caller, %{site: [k | _]} = ctx) do
+    caller = Walk.refine(caller, made.shapes)
     present = Ast.eq(Value.frame({:cell, {:in, name}}, frame), 1)
 
     with walk = %Walk{} <-
@@ -805,7 +828,7 @@ defmodule Zkfol.Phi do
       site = %Site{
         callee: name,
         address: frame,
-        occurrence: occurrence(callee.name, walk.env, ctx)
+        occurrence: occurrence(callee.name, walk, ctx)
       }
 
       %{
@@ -820,8 +843,8 @@ defmodule Zkfol.Phi do
     end
   end
 
-  @spec occurrence(atom(), map(), ctx()) :: non_neg_integer()
-  defp occurrence(name, env, %{site: [k, clause | nesting], ancestors: ancestors, scope: scope}) do
+  @spec occurrence(atom(), Walk.t(), ctx()) :: non_neg_integer()
+  defp occurrence(name, walk, %{site: [k, clause | nesting], ancestors: ancestors, scope: scope}) do
     relation =
       case nesting do
         [relation | _rest] -> relation
@@ -832,7 +855,7 @@ defmodule Zkfol.Phi do
 
     Enum.count(Enum.take(body, k), fn
       {:call, {:var, _} = callback, _args} ->
-        {:rel, called, _fixed} = resolve(callback, env)
+        {:rel, called, _fixed} = resolve(callback, walk)
         called == name
 
       {:call, called, _args} ->
@@ -902,6 +925,8 @@ defmodule Zkfol.Phi do
   # A cell of the caller's cannot stand a callee's rows: the callee holds its own and equates.
   @spec liftable(value()) :: value()
   defp liftable(%Ref{} = ref), do: ref
+  defp liftable(element = %Element{}), do: element
+  defp liftable(fields = %Fields{}), do: fields
   defp liftable(%View{} = view), do: view
   defp liftable(%Cons{} = cons), do: Ref.of(cons)
   defp liftable(form) when is_list(form) or is_integer(form) or form == :fresh, do: form
@@ -928,14 +953,14 @@ defmodule Zkfol.Phi do
   defp phi_goal(callee, args, walk, ctx) do
     {module, op} = callee.phi
 
-    case pick(callee.phi, args, walk.env) do
+    case pick(callee.phi, args, walk) do
       {v, selected} ->
         %Walk{} = unify(v, selected, walk)
 
       nil ->
         {resolved, walk} =
           Enum.map_reduce(args, walk, fn arg, walk ->
-            case {arg, handed(arg, walk.env)} do
+            case {arg, handed(arg, walk)} do
               {{:var, v}, :fresh} ->
                 ref = {ctx.member, {:own, {v, ctx.site}}}
                 slot = %Slot{name: v, allocation: {:cell, ref}}
@@ -944,7 +969,7 @@ defmodule Zkfol.Phi do
                  %{walk | env: Map.put(walk.env, v, Ast.cell(ref)), slots: walk.slots ++ [slot]}}
 
               _held ->
-                {Value.elements(resolve(arg, walk.env)), walk}
+                {Value.elements(resolve(arg, walk)), walk}
             end
           end)
 
@@ -959,10 +984,10 @@ defmodule Zkfol.Phi do
       throw({:refused, {reason, Map.put(detail, :relation, callee.name)}})
   end
 
-  @spec pick({module(), atom()}, [term()], map()) :: {term(), value()} | nil
-  defp pick({Ast, :nth}, [i, xs, v], env) do
-    with q when is_integer(q) <- handed(i, env),
-         cells when is_list(cells) <- Value.elements(handed(xs, env)),
+  @spec pick({module(), atom()}, [term()], Walk.t()) :: {term(), value()} | nil
+  defp pick({Ast, :nth}, [i, xs, v], walk) do
+    with q when is_integer(q) <- handed(i, walk),
+         cells when is_list(cells) <- Value.elements(handed(xs, walk)),
          true <- q >= 1 and q <= length(cells),
          do: {v, Enum.at(cells, q - 1)},
          else: (_unpicked -> nil)
@@ -981,7 +1006,7 @@ defmodule Zkfol.Phi do
 
   defp unify({:var, v}, value, walk = %Walk{env: env}) do
     case env do
-      %{^v => held} -> unify(held, value, walk)
+      %{^v => _held} -> unify(Walk.fetch(walk, v), value, walk)
       _fresh -> %{walk | env: Map.put(env, v, value)}
     end
   end
@@ -990,7 +1015,7 @@ defmodule Zkfol.Phi do
   defp unify({:fresh, ref} = fresh, value, walk = %Walk{env: env}) do
     case Map.get(env, ref) do
       nil -> met(fresh, value, walk)
-      held -> unify(held, value, walk)
+      _held -> unify(Walk.fetch(walk, ref), value, walk)
     end
   end
 
@@ -1019,28 +1044,29 @@ defmodule Zkfol.Phi do
        when is_integer(q) and (form == :x or elem(form, 0) in [:cell, :add, :mul]),
        do: Walk.constrain(walk, pinned(form, q))
 
+  defp unify(q, %Fields{}, _walk) when is_integer(q), do: :dead
+
+  defp unify(q, element = %Element{}, walk) when is_integer(q),
+    do: Walk.constrain(walk, [Ast.eq(element, q)])
+
   defp unify(q, _value, _walk) when is_integer(q), do: :dead
 
   defp unify(nil, value, walk), do: unify([], value, walk)
 
   defp unify([], value, walk), do: Walk.ended(walk, value)
 
-  defp unify({:cons, h, t}, value, walk) do
-    with {:ok, head, tail, walk} <- Walk.peel(walk, value),
-         walk = %Walk{} <- unify(h, head, walk),
-         do: unify(t, tail, walk)
-  end
+  defp unify({:cons, h, t}, value, walk), do: unify(%Cons{head: h, tail: t}, value, walk)
 
   defp unify([h | t], value, walk), do: unify(%Cons{head: h, tail: t}, value, walk)
 
   defp unify(%Cons{head: h, tail: t}, value, walk) do
-    with {:ok, vh, vt, pins} <- Cons.peel(value),
-         walk = %Walk{} <- unify(h, vh, Walk.constrain(walk, pins)),
+    with {:ok, vh, vt, walk} <- Walk.peel(walk, value),
+         walk = %Walk{} <- unify(h, vh, walk),
          do: unify(t, vt, walk)
   end
 
   defp unify({op, _a, _b} = pattern, value, walk = %Walk{env: env}) when op in [:add, :mul] do
-    case solvable(pattern, env) do
+    case solvable(pattern, walk) do
       {:ok, ^pattern} -> equated(pattern, value, walk)
       {:ok, held} -> unify(held, value, walk)
       {:free, v, rebuilt} -> %{walk | env: Map.put(env, v, rebuilt.(Value.scalar(value)))}
@@ -1049,10 +1075,14 @@ defmodule Zkfol.Phi do
   end
 
   defp unify({:papply, p, fixed}, value, walk),
-    do: unify({:rel, p, for(f <- fixed, do: resolve(f, walk.env))}, value, walk)
+    do: unify({:rel, p, for(f <- fixed, do: resolve(f, walk))}, value, walk)
 
   defp unify(a = %View{}, b = %View{}, walk) do
+    a = Value.shaped(a, walk.shapes)
+    b = Value.shaped(b, walk.shapes)
+
     cond do
+      a == b -> walk
       a.col == nil or b.col == nil -> throw({:refused, {:unliftable_term, %{term: b}}})
       View.count(b) -> unify(a, for(i <- 0..(View.count(b) - 1)//1, do: View.slice(b, i)), walk)
       View.count(a) -> unify(b, for(i <- 0..(View.count(a) - 1)//1, do: View.slice(a, i)), walk)
@@ -1064,6 +1094,12 @@ defmodule Zkfol.Phi do
   defp unify(%View{} = a, value = %Cons{}, walk), do: unify(value, a, walk)
   defp unify(%View{}, _value, _walk), do: :dead
   defp unify({:rel, _p, _f}, _value, _walk), do: :dead
+
+  defp unify(element, value, walk)
+       when (is_struct(element, Element) or is_struct(element, Fields)) and
+              (is_list(value) or is_struct(value, Cons)),
+       do: unify(value, element, walk)
+
   defp unify(a, b, walk), do: equated(a, b, walk)
 
   @spec equated(value(), value(), Walk.t()) :: Walk.t() | :dead
@@ -1079,7 +1115,7 @@ defmodule Zkfol.Phi do
   defp met({:fresh, ref}, nil, walk), do: Walk.bind(walk, ref, [], :none)
 
   defp met(fresh, {:fresh, other}, walk = %Walk{env: env}) when is_map_key(env, other),
-    do: unify(fresh, env[other], walk)
+    do: unify(fresh, Walk.fetch(walk, other), walk)
 
   defp met(fresh, {:fresh, other}, walk), do: %{walk | env: Map.put(walk.env, other, fresh)}
 
@@ -1097,7 +1133,7 @@ defmodule Zkfol.Phi do
 
   defp met({:fresh, ref}, value, walk)
        when is_list(value) or is_struct(value, View) or is_struct(value, Cons) or
-              elem(value, 0) == :rel,
+              is_struct(value, Element) or is_struct(value, Fields) or elem(value, 0) == :rel,
        do: Walk.bind(walk, ref, value, :none)
 
   defp met({:fresh, ref}, value, walk) do
@@ -1118,65 +1154,63 @@ defmodule Zkfol.Phi do
   #                        Resolving                         #
   ############################################################
 
-  # What a call hands over: the value a term stands for, a name no goal
-  # has bound yet yielding `:fresh`, since a later goal resolves it.
-  @spec handed(term(), map()) :: value()
-  defp handed({:var, v}, env), do: deref(Map.get(env, v, :fresh), env)
+  # Values leave a walk with their known shapes, independently of the bank's owner.
+  @spec handed(term(), Walk.t()) :: value()
+  defp handed({:var, v}, walk), do: deref(Map.get(walk.env, v, :fresh), walk)
 
-  defp handed(arg, env) do
-    resolve(arg, env)
+  defp handed(arg, walk) do
+    resolve(arg, walk)
   catch
     {:refused, {:unbound_variable, _detail}} -> :fresh
   end
 
-  @spec deref(value(), map()) :: value()
-  defp deref({:fresh, ref} = fresh, env),
-    do:
-      with(held when held != nil <- Map.get(env, ref), do: deref(held, env), else: (nil -> fresh))
+  @spec deref(value(), Walk.t()) :: value()
+  defp deref(fresh = {:fresh, ref}, walk) do
+    with held when held != nil <- Map.get(walk.env, ref),
+         do: deref(held, walk),
+         else: (nil -> fresh)
+  end
 
-  defp deref(value, _env), do: value
+  defp deref(value, walk), do: Value.shaped(value, walk.shapes)
 
-  @spec resolve(term(), map()) :: value()
-  defp resolve(q, _env) when is_integer(q), do: q
-  defp resolve(nil, _env), do: []
+  @spec resolve(term(), Walk.t()) :: value()
+  defp resolve(q, _walk) when is_integer(q), do: q
+  defp resolve(nil, _walk), do: []
 
-  defp resolve({:var, v}, env) do
-    case Map.get(env, v, :fresh) do
+  defp resolve({:var, v}, walk) do
+    case Map.get(walk.env, v, :fresh) do
       :fresh -> throw({:refused, {:unbound_variable, %{variable: v}}})
-      {:fresh, _ref} = fresh -> resolve(fresh, env)
-      form -> form
+      fresh = {:fresh, _ref} -> resolve(fresh, walk)
+      form -> Value.shaped(form, walk.shapes)
     end
   end
 
-  defp resolve({:fresh, _ref} = fresh, env) do
-    case deref(fresh, env) do
+  defp resolve(fresh = {:fresh, _ref}, walk) do
+    case deref(fresh, walk) do
       {:fresh, unread} -> {:cell, unread}
       held -> held
     end
   end
 
-  defp resolve({:papply, p, fixed}, env), do: {:rel, p, for(f <- fixed, do: resolve(f, env))}
+  defp resolve({:papply, p, fixed}, walk), do: {:rel, p, for(f <- fixed, do: resolve(f, walk))}
 
-  defp resolve({:add, a, b}, env),
-    do: Ast.add(Value.scalar(resolve(a, env)), Value.scalar(resolve(b, env)))
+  defp resolve({:add, a, b}, walk),
+    do: Ast.add(Value.scalar(resolve(a, walk)), Value.scalar(resolve(b, walk)))
 
-  defp resolve({:mul, a, b}, env),
-    do: Ast.mul(Value.scalar(resolve(a, env)), Value.scalar(resolve(b, env)))
+  defp resolve({:mul, a, b}, walk),
+    do: Ast.mul(Value.scalar(resolve(a, walk)), Value.scalar(resolve(b, walk)))
 
-  defp resolve({:cons, h, t}, env) do
-    Cons.new(resolve(h, env), resolve(t, env))
-  end
+  defp resolve({:cons, h, t}, walk), do: Cons.new(resolve(h, walk), resolve(t, walk))
+  defp resolve(value, walk), do: Value.shaped(value, walk.shapes)
 
-  defp resolve(value, _env), do: value
+  @spec solvable(term(), Walk.t()) ::
+          {:ok, value()} | {:free, atom(), (term() -> term())} | :stuck
+  defp solvable({:var, v}, %Walk{env: env}) when not is_map_key(env, v), do: {:free, v, & &1}
 
-  # A side as it resolves, or the one free name it is linear in.
-  @spec solvable(term(), map()) :: {:ok, value()} | {:free, atom(), (term() -> term())} | :stuck
-  defp solvable({:var, v}, env) when not is_map_key(env, v), do: {:free, v, & &1}
+  defp solvable({:add, a, b}, walk) do
+    left = with {:ok, value} <- solvable(a, walk), do: {:ok, Value.scalar(value)}
 
-  defp solvable({:add, a, b}, env) do
-    left = with {:ok, value} <- solvable(a, env), do: {:ok, Value.scalar(value)}
-
-    case {left, solvable(b, env)} do
+    case {left, solvable(b, walk)} do
       {{:ok, ra}, {:ok, rb}} ->
         {:ok, Ast.add(ra, Value.scalar(rb))}
 
@@ -1191,8 +1225,8 @@ defmodule Zkfol.Phi do
     end
   end
 
-  defp solvable(term, env) do
-    {:ok, resolve(term, env)}
+  defp solvable(term, walk) do
+    {:ok, resolve(term, walk)}
   catch
     {:refused, {:unbound_variable, _detail}} -> :stuck
   end

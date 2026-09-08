@@ -36,8 +36,8 @@ defmodule Zkfol.Nodes do
       expanded = expand(pred, MapSet.new())
 
       bridges =
-        for {__MODULE__, {:suffix, bank}} <- references(expanded),
-            do: expand(bridge(Enum.find(members, &(&1.name == bank))), MapSet.new())
+        for {__MODULE__, {:suffix, source}} <- references(expanded),
+            do: expand(bridge(source), MapSet.new())
 
       unread = stored -- Ast.pointer_reads(expanded)
 
@@ -99,10 +99,12 @@ defmodule Zkfol.Nodes do
   defp definition({__MODULE__, {:node, value}} = row),
     do: node(%Ref{id: Ast.cell(row)}, value)
 
-  defp bridge(%Alloc.Bank{name: bank, depth: depth}) do
-    row = {__MODULE__, {:suffix, bank}}
+  defp bridge(source = {bank, element}) do
+    row = {__MODULE__, {:suffix, source}}
     ref = %Ref{id: Ast.cell(row)}
-    head = if depth == 1, do: Ast.cell({bank, 1}), else: Enum.map(1..depth, &Ast.cell({bank, &1}))
+    view = View.bank(bank, element, {1, -1})
+    if View.width(view) == nil, do: throw({:refused, {:unliftable_term, %{term: view}}})
+    head = View.slice(view, 0)
 
     Ast.disj([
       Ast.conj([Ast.eq(Ast.cell({:in, bank}), 0), Ast.eq(ref.id, 1)]),
@@ -127,9 +129,10 @@ defmodule Zkfol.Nodes do
 
   defp node(ref, %View{
          row: {bank, 1},
+         element: element,
          col: {:at, base, m, a}
        }) do
-    Ast.eq(ref.id, Ast.at({__MODULE__, {:suffix, bank}}, base, m, a))
+    Ast.eq(ref.id, Ast.at({__MODULE__, {:suffix, {bank, element}}}, base, m, a))
   end
 
   defp node(ref, %View{} = view) do
@@ -141,6 +144,10 @@ defmodule Zkfol.Nodes do
         throw({:refused, {:unliftable_term, %{term: view}}})
     end
   end
+
+  defp node(_ref, value)
+       when is_struct(value, View.Element) or is_struct(value, View.Fields),
+       do: throw({:refused, {:unliftable_term, %{term: value}}})
 
   defp node(ref, scalar) do
     Ast.conj([

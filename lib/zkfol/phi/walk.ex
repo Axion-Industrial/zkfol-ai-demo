@@ -4,12 +4,15 @@ defmodule Zkfol.Phi.Walk do
 
   `env` binds source variables and parameter references to symbolic values.
   `parameters` records each parameter's allocation; `:none` means it shares an
-  existing access. `banks` records owned bank depths, and `slots` holds local storage.
+  existing access. `banks` names owned storage; `shapes` records observations of owned or borrowed
+  elements. `slots` holds local storage.
   An impossible walk is `:dead`.
   A member retains its clauses; each clause's body retains the clauses of members it calls.
 
   ### Public API
 
+  - `fetch/2`: read a binding with its resolved element shape.
+  - `refine/2`, `shapes/1`: retain and collect element shape requirements.
   - `merge/2`: combine parameter declarations.
   - `constrain/2`: retain the equations required by an observation.
   - `bind/3`, `bind/4`: bind a parameter and record its allocation.
@@ -25,6 +28,7 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
   alias Zkfol.Phi.{Cons, Value, View}
+  alias Zkfol.Phi.View.{Element, Fields, Record}
 
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
@@ -43,8 +47,9 @@ defmodule Zkfol.Phi.Walk do
 
   typedstruct do
     field(:env, map(), default: %{})
+    field(:shapes, %{Ast.row_ref() => View.element()}, default: %{})
     field(:parameters, %{Ast.row_ref() => Zkfol.Alloc.allocation()}, default: %{})
-    field(:banks, %{atom() => pos_integer()}, default: %{})
+    field(:banks, [atom()], default: [])
     field(:members, [Member.t() | Bank.t()], default: [])
     field(:predicates, [Ast.pred()], default: [])
     field(:eqs, [Ast.pred()], default: [])
@@ -60,13 +65,61 @@ defmodule Zkfol.Phi.Walk do
       walk
       | env: Map.merge(walk.env, declaration.env),
         parameters: Map.merge(walk.parameters, declaration.parameters),
-        banks: Map.merge(walk.banks, declaration.banks)
+        banks: Enum.uniq(walk.banks ++ declaration.banks),
+        shapes: merge_shapes(walk.shapes, declaration.shapes)
     }
   end
 
   @doc "I collect conjuncts in reverse order without copying the clause accumulated so far."
-  @spec constrain(t(), [Ast.pred()]) :: t()
-  def constrain(walk = %__MODULE__{}, eqs), do: %{walk | eqs: Enum.reverse(eqs, walk.eqs)}
+  @spec constrain(t(), [Ast.pred(Value.scalar())]) :: t()
+  def constrain(walk = %__MODULE__{}, eqs) do
+    required =
+      eqs
+      |> Enum.flat_map(
+        &Ast.reduce(&1, [], fn
+          %Element{row: row}, rows -> [row | rows]
+          _term, rows -> rows
+        end)
+      )
+      |> Map.new(&{&1, :scalar})
+
+    walk = refine(walk, required)
+    eqs = Enum.map(eqs, &Value.shaped(&1, walk.shapes))
+    %{walk | eqs: Enum.reverse(eqs, walk.eqs)}
+  end
+
+  @doc "I resolve the element shapes of a bound value before handing it to another walk."
+  @spec fetch(t(), term()) :: Value.t()
+  def fetch(walk, name), do: Value.shaped(Map.fetch!(walk.env, name), walk.shapes)
+
+  @doc "I retain compatible shape requirements, independently of storage ownership."
+  @spec refine(t(), %{Ast.row_ref() => View.element()}) :: t()
+  def refine(walk, shapes), do: %{walk | shapes: merge_shapes(walk.shapes, shapes)}
+
+  @doc "I collect the element shapes established by completed walks."
+  @spec shapes([t()]) :: %{Ast.row_ref() => View.element()}
+  def shapes(walks), do: walks |> Enum.map(& &1.shapes) |> Enum.reduce(%{}, &merge_shapes/2)
+
+  defp merge_shapes(a, b) do
+    Map.merge(a, b, fn
+      _row, shape, shape ->
+        shape
+
+      _row, %Record{width: {:at_least, a}}, %Record{width: {:at_least, b}} ->
+        %Record{width: {:at_least, max(a, b)}}
+
+      _row, %Record{width: {:at_least, min}}, shape = %Record{width: width}
+      when is_integer(width) and width >= min ->
+        shape
+
+      _row, shape = %Record{width: width}, %Record{width: {:at_least, min}}
+      when is_integer(width) and width >= min ->
+        shape
+
+      row, a, b ->
+        throw({:refused, {:unliftable_term, %{term: {row, a, b}}}})
+    end)
+  end
 
   @doc """
   I bind a parameter to an access. A handed count gets a cell, the column uses no row,
@@ -92,45 +145,46 @@ defmodule Zkfol.Phi.Walk do
     }
 
   @doc "I give a parameter its own sequence bank; matching its records can require more rows."
-  @spec bank(t(), Ast.row_ref(), View.extent(), pos_integer()) :: t()
-  def bank(walk = %__MODULE__{}, ref, extent, depth \\ 1) do
+  @spec bank(t(), Ast.row_ref(), View.extent(), View.element()) :: t()
+  def bank(walk = %__MODULE__{}, ref, extent, element \\ :unknown) do
     bank = Bank.of(ref)
-    view = View.bank(%Bank{name: bank, depth: depth}, extent)
+    view = View.bank(bank, element, extent)
     walk = bind(walk, ref, view, {:bank, bank, view.col || Ast.address(:x, 0, 0)})
-    %{walk | banks: Map.put_new(walk.banks, bank, depth)}
+    walk = if element == :unknown, do: walk, else: refine(walk, %{view.row => element})
+    %{walk | banks: Enum.uniq([bank | walk.banks])}
   end
 
-  @doc """
-  I expose a source bracket's head and tail, retaining the equations and storage it needs.
-  A cell in a bank I own can introduce a record: its head occupies that component row,
-  and its tail starts at the next. Existing values use their own pair representation.
-  """
+  @doc "I peel an unresolved record or an existing pair; ownership does not change its meaning."
   @spec peel(t(), Value.t()) :: {:ok, Value.t(), Value.t(), t()} | :dead
-  def peel(walk = %__MODULE__{banks: banks}, value) do
-    case Ast.read(value) do
-      {{bank, row}, {:at, base, scale, offset}} when is_map_key(banks, bank) ->
-        tail = Ast.at({bank, row + 1}, base, scale, offset)
-        {:ok, value, tail, require_rows(walk, bank, row)}
+  def peel(walk, element = %Element{}), do: peel(walk, %Fields{element: element})
 
-      _existing ->
-        with {:ok, head, tail, equations} <- Cons.peel(value),
-             do: {:ok, head, tail, constrain(walk, equations)}
-    end
+  def peel(
+        walk,
+        fields = %Fields{
+          element: %Element{row: row = {bank, first}, col: {:at, base, m, a}},
+          offset: n
+        }
+      ) do
+    walk = refine(walk, %{row => %Record{width: {:at_least, n + 1}}})
+    {:ok, Ast.at({bank, first + n}, base, m, a), %{fields | offset: n + 1}, walk}
   end
 
-  @doc "I close a source bracket, retaining its end equations or its owned record's width."
+  def peel(walk, value) do
+    value = Value.shaped(value, walk.shapes)
+
+    with {:ok, head, tail, equations} <- Cons.peel(value),
+         do: {:ok, head, tail, constrain(walk, equations)}
+  end
+
+  @doc "I close a record's shape or require an existing sequence to end."
   @spec ended(t(), Value.t()) :: t() | :dead
-  def ended(walk = %__MODULE__{banks: banks}, value) do
-    case Ast.read(value) do
-      {{bank, row}, _address} when is_map_key(banks, bank) ->
-        require_rows(walk, bank, row - 1)
+  def ended(walk, %Element{row: row}), do: refine(walk, %{row => %Record{width: 0}})
 
-      _existing ->
-        with {:ok, equations} <- Cons.ended(value), do: constrain(walk, equations)
-    end
+  def ended(walk, %Fields{element: %Element{row: row}, offset: width}),
+    do: refine(walk, %{row => %Record{width: width}})
+
+  def ended(walk, value) do
+    with {:ok, equations} <- Cons.ended(Value.shaped(value, walk.shapes)),
+         do: constrain(walk, equations)
   end
-
-  @spec require_rows(t(), atom(), integer()) :: t()
-  defp require_rows(walk, bank, rows),
-    do: %{walk | banks: Map.update!(walk.banks, bank, &max(&1, rows))}
 end

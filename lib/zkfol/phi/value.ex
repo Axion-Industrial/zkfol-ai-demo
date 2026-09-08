@@ -7,6 +7,7 @@ defmodule Zkfol.Phi.Value do
 
   ### Public API
 
+  - `shaped/2`: substitute resolved element shapes in an access.
   - `scalar/1`: the arithmetic reading of a value.
   - `count/1`: its known scalar count or outer sequence length.
   - `elements/1`: its elements for a primitive operation.
@@ -16,15 +17,19 @@ defmodule Zkfol.Phi.Value do
 
   alias Zkfol.Ast
   alias Zkfol.Phi.{Cons, Ref, View}
+  alias Zkfol.Phi.View.{Element, Fields, Record}
+
+  @typedoc "A scalar expression can name an element whose shape its constraint will resolve."
+  @type scalar :: Ast.poly(Ast.ep_leaf() | {:reify, Ast.pred()} | Element.t())
 
   @typedoc """
   What a name holds: a literal, a term, a view, a known sequence, a passed relation, a
-  handed count, a cell nothing read yet, or nothing yet.
+  handed count, an unobserved element, or nothing yet.
   """
   @type t ::
-          integer()
-          | Ast.term_t()
+          scalar()
           | View.t()
+          | Fields.t()
           | Cons.t()
           | Ref.t()
           | [t()]
@@ -74,6 +79,16 @@ defmodule Zkfol.Phi.Value do
   @spec frame(t(), frame()) :: t()
   def frame({:fresh, ref}, frame), do: frame({:cell, ref}, frame)
   def frame(form, {:at, :x, 1, 0}), do: form
+
+  def frame(fields = %Fields{element: element}, frame),
+    do: %{fields | element: frame(element, frame)}
+
+  def frame(element = %Element{col: col}, frame) do
+    with col = {:at, _, _, _} <- Ast.reframe(col, frame),
+         do: %{element | col: col},
+         else: (_unreached -> throw({:refused, {:unliftable_term, %{term: element}}}))
+  end
+
   def frame(%Ref{id: id}, frame), do: %Ref{id: frame(id, frame)}
   def frame(%Cons{head: h, tail: t}, frame), do: Cons.new(frame(h, frame), frame(t, frame))
   def frame([h | t], frame), do: [frame(h, frame) | frame(t, frame)]
@@ -105,6 +120,16 @@ defmodule Zkfol.Phi.Value do
   @doc "I express the values a callee can retain in its own column frame."
   @spec unframe(t(), frame()) :: t()
   def unframe(form, {:at, :x, 1, 0}), do: form
+
+  def unframe(fields = %Fields{element: element}, frame),
+    do: %{fields | element: unframe(element, frame)}
+
+  def unframe(element = %Element{col: col}, frame) do
+    with col = {:at, _, _, _} <- Ast.unframe(col, frame),
+         do: %{element | col: col},
+         else: (_unreached -> throw({:refused, {:unliftable_term, %{term: element}}}))
+  end
+
   def unframe(%Ref{} = ref, _frame), do: ref
   def unframe(%View{} = view, frame), do: View.reframed(view, frame)
   def unframe({:count, _q, _cell} = count, _frame), do: count
@@ -127,8 +152,50 @@ defmodule Zkfol.Phi.Value do
     end
   end
 
+  @doc "I substitute known element shapes in an access, including values built from it."
+  @spec shaped(t() | Ast.pred(scalar()), %{Ast.row_ref() => View.element()}) ::
+          t() | Ast.pred(scalar())
+  def shaped(view = %View{row: row}, shapes),
+    do: %{view | element: Map.get(shapes, row, view.element)}
+
+  def shaped(element = %Element{row: row, col: {:at, base, m, a}}, shapes) do
+    case Map.get(shapes, row, :unknown) do
+      :unknown -> element
+      :scalar -> Ast.at(row, base, m, a)
+      %Record{} -> shaped(%Fields{element: element}, shapes)
+    end
+  end
+
+  def shaped(
+        fields = %Fields{
+          element: %Element{row: row = {bank, first}, col: {:at, base, m, a}},
+          offset: n
+        },
+        shapes
+      ) do
+    case Map.get(shapes, row) do
+      %Record{width: width} when is_integer(width) ->
+        Enum.map(n..(width - 1)//1, &Ast.at({bank, first + &1}, base, m, a))
+
+      _unresolved ->
+        fields
+    end
+  end
+
+  def shaped(%Cons{head: h, tail: t}, shapes), do: Cons.new(shaped(h, shapes), shaped(t, shapes))
+  def shaped([h | t], shapes), do: [shaped(h, shapes) | shaped(t, shapes)]
+  def shaped(ref = %Ref{id: id}, shapes), do: %{ref | id: shaped(id, shapes)}
+
+  def shaped(value, shapes) when is_tuple(value),
+    do: value |> Tuple.to_list() |> Enum.map(&shaped(&1, shapes)) |> List.to_tuple()
+
+  def shaped(value, _shapes), do: value
+
   @doc "I read a scalar value, refusing structure where arithmetic requires a number."
-  @spec scalar(t()) :: Ast.term_t()
+  @spec scalar(t()) :: scalar()
+  def scalar(fields = %Fields{}),
+    do: throw({:refused, {:unliftable_term, %{term: fields}}})
+
   def scalar(ref = %Ref{}), do: Ref.read(:value, ref)
   def scalar({:count, _q, form}), do: form
   def scalar({:fresh, ref}), do: {:cell, ref}

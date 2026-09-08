@@ -37,12 +37,14 @@ defmodule Zkfol.Ast do
   @typedoc "Figure 1's terms: `t:ep/0` plus reify, closed under + and ×."
   @type term_t :: poly(ep_leaf() | {:reify, pred()})
 
-  @type pred ::
-          {:eq, term_t(), term_t()}
-          | {:conj, [pred()]}
-          | {:disj, [pred()]}
-          | {:natural, term_t()}
-          | {:permutes, [term_t()], [integer()]}
+  @type pred(t) ::
+          {:eq, t, t}
+          | {:conj, [pred(t)]}
+          | {:disj, [pred(t)]}
+          | {:natural, t}
+          | {:permutes, [t], [integer()]}
+
+  @type pred :: pred(term_t())
 
   @doc "I am the index variable X: the current column."
   @spec x() :: term_t()
@@ -130,7 +132,7 @@ defmodule Zkfol.Ast do
   def reify(phi), do: {:reify, phi}
 
   @doc "I am t = u, born canonical: a constant rides right, as in a sum."
-  @spec eq(term_t(), term_t()) :: pred()
+  @spec eq(t, t) :: pred(t) when t: var
   def eq(q, u) when is_integer(q) and not is_integer(u), do: {:eq, u, q}
   def eq(t, u), do: {:eq, t, u}
 
@@ -163,11 +165,11 @@ defmodule Zkfol.Ast do
   def distinct(cells), do: permutes(cells, Enum.to_list(1..length(cells)//1))
 
   @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
-  @spec natural(term_t()) :: pred()
+  @spec natural(t) :: pred(t) when t: var
   def natural(t), do: {:natural, t}
 
   @doc "I am permutes(cells, values): the cells hold `values` as a multiset, no polynomial."
-  @spec permutes([term_t()], [integer()]) :: pred()
+  @spec permutes([t], [integer()]) :: pred(t) when t: var
   def permutes(cells, values), do: {:permutes, cells, values}
 
   @doc """
@@ -212,7 +214,7 @@ defmodule Zkfol.Ast do
   true, falsity where a constant decides it false, `pred` itself where
   nothing is decided.
   """
-  @spec folded(pred()) :: [pred()]
+  @spec folded(pred(t)) :: [pred(t)] when t: var
   def folded({:natural, q}) when is_integer(q), do: if(q >= 0, do: [], else: [eq(0, 1)])
 
   def folded({:eq, a, b}) when is_integer(a) and is_integer(b),
