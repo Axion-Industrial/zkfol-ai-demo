@@ -69,14 +69,11 @@ ZkfolLayPicture >> asElement [
 		id: #zkfolLayStatus;
 		text: '' asRopedText;
 		yourself.
-	container addChild: (BlElement new
+	container addChild: (BrHorizontalPane new
 		id: #zkfolLayStatusBox;
-		layout: BlLinearLayout horizontal;
 		padding: (BlInsets top: 8 right: 0 bottom: 0 left: 4);
 		clipChildren: true;
-		constraintsDo: [ :c |
-			c horizontal exact: self labelWidth + 2 + (witness size * 26).
-			c vertical exact: 26 ];
+		exact: (self labelWidth + 2 + (witness size * 26)) @ 26;
 		addChild: statusElement;
 		yourself).
 	self refreshHover.

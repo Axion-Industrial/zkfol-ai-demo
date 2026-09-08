@@ -12,13 +12,11 @@ ZkfolElements class >> box: anExtent color: aColorOrNil text: aTextOrNil fontSiz
 	 grid cells, miniatures, ruler ticks, and header cells
 	 are all me at some size, with centered small text when they have
 	 something to say."
-	| box layout |
-	layout := BlLinearLayout horizontal.
-	layout alignCenter.
-	box := BlElement new
+	| box |
+	box := BrHorizontalPane new
 		size: anExtent;
 		margin: (BlInsets all: 1);
-		layout: layout;
+		alignCenter;
 		yourself.
 	aColorOrNil ifNotNil: [ box background: aColorOrNil ].
 	aTextOrNil ifNotNil: [
@@ -109,25 +107,19 @@ ZkfolElements class >> gridContainer: anId [
 	"The vertical container every grid picture stacks its ruler and
 	 rows in: fit-content both ways, unclipped so overlay connectors
 	 may leave the frame."
-	^ BlElement new
+	^ BrVerticalPane new
 		id: anId;
-		layout: BlLinearLayout vertical;
 		padding: (BlInsets all: 10);
 		clipChildren: false;
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
+		fitContent;
 		yourself
 ]
 
 { #category : 'building' }
 ZkfolElements class >> gridRow [
 	"One horizontal grid row, sized by what it holds."
-	^ BlElement new
-		layout: BlLinearLayout horizontal;
-		constraintsDo: [ :c |
-			c horizontal fitContent.
-			c vertical fitContent ];
+	^ BrHorizontalPane new
+		fitContent;
 		yourself
 ]
 
@@ -164,14 +156,11 @@ ZkfolElements class >> overlay: anId [
 { #category : 'building' }
 ZkfolElements class >> rowLabel: aString width: aNumber [
 	"A row's introduction, left-aligned at the grid's one label width."
-	| layout |
-	layout := BlLinearLayout horizontal.
-	layout alignCenterLeft.
-	^ BlElement new
+	^ BrHorizontalPane new
 		size: aNumber @ 20;
 		margin: (BlInsets all: 1);
 		padding: (BlInsets left: 4);
-		layout: layout;
+		alignCenterLeft;
 		addChild: (BlTextElement new
 			text: (aString asRopedText fontSize: 10);
 			yourself);

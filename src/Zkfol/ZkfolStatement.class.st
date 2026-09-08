@@ -132,12 +132,9 @@ ZkfolStatement >> gtJudgementFor: aView [
 					width := judgement labelWidth max: lay labelWidth.
 					judgement labelWidth: width.
 					lay labelWidth: width.
-					box := BlElement new
-						layout: BlLinearLayout vertical;
+					box := BrVerticalPane new
 						clipChildren: false;
-						constraintsDo: [ :c |
-							c horizontal fitContent.
-							c vertical fitContent ];
+						fitContent;
 						yourself.
 					box addChild: (ZkfolElements safely: [ judgement asElement ] as: #zkfolStencilError).
 					box addChild: (BlElement new size: 1 @ 12; yourself).
