@@ -895,7 +895,7 @@ defmodule Zkfol.Phi do
 
     case pick(callee.phi, args, walk.env) do
       {v, selected} ->
-        %Walk{} = unify(v, selected, walk)
+        unify(v, selected, walk)
 
       nil ->
         {resolved, walk} =
