@@ -85,9 +85,9 @@ defmodule Zkfol.ZincPlus do
   @doc """
   I queue the UAIR with the prover fitting its magnitude and return an id.
 
-  `unchecked: true` ships the payload as built, past my guard on negative cells. It is
-  the door the negative tests need: a forgery the circuit must refuse cannot be watched
-  being refused while Elixir refuses it first. No ordinary caller passes it.
+  `unchecked: true` ships the payload as built, past `fits/1`. It is the door the
+  negative tests need: a forgery the circuit must refuse cannot be watched being
+  refused while Elixir refuses it first. No ordinary caller passes it.
   """
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
   def request(%Uair{} = uair, opts \\ []) do
@@ -95,7 +95,7 @@ defmodule Zkfol.ZincPlus do
     reads = reads(uair.mode)
 
     with :ok <- unclaimed(reads, uair.num_public),
-         :ok <- non_negative(values, Keyword.get(opts, :unchecked, false)) do
+         :ok <- if(Keyword.get(opts, :unchecked, false), do: :ok, else: fits(uair.columns)) do
       queued =
         prove_fol(%Payload{
           num_cols: Uair.num_cols(uair),
@@ -114,14 +114,16 @@ defmodule Zkfol.ZincPlus do
     end
   end
 
-  @doc "I hold every cell value under the widest width I carry, non-negative."
+  @doc """
+  I hold every cell value under the widest width I carry, non-negative. Unsigned limbs
+  have no negative, so a negative cell is refused by name before the NIF decode crashes.
+  """
   @spec fits([[integer()]]) :: :ok | {:error, Refusal.t()}
   def fits(columns) do
-    Refusal.refute(
-      List.flatten(columns),
-      &(&1 >= @huge_bound or &1 < 0),
-      &{:value_exceeds_cell, %{value: &1}}
-    )
+    Refusal.refute(List.flatten(columns), &(&1 >= @huge_bound or &1 < 0), fn
+      value when value < 0 -> {:witness_value_negative, %{value: value}}
+      value -> {:value_exceeds_cell, %{value: value}}
+    end)
   end
 
   @doc "I hold every program constant inside the i64 the interpreter reads."
@@ -161,15 +163,6 @@ defmodule Zkfol.ZincPlus do
       true -> {:i64, uair.columns}
     end
   end
-
-  # Unsigned limbs have no negative; refuse before the NIF decode crashes.
-  # `unchecked: true` is the test door past it: only an i64 trace carries a
-  # negative cell, and only a test asks the backend to judge one.
-  @spec non_negative([integer()], boolean()) :: :ok | {:error, Refusal.t()}
-  defp non_negative(_values, true), do: :ok
-
-  defp non_negative(values, false),
-    do: Refusal.refute(values, &(&1 < 0), &{:witness_value_negative, %{value: &1}})
 
   @spec limbed(Uair.t()) :: [[[non_neg_integer()]]]
   defp limbed(uair),

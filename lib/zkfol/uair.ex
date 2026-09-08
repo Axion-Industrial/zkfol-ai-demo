@@ -34,14 +34,31 @@ defmodule Zkfol.Uair do
           | {:tie, {pos_integer(), pos_integer()}}
           | {:aimed, Ast.address()}
 
-  @typedoc """
-  A group as the selections it makes: its values, and the cells of each selection. A group
-  at the running column makes one a column, so a forged presence at any column meets it.
-  """
-  @type stood :: {[integer()], [[{pos_integer(), pos_integer()}]]}
-
   @typedoc "One cell the statement fixes: its row, its column, and the row its value fills."
   @type tie :: {pos_integer(), pos_integer(), {:broadcast, pos_integer()}}
+
+  typedstruct module: Group, enforce: true do
+    @typedoc """
+    A group as the selections it makes: its values, and the cells of each selection. A
+    group at the running column makes one a column, so a forged presence at any column
+    meets it.
+    """
+    field(:values, [integer()])
+    field(:selections, [[{pos_integer(), pos_integer()}]])
+  end
+
+  typedstruct module: Layout, enforce: true do
+    @typedoc """
+    The committed-column layout: the witness rows in column order, the column each row
+    stands at, the shifts the program reads back through and where each stands among
+    them, and the column X takes when the program reads it.
+    """
+    field(:rows, [pos_integer()])
+    field(:cols, %{pos_integer() => non_neg_integer()})
+    field(:shifts, [{non_neg_integer(), pos_integer()}])
+    field(:down, %{{non_neg_integer(), pos_integer()} => non_neg_integer()})
+    field(:x_col, non_neg_integer() | nil)
+  end
 
   # 32 bits in byte chunks, so width over chunk stays the power of two the backend takes.
   @word_width 32
@@ -85,6 +102,7 @@ defmodule Zkfol.Uair do
          {:ok, stood} <- stood(pred, len),
          witness = filled(witness, stood),
          naturals = natural_rows(pred),
+         permuted = for(g <- stood, {i, _c} <- Enum.concat(g.selections), uniq: true, do: i),
          kind = &kind(&1, Interpretation.arity(witness), len),
          {pred, witness, ties} = addressed(stripped(pred), witness, kind, len),
          through = for({i, _address} = read <- reads(pred), kind.(read) == :pointer, do: i),
@@ -93,23 +111,21 @@ defmodule Zkfol.Uair do
              pred,
              witness,
              public,
-             through ++ Ast.pointer_reads(pred) ++ rows(stood) ++ naturals
+             through ++ Ast.pointer_reads(pred) ++ permuted ++ naturals
            ),
          {:ok, pred, witness, lowering} <- Composed.lower(pred, witness, num_vars),
          poly = Ast.arithmetize(pred),
          unread =
            Composed.value_rows(lowering) ++
-             naturals ++ rows(stood) ++ for({i, _c, _target} <- ties, do: i),
-         refs = refs(poly, kind) ++ Enum.map(unread, &{&1, 0}),
+             naturals ++ permuted ++ for({i, _c, _target} <- ties, do: i),
+         refs = refs(poly, kind),
          {:ok, resolved} <- resolve_claims(claims, witness),
          :ok <- models(pred, witness) do
-      %{rows: rows, cols: cols, shifts: shifts, down: down} = slots(refs, public)
-      origins = rows ++ if(uses_x?(poly), do: [:x, :ones], else: [])
-      x_col = if uses_x?(poly), do: map_size(cols)
-      program = poly |> resolve(len, {cols, x_col}, down, kind) |> postfix()
+      layout = layout(poly, refs, unread, public)
+      program = poly |> resolve(len, layout, kind) |> postfix()
 
       {shifts, program, columns} =
-        index_pin(x_col, len, num_vars, shifts, program, columns(witness, rows, len, num_vars))
+        index_pin(layout, len, num_vars, program, columns(witness, layout.rows, len, num_vars))
 
       with :ok <- ZincPlus.fits(columns),
            :ok <- ZincPlus.constants_fit(program) do
@@ -122,19 +138,19 @@ defmodule Zkfol.Uair do
            program: program,
            degree: Ast.degree(pred),
            columns: columns,
-           mode: emitted_mode(lowering, cols),
-           rows: origins,
+           mode: Composed.emitted(lowering, layout.cols),
+           rows: layout.rows ++ if(layout.x_col, do: [:x, :ones], else: []),
            word_lookups:
              for i <- naturals ++ Composed.bounded_rows(lowering) do
-               {Map.fetch!(cols, i), @word_width, @word_chunk}
+               {Map.fetch!(layout.cols, i), @word_width, @word_chunk}
              end,
-           selected_lookups: selected(stood, cols, len),
+           selected_lookups: selected(stood, layout.cols, len),
            point_ties:
              for {i, c, {:broadcast, row}} <- ties do
                %ZincPlus.Tie{
-                 column: Map.fetch!(cols, i),
+                 column: Map.fetch!(layout.cols, i),
                  row: len - c,
-                 target: {:broadcast, Map.fetch!(cols, row)}
+                 target: {:broadcast, Map.fetch!(layout.cols, row)}
                }
              end
          }}
@@ -253,16 +269,15 @@ defmodule Zkfol.Uair do
       node ->
         with {i, _address} = read <- Ast.read(node),
              leaf when is_map_key(rows, leaf) <- kind.(read) do
-          rerouted(leaf, i, rows[leaf])
+          case leaf do
+            {:tie, _cell} -> Ast.cell(rows[leaf])
+            {:aimed, _address} -> Ast.cell(i, rows[leaf])
+          end
         else
           _reachable -> node
         end
     end)
   end
-
-  @spec rerouted(kind(), pos_integer(), pos_integer()) :: Ast.term_t()
-  defp rerouted({:tie, _cell}, _i, row), do: Ast.cell(row)
-  defp rerouted({:aimed, _address}, i, row), do: Ast.cell(i, row)
 
   @spec pins([Ast.pred()], %{pos_integer() => Ast.address()}) :: [Ast.pred()]
   defp pins(parts, taken) do
@@ -298,11 +313,11 @@ defmodule Zkfol.Uair do
   #                          Groups                          #
   ############################################################
 
-  @spec stood(Ast.pred(), pos_integer()) :: {:ok, [stood()]} | {:error, Refusal.t()}
+  @spec stood(Ast.pred(), pos_integer()) :: {:ok, [Group.t()]} | {:error, Refusal.t()}
   defp stood(pred, len) do
     Refusal.map(groups(pred), fn {cells, values} ->
       with {:ok, selections} <- Refusal.map(1..len, &standing(cells, &1, len)),
-           do: {:ok, {values, Enum.uniq(selections)}}
+           do: {:ok, %Group{values: values, selections: Enum.uniq(selections)}}
     end)
   end
 
@@ -329,19 +344,15 @@ defmodule Zkfol.Uair do
     end)
   end
 
-  @spec rows([stood()]) :: [pos_integer()]
-  defp rows(stood),
-    do: for({_values, selections} <- stood, {i, _c} <- Enum.concat(selections), uniq: true, do: i)
-
   # A selection fails only where the group's branch does not answer; there its cells are padding.
-  @spec filled(Interpretation.t(), [stood()]) :: Interpretation.t()
+  @spec filled(Interpretation.t(), [Group.t()]) :: Interpretation.t()
   defp filled(witness, stood) do
     fills =
-      for {values, selections} <- stood,
-          cells <- selections,
+      for group <- stood,
+          cells <- group.selections,
           Enum.sort(for {i, c} <- cells, do: Interpretation.at(witness, i, c)) !=
-            Enum.sort(values),
-          {cell, value} <- Enum.zip(cells, values),
+            Enum.sort(group.values),
+          {cell, value} <- Enum.zip(cells, group.values),
           into: %{},
           do: {cell, value}
 
@@ -353,10 +364,10 @@ defmodule Zkfol.Uair do
   end
 
   # A cell stands at `len - c` of its column; a table is one group.
-  @spec selected([stood()], %{pos_integer() => non_neg_integer()}, pos_integer()) ::
+  @spec selected([Group.t()], %{pos_integer() => non_neg_integer()}, pos_integer()) ::
           [ZincPlus.Selected.t()]
   defp selected(stood, cols, len) do
-    for {values, selections} <- Enum.group_by(stood, &elem(&1, 0), &elem(&1, 1)) do
+    for {values, selections} <- Enum.group_by(stood, & &1.values, & &1.selections) do
       selections = Enum.concat(selections)
       columns = for({i, _c} <- Enum.concat(selections), uniq: true, do: cols[i]) |> Enum.sort()
       slots = columns |> Enum.with_index() |> Map.new()
@@ -396,18 +407,17 @@ defmodule Zkfol.Uair do
   #                        The program                       #
   ############################################################
 
-  @spec slots([{pos_integer(), non_neg_integer()}], [pos_integer()]) :: map()
-  defp slots(refs, public) do
-    referenced = refs |> Enum.map(fn {row, _} -> row end) |> Enum.uniq() |> Enum.sort()
+  # The claimed rows take the first columns; every row read or written follows.
+  @spec layout(Ast.ep(), [{pos_integer(), non_neg_integer()}], [pos_integer()], [pos_integer()]) ::
+          Layout.t()
+  defp layout(poly, refs, unread, public) do
+    referenced = Enum.sort(Enum.uniq(for({row, _offset} <- refs, do: row) ++ unread))
     rows = public ++ (referenced -- public)
     cols = rows |> Enum.with_index() |> Map.new()
-
-    shifts =
-      for {row, offset} <- refs, offset > 0, uniq: true, do: {Map.get(cols, row), offset}
-
-    shifts = Enum.sort(shifts)
+    shifts = Enum.sort(for {row, offset} <- refs, offset > 0, uniq: true, do: {cols[row], offset})
     down = shifts |> Enum.with_index() |> Map.new()
-    %{rows: rows, cols: cols, shifts: shifts, down: down}
+    x_col = if uses_x?(poly), do: map_size(cols)
+    %Layout{rows: rows, cols: cols, shifts: shifts, down: down, x_col: x_col}
   end
 
   @spec resolve_claims([Interpretation.claim()], Interpretation.t()) ::
@@ -428,10 +438,6 @@ defmodule Zkfol.Uair do
     end
   end
 
-  @spec emitted_mode(Composed.lowering(), %{pos_integer() => non_neg_integer()}) :: mode()
-  defp emitted_mode(:plain, _cols), do: %Plain{}
-  defp emitted_mode(lowering, cols), do: Composed.emitted(lowering, cols)
-
   # The pin's shift is zero-filled, so a forward read has no lowering.
   @spec refs(Ast.ep(), (Ast.read() -> kind())) :: [{pos_integer(), non_neg_integer()}]
   defp refs(poly, kind) do
@@ -441,31 +447,26 @@ defmodule Zkfol.Uair do
     end
   end
 
-  @spec resolve(
-          Ast.ep(),
-          pos_integer(),
-          {map(), non_neg_integer() | nil},
-          map(),
-          (Ast.read() -> kind())
-        ) :: pin()
-  defp resolve(poly, len, {cols, x_col}, down, kind) do
+  @spec resolve(Ast.ep(), pos_integer(), Layout.t(), (Ast.read() -> kind())) :: pin()
+  defp resolve(poly, len, layout, kind) do
     Ast.postwalk(poly, fn
       :len ->
         len
 
       :x ->
-        {:up, x_col}
+        {:up, layout.x_col}
 
       node ->
-        with {i, _address} = read <- Ast.read(node),
-             do: shifted(kind.(read), Map.get(cols, i), down),
-             else: (nil -> node)
+        with {i, _address} = read <- Ast.read(node) do
+          case kind.(read) do
+            {:shift, 0} -> {:up, layout.cols[i]}
+            {:shift, k} -> {:down, layout.down[{layout.cols[i], k}]}
+          end
+        else
+          nil -> node
+        end
     end)
   end
-
-  @spec shifted(kind(), non_neg_integer(), map()) :: pin()
-  defp shifted({:shift, 0}, col, _down), do: {:up, col}
-  defp shifted({:shift, k}, col, down), do: {:down, Map.get(down, {col, k})}
 
   @spec postfix(pin()) :: [{atom(), integer()}]
   defp postfix(k) when is_integer(k), do: [{:const, k}]
@@ -485,23 +486,18 @@ defmodule Zkfol.Uair do
   @typep pin :: Ast.poly({:up, non_neg_integer()} | {:down, non_neg_integer()})
 
   # X is a free committed column; the pins stop a forge sliding it.
-  @spec index_pin(
-          non_neg_integer() | nil,
-          pos_integer(),
-          pos_integer(),
-          [{non_neg_integer(), pos_integer()}],
-          [{atom(), integer()}],
-          [[integer()]]
-        ) :: {[{non_neg_integer(), pos_integer()}], [{atom(), integer()}], [[integer()]]}
-  defp index_pin(nil, _len, _num_vars, shifts, program, columns), do: {shifts, program, columns}
+  @spec index_pin(Layout.t(), pos_integer(), pos_integer(), [{atom(), integer()}], [[integer()]]) ::
+          {[{non_neg_integer(), pos_integer()}], [{atom(), integer()}], [[integer()]]}
+  defp index_pin(%Layout{x_col: nil, shifts: shifts}, _len, _num_vars, program, columns),
+    do: {shifts, program, columns}
 
   # One column is no region: X is one at every row.
-  defp index_pin(x_col, 1, num_vars, shifts, program, columns) do
+  defp index_pin(%Layout{x_col: x_col, shifts: shifts}, 1, num_vars, program, columns) do
     {shifts, program ++ postfix(square(sub({:up, x_col}, 1))) ++ [{:add, 0}],
      columns ++ [List.duplicate(1, 1 <<< num_vars)]}
   end
 
-  defp index_pin(x_col, len, num_vars, shifts, program, columns) do
+  defp index_pin(%Layout{x_col: x_col, shifts: shifts}, len, num_vars, program, columns) do
     rows = 1 <<< num_vars
     ones_col = x_col + 1
     head = rows - len + 1
@@ -515,8 +511,7 @@ defmodule Zkfol.Uair do
     region = {:down, ones_head}
 
     pins = [
-      # ones is one on every constrained row, and constant so its last
-      # row, which the head shift reads, is one too.
+      # ones is constant so its last row, which the head shift reads, is one too.
       square(sub(ones, 1)),
       square(sub(ones, {:down, ones_step})),
       square(Ast.mul(region, sub(sub(x, {:down, x_step}), 1))),
