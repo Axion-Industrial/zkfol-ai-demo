@@ -20,7 +20,6 @@ defmodule Examples.ELog do
 
     assert report.claims == [{"kernel.r", EUser.fib(8)}, {"in", 1}]
 
-    # The trail runs from route through derivation and intent to observation.
     assert [
              %Log.Event{
                body: {:define, :fibonacci, %Pipeline{}, [:r], %Log.Args{statement: ^source}}
@@ -59,7 +58,7 @@ defmodule Examples.ELog do
     refusal
   end
 
-  # A verdict lingering from an abandoned wait is not this wait's.
+  @doc "A verdict lingering from an abandoned wait is not this wait's."
   @spec stale_verdicts_are_not_heard() :: Prover.Report.t()
   example stale_verdicts_are_not_heard do
     stale = %EventBroker.Event{
@@ -72,19 +71,17 @@ defmodule Examples.ELog do
     {:ok, report, _id} =
       Prover.prove(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
 
-    # The stale body is a bare map; a verdict actually heard is a Report.
     assert %Prover.Report{} = report
     report
   end
 
+  @doc "I owe the prover a verdict by hand and then stop it, so the debt lands on the log."
   @spec a_dead_prover_settles_its_debts() :: Zkfol.Refusal.t()
   example a_dead_prover_settles_its_debts do
     intent = Log.push({:prove_requested, :doomed})
     filter = [%Prover.Settled{intent: intent}]
     EventBroker.subscribe_me(filter)
 
-    # Fault injection: owe the prover a verdict, then bring it down.
-    # The supervisor restarts it; the debt settles on the log first.
     :sys.replace_state(Prover, &Map.put(&1, 0, {intent, []}))
     GenServer.stop(Prover, :shutdown)
 

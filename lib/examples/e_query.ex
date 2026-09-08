@@ -11,11 +11,8 @@ defmodule Examples.EQuery do
   alias Zkfol.Query
   alias Zkfol.Refusal
 
-  # A fact that names a value it does not fix: the row stays open.
   defrel loose(1, v)
 
-  # A relation whose clauses name len: the flag is the squared gap to
-  # the end, so the count has to be there before the first answer is.
   defrel gap(1, v) do
     v = reify(1 = len)
   end

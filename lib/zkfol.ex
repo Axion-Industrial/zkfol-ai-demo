@@ -31,24 +31,8 @@ defmodule Zkfol do
   end
 
   @doc """
-  I am the query door: no route, no proof, the relation run as AL
-  runs it. Arguments bind in order, `:_` free: bound arguments enter
-  the derivation's goal and select it, holes fill from the
-  derivation, and the answer is the argument list unified. A free
-  index searches upward, so the least index satisfying the bindings
-  answers; a binding nothing derives refuses as the false statement
-  it is.
-
-  The answer comes as the query holding it: the first is already
-  taken, `Zkfol.Query.next/1` steps to the rest, `taken/1` lists what
-  crossed, `close/1` ends it. A binding nothing derives closes itself
-  and refuses.
-
-      {:ok, query} = Zkfol.eval(fib, [8, :_], [])
-      Zkfol.Query.taken(query)  #=> [[8, 21]]
-
-  `opts` ride through to `Zkfol.Query.open/3`; `:heap` bounds the
-  derivation.
+  I am the query door: the relation run as AL runs it at `arguments`, `:_` free, the
+  query holding its first answer; a binding nothing derives refuses.
   """
   @spec eval(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [Statement.datum() | :_], keyword()) ::
           {:ok, Query.t()} | {:error, Refusal.t()}
@@ -69,12 +53,7 @@ defmodule Zkfol do
     end
   end
 
-  @doc """
-  I am `eval/3` for a hand at the keyboard: the query itself, no tuple
-  to unwrap, and a refusal raised with its own message.
-
-      Zkfol.eval!(fib, [8, :_], [])   #=> %Zkfol.Query{}
-  """
+  @doc "I am `eval/3` for a hand at the keyboard: the query itself, a refusal raised."
   @spec eval!(Lang.Rel.t() | [Lang.Rel.t()] | Statement.t(), [Statement.datum() | :_], keyword()) ::
           Query.t()
   def eval!(rels, arguments, opts \\ []) do
@@ -85,15 +64,8 @@ defmodule Zkfol do
   end
 
   @doc """
-  I am every answer at `arguments`, lazily: a `Zkfol.Query` opened when
-  the stream is first taken from, stepped once per element, and closed
-  when it ends. Answers come in the clauses' own order.
-
-      Zkfol.stream(fib, [:_, :_], []) |> Enum.take(2)  #=> [[1, 1], [2, 1]]
-
-  The stream is answers and nothing else, so a refusal ends it as
-  exhaustion does; `Zkfol.Query.next/1` is the door that says which.
-  `opts` ride through to `Zkfol.Query.open/3`.
+  I am every answer at `arguments`, lazily, in the clauses' own order; a refusal ends the
+  stream as exhaustion does.
   """
   @spec stream(Lang.Rel.t() | [Lang.Rel.t()], [Statement.datum() | :_], keyword()) ::
           Enumerable.t()
@@ -117,8 +89,6 @@ defmodule Zkfol do
     )
   end
 
-  # The act itself, up to whatever settles it: the two entry points
-  # differ only in that last step.
   @spec acted(Statement.t(), keyword(), Log.Args.entry()) :: Log.Ran.t()
   defp acted(statement, opts, entry) do
     {pipeline, opts} = Keyword.pop(opts, :pipeline, Pipeline.default())
@@ -169,7 +139,6 @@ defmodule Zkfol do
          do: {:ok, nil}
   end
 
-  # A root relation lends the act its name.
   @spec named(Statement.t()) :: atom()
   defp named(%Statement{rels: [root | _rest]}), do: root.name
   defp named(_statement), do: :statement

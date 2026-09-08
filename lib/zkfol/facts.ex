@@ -2,10 +2,7 @@ defmodule Zkfol.Facts do
   @moduledoc """
   I am the order-2 descriptor read off a relation's clauses: the base
   values from its facts, the coefficients from its step equation, and
-  the modulus when the step reduces. What the rows only imply, the
-  clauses declare.
-
-      Facts.recurrence(Examples.EUser.fib())
+  the modulus when the step reduces.
   """
 
   use TypedStruct
@@ -34,9 +31,6 @@ defmodule Zkfol.Facts do
   def recurrence(%Rel{name: name, arity: arity}),
     do: {:error, {:not_an_index_relation, %{relation: name, arity: arity}}}
 
-  # The base values, at two consecutive indices. A fact whose index or
-  # value is not ground is refused by name rather than dropped, so the
-  # consecutive check reads the facts that are really there.
   @spec initials([{[term()], [term()]}]) ::
           {:ok, [{pos_integer(), integer()}]} | {:error, Refusal.t(Refusal.restructure())}
   defp initials(facts) do
@@ -61,8 +55,6 @@ defmodule Zkfol.Facts do
   defp the_step([{head, _body}]), do: {:error, {:step_head_not_indexed, %{head: head}}}
   defp the_step(steps), do: {:error, {:step_clauses, %{clauses: length(steps)}}}
 
-  # Calls one and two back bind the history; the step equation must be
-  # an affine combination of exactly those two values.
   @spec coefficients(atom(), {atom(), [term()]}) ::
           {:ok, integer(), integer(), pos_integer() | nil}
           | {:error, Refusal.t(Refusal.restructure())}
@@ -99,8 +91,6 @@ defmodule Zkfol.Facts do
     end
   end
 
-  # A linear form over variables with integer coefficients; a bare
-  # variable is scaled by one.
   @spec linear(term(), %{atom() => integer()}) ::
           {:ok, %{atom() => integer()}} | {:error, Refusal.t(Refusal.restructure())}
   defp linear({:var, v}, acc), do: scaled(v, 1, acc)

@@ -1,11 +1,7 @@
 defmodule Zkfol.Pipeline do
   @moduledoc """
-  I am a pipeline as a value: my passes are data, the trace is a value.
-  A pass is `{module, opts}`, the module taking a statement and its
-  opts to the next statement or refusing with the reason. On a refusal
-  I name the pass and keep the trace up to it. `verdicts/3` reads each
-  pass's verdict off a finished trace: an unchanged statement was
-  declined, a changed one earned the pass's verb.
+  I am a pipeline as a value: a list of `{module, opts}` passes, each
+  taking a statement to the next or refusing with the reason.
   """
 
   use TypedStruct
@@ -31,31 +27,19 @@ defmodule Zkfol.Pipeline do
   @type outcome ::
           {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
 
-  @typedoc """
-  A pass's word on a statement it ran: every pass declines a
-  statement it is not for.
-  """
+  @typedoc "A pass's word on a statement it ran; a pass declines a statement it is not for."
   @type verdict :: :declines | :lowers | :rewrites | :solves | {:errors, Refusal.t()}
 
   typedstruct enforce: true do
     field(:passes, [pass()])
   end
 
-  @doc """
-  I am the default route: try the doubling rewrite, derive the
-  witness, and lower the relations onto it. Evaluation stops one pass
-  early; only the proof needs the lowering. Composed reads emit as
-  they are; zinc+'s pointer query proves them natively.
-  """
+  @doc "I am the default route: doubling, witness, lowering."
   @spec default() :: t()
   def default,
     do: %__MODULE__{passes: [{Doubling, []}, {Witness, []}, {Zkfol.Phi, []}]}
 
-  @doc """
-  I run `statement` through my passes, keeping every intermediate;
-  `opts` ride under each pass's own. The statement enters carrying its
-  whole program: relations its roots reach gather from their homes.
-  """
+  @doc "I run `statement` through my passes, keeping every intermediate."
   @spec run(t(), Statement.t(), keyword()) :: outcome()
   def run(%__MODULE__{passes: passes}, statement, opts \\ []) do
     statement = %{statement | rels: program(statement.rels)}
@@ -82,13 +66,7 @@ defmodule Zkfol.Pipeline do
 
   defp program([]), do: []
 
-  @doc """
-  I am the act's verdicts, read off its trace: a pass that returned
-  its input declined it, one that changed it did what its verb names,
-  and for a pass that erred, the run's own refusal as
-  `{:errors, refusal}`. The caller journals me as `{:piped, verdicts}`,
-  based on the event defining the route.
-  """
+  @doc "I am the act's verdicts, one per pass, read off its trace."
   @spec verdicts(t(), Statement.t(), outcome()) :: [{module(), verdict()}]
   def verdicts(%__MODULE__{passes: passes}, statement, {:ok, _final, trace}),
     do: observed(passes, statement, trace)
@@ -96,8 +74,6 @@ defmodule Zkfol.Pipeline do
   def verdicts(%__MODULE__{passes: passes}, statement, {:error, pass, reason, trace}),
     do: observed(passes, statement, trace) ++ [{pass, {:errors, reason}}]
 
-  # The verdicts of the passes the trace shows ran: declined where the
-  # statement rode through unchanged, the verb where it changed.
   @spec observed([pass()], Statement.t(), trace()) :: [{module(), verdict()}]
   defp observed(passes, statement, trace) do
     stages = [statement | Enum.map(trace, &elem(&1, 1))]

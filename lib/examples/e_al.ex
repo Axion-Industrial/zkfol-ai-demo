@@ -118,8 +118,7 @@ defmodule Examples.EAl do
     witness
   end
 
-  # Forty columns of unguided doubling squares its cells past any
-  # machine; the bound turns the blowup into a named refusal.
+  @doc "Unguided doubling squares its cells past any machine, and the heap bound names it."
   @spec runaway_growth_is_refused() :: Refusal.t()
   example runaway_growth_is_refused do
     kernel = EDoubling.rewritten_fibonacci().rels |> hd()
@@ -130,7 +129,7 @@ defmodule Examples.EAl do
     reason
   end
 
-  # A value aims the pointer: the call reads the column another row names.
+  @doc "A value aims the pointer: the call reads the column another row names."
   @spec hop_rel() :: Zkfol.Lang.Rel.t()
   example hop_rel do
     rel :hop do
@@ -144,11 +143,7 @@ defmodule Examples.EAl do
     end
   end
 
-  @doc """
-  Section 4 on the wire: an address a value aims is no offset from the
-  column, so the deref emits bits, a reconstruction the columns
-  corroborate, a result row per read, and the Word lookup.
-  """
+  @doc "Section 4 on the wire: the deref emits bits, a result row per read, and the Word lookup."
   @spec composed_hop_emits() :: Uair.t()
   example composed_hop_emits do
     {:ok, statement, _trace} =
@@ -189,8 +184,7 @@ defmodule Examples.EAl do
     uair
   end
 
-  # Section 4 all the way down: the emitted composed reads prove on
-  # zinc+'s pointer query, no emulation in between.
+  @doc "The composed reads prove on zinc+'s pointer query, with no emulation in between."
   @spec composed_hop_proves() :: Zkfol.Prover.Report.t()
   example composed_hop_proves do
     {:ok, report, _id} = Prover.prove_uair(composed_hop_emits(), name: :composed_hop)
@@ -199,10 +193,7 @@ defmodule Examples.EAl do
     report
   end
 
-  @doc """
-  I am the pointer forged past the trace after the oracle judged the
-  witness: its Word bound refuses it at the backend, where no emit ran.
-  """
+  @doc "I am the pointer forged past the trace: the Word table refuses it at the backend."
   @spec pointer_off_the_trace_is_refused() :: Refusal.t()
   example pointer_off_the_trace_is_refused do
     uair = composed_hop_emits()

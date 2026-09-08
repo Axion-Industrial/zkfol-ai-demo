@@ -1,8 +1,5 @@
 defmodule Zkfol.Application do
-  @moduledoc """
-  I bring the node up: the command log's mnesia table exists before any
-  statement writes to it, so no operation carries its own setup.
-  """
+  @moduledoc "I bring the node up: the command log, then the prover."
 
   use Application
 

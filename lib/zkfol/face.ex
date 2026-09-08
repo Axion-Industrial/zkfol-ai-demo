@@ -1,8 +1,5 @@
 defmodule Zkfol.Face do
-  @moduledoc """
-  I am the system shaped for a viewer: plain maps and strings a GUI
-  renders without interpreting.
-  """
+  @moduledoc "I am the system shaped for a viewer: plain maps and strings a GUI renders."
 
   use GtBridge.View
 
@@ -95,11 +92,7 @@ defmodule Zkfol.Face do
   @spec fact_row(Zkfol.Derivation.fact()) :: [term()]
   defp fact_row({name, tuple}), do: [name | tuple]
 
-  @doc """
-  I am the judgement as a table: one row per branch, one column per
-  witness column, each cell the branch's Figure 2 value there, zero
-  where the branch answers for the column.
-  """
+  @doc "I am the judgement as a table: a row per branch, a column per witness column."
   @judgement_keys ~w(labels evals terms trees sources rows regions arrows aims witness)a
 
   @spec judgement(Statement.t()) :: %{atom() => term()}
@@ -181,11 +174,7 @@ defmodule Zkfol.Face do
   defp site_text(%Zkfol.Alloc.Site{callee: callee, address: address}),
     do: "#{callee} at #{term_text(Ast.naming(address))}"
 
-  @doc """
-  I am one lay for its grid: the row introductions off its own shape,
-  the witness matrix by column, and the regions, arrows, and aims it
-  already is.
-  """
+  @doc "I am one lay for its grid: row labels, the matrix by column, regions, arrows, aims."
   @spec lay(Zkfol.Lay.t()) :: %{atom() => term()}
   def lay(lay = %Zkfol.Lay{}) do
     %{
@@ -270,11 +259,7 @@ defmodule Zkfol.Face do
     if Enum.any?(AL.Branch.list(), &(&1.id == branch)), do: Zkfol.Al.program(branch)
   end
 
-  @doc """
-  I am the route as the static structure it is: each pass with its
-  options, the contract it implements, and what it says it does in
-  its own words.
-  """
+  @doc "I am the route as structure: each pass, its options, its callbacks, its first sentence."
   @spec route(Zkfol.Pipeline.t()) :: %{atom() => term()}
   def route(%Zkfol.Pipeline{passes: passes}) do
     %{
@@ -299,11 +284,7 @@ defmodule Zkfol.Face do
     }
   end
 
-  @doc """
-  I am a pass described by its record: every journaled run whose route
-  carried it, each openable off its define. Any module answers, one
-  that is no pass saying only that.
-  """
+  @doc "I am a pass described by its record: every journaled run whose route carried it."
   @spec pass(Log.t(), module()) :: %{atom() => term()}
   def pass(snap, module) do
     Code.ensure_loaded(module)

@@ -100,8 +100,6 @@ defmodule Examples.EDoubling do
 
   @spec a_free_count_passes_the_try() :: Statement.t()
   example a_free_count_passes_the_try do
-    # No kernel walk exists for an unknown n, so the try declines and
-    # the plain relation solves backward through the front door.
     source = %Statement{rels: [EUser.fib()], args: [:_, 21]}
 
     {:ok, statement, _trace} = Pipeline.run(Pipeline.default(), source)

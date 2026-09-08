@@ -1,9 +1,5 @@
 defmodule Examples.EFace do
-  @moduledoc """
-  I am the face's evidence: a statement summarised as the facts a
-  delta view compares, and rendered as bounded text with the witness
-  elided, so a viewer never reads the structs themselves.
-  """
+  @moduledoc "I am the face's evidence: what a viewer reads, derived from the structs."
 
   use ExExample
 

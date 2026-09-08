@@ -149,10 +149,7 @@ defmodule Zkfol.Lang do
   defmacro defrel(head), do: store(head, [])
   defmacro defrel(head, do: block), do: store(head, lines(block))
 
-  @doc """
-  I build a relation where a function runs: clauses as defrel writes
-  them, `^` splicing the surrounding scope's values in.
-  """
+  @doc "I build a relation where a function runs, `^` splicing the scope's values in."
   defmacro rel(name, do: block) do
     clauses = for form <- lines(block), do: rel_clause(name, form)
     arity = clauses |> hd() |> elem(0) |> length()

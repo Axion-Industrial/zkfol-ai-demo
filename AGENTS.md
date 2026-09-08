@@ -49,12 +49,12 @@ stops at `Derived`; only proving needs the lowering, which is why it runs last:
   are typed (`no_answer` is a finite no, `unresolved_within_budget` outran AL's fixed
   reduction budget) and nothing searches by witness size. Predicates that call
   predicates compile to one chain, each column wearing its relation's tag. Surface
-  guards (`x > 2`) steer the derivation but do not reach the emitted predicate.
+  guards (`x > 2`) steer the derivation and compile into the predicate as slack.
   `Zkfol.Facts` reads order-2 descriptors; `Zkfol.Doubling` rewrites recurrences to a
   log-depth kernel.
 - `Zkfol.Witness` — runs the statement via `Al.derived`; the derivation is the answer.
 - `Zkfol.Uair` — `emit/3` translates a Solved statement to Figure 2 over committed
-  columns; `prove/3` proves it on Zinc+. Mode is a sum: `Uair.Plain | Composed`
+  columns; `Zkfol.Prover` proves it on Zinc+. Mode is a sum: `Uair.Plain | Composed`
   (`Composed` = Section 4 lowering for unscheduled pointers; its reads prove
   natively on Zinc+'s pointer query).
 - `Zkfol` — the front door: `compile/2` / `emit/2`, journalling the whole act.

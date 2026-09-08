@@ -1,12 +1,8 @@
 defmodule Zkfol.Derivation do
   @moduledoc """
-  I am the extension a run established: the facts in callees-first
-  order, the consumption between them, and the clause each fact fired.
-  A fact is its own key: nothing outside me counts my positions.
-
-  I am `Zkfol.Matrix`'s mirror: a relation plus its extension becomes
-  an interpretation either way, mine derived by a run and its
-  declared. `Zkfol.Lay` places me on the rows `Zkfol.Alloc` assigned.
+  I am the extension a run established: the facts in callees-first order,
+  the consumption between them, and the clause each fact fired. A fact is
+  its own key: nothing outside me counts my positions.
   """
 
   use TypedStruct
@@ -22,11 +18,8 @@ defmodule Zkfol.Derivation do
   end
 
   @doc """
-  I am the derivation AL's journal carries, deduplicated: every fact
-  the committed tree established, callees ahead of their callers, what
-  each fact's calls consumed in body order, and the 0-based seq of the
-  clause that established it. The tree's children are those calls,
-  which flattening would lose.
+  I am the derivation AL's journal carries, deduplicated, callees ahead of their callers;
+  each fact sits beside what its calls consumed and the seq that established it.
   """
   @spec of(AL.t(), MapSet.t(), boolean()) :: t()
   def of(%AL{domino: %{trace: trace}, active_choicepoint: %{store: store}}, names, len?) do
@@ -62,9 +55,6 @@ defmodule Zkfol.Derivation do
   @spec consumption(t()) :: [{fact(), [fact()]}]
   def consumption(%__MODULE__{consumed: consumed}), do: consumed
 
-  # Post-order: a member node becomes its fact beside the facts of its
-  # member children and the clause it fired, resolved through each
-  # node's own bindings.
   @spec walk(map(), MapSet.t(), boolean(), map()) :: [
           {fact(), {[fact()], non_neg_integer() | nil}}
         ]
@@ -102,11 +92,7 @@ defmodule Zkfol.Derivation do
     end
   end
 
-  @doc """
-  I am the derivation beneath one fact: it and everything it consumed,
-  transitively, in my order. Consumption is closed under me, so laying
-  me yields a witness every column of which still holds.
-  """
+  @doc "I am the derivation beneath one fact: it and everything it consumed, transitively."
   @spec under(t(), fact()) :: t()
   def under(t = %__MODULE__{}, fact) do
     kept = reach([fact], t, MapSet.new())
@@ -135,8 +121,7 @@ end
 defimpl Inspect, for: Zkfol.Derivation do
   import Inspect.Algebra
 
-  # fib(3, 2)<-{0,1} reads: this fact's calls consumed facts 0 and 1,
-  # in body order. The numbers are positions in my own facts.
+  # `fib(3, 2)<-{0,1}`: this fact consumed facts 0 and 1, in body order.
   def inspect(derivation = %Zkfol.Derivation{facts: facts}, _opts) do
     at = facts |> Enum.with_index() |> Map.new()
 

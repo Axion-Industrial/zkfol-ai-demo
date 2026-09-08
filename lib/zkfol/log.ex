@@ -22,9 +22,8 @@ defmodule Zkfol.Log do
     field(:events, [Event.t()], default: [])
   end
 
-  # A ram-copies ordered_set: ids stay ascending for last/1, and the
-  # table shares the node's lifetime. Starting mnesia is idempotent.
-  @doc "I create the log's table if it is not there yet. The application calls me at boot."
+  # An ordered_set so ids stay ascending for last/1.
+  @doc "I create the log's table if it is not there yet."
   @spec setup() :: :ok
   def setup do
     :ok = :mnesia.start()
@@ -39,10 +38,7 @@ defmodule Zkfol.Log do
     end
   end
 
-  @doc """
-  I append an event to the table and return its id. `basedon` names the
-  event id whose image the caller was looking at; I never inspect it.
-  """
+  @doc "I append an event based on `basedon` and return its id."
   @spec push(term(), pos_integer() | nil) :: pos_integer()
   def push(body, basedon \\ nil) do
     {:atomic, event} =
@@ -119,8 +115,6 @@ defmodule Zkfol.Log do
   defp refusals(%Event{body: {:prove_failed, refusal}}), do: [refusal]
   defp refusals(_event), do: []
 
-  # Oldest to newest, an event joins the thread when it is a root or is
-  # based on one already in it; its own id then becomes a root too.
   @spec descend(t(), MapSet.t()) :: [Event.t()]
   defp descend(%__MODULE__{events: events}, roots) do
     events

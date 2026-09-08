@@ -208,7 +208,7 @@ defmodule Zkfol.Ast do
   def branches({:disj, preds}), do: preds
   def branches(pred), do: [pred]
 
-  @doc "I am the conjuncts of `pred`: a conjunction's members flattened, any other predicate alone."
+  @doc "I am the conjuncts of `pred`: a conjunction's members flattened, any other alone."
   @spec conjuncts(pred()) :: [pred()]
   def conjuncts({:conj, preds}), do: Enum.flat_map(preds, &conjuncts/1)
   def conjuncts(pred), do: [pred]

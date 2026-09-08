@@ -1,8 +1,5 @@
 defmodule Examples.EFacts do
-  @moduledoc """
-  I am the facts' evidence: the descriptor read off the fibonacci
-  clauses, and relations outside the class refused with reasons.
-  """
+  @moduledoc "I am the facts' evidence: the descriptor read off the clauses, or the refusal."
 
   use ExExample
   use Zkfol.Lang
@@ -39,11 +36,7 @@ defmodule Examples.EFacts do
     v = a * b
   end
 
-  @doc """
-  I read the modulus off the structure: the same coefficients as the
-  unreduced recurrence, and the bound the step reduces by, so nobody
-  has to be told it.
-  """
+  @doc "I read the modulus off the structure, the coefficients those of the unreduced recurrence."
   @spec a_reduced_step_carries_its_modulus() :: Facts.t()
   example a_reduced_step_carries_its_modulus do
     {:ok, descriptor} = Facts.recurrence(reduced())

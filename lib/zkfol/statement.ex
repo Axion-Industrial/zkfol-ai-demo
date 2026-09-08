@@ -91,13 +91,7 @@ defmodule Zkfol.Statement do
   def derived(statement = %__MODULE__{}, derivation),
     do: %{statement | stage: derivation}
 
-  @doc """
-  I am the statement beneath one established fact, named by its
-  position in my derivation: the fact's own relation becomes the
-  root, so the shape shrinks to what its closure entails and a leaf
-  stands on its own bank alone. The subderivation lays through a fresh
-  allocation. Nil when there is no such fact or no derivation.
-  """
+  @doc "I am the statement beneath the `k`-th fact of my derivation, nil without one."
   @spec under(t(), pos_integer()) :: t() | nil
   def under(statement = %__MODULE__{rels: rels}, k) when is_integer(k) do
     with %Zkfol.Derivation{facts: facts} = d <- derivation(statement),

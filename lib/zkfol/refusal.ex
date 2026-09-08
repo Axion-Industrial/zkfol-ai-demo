@@ -1,7 +1,7 @@
 defmodule Zkfol.Refusal do
   @moduledoc """
-  I am the index of every refusal the compiler can make. A refusal is
-  `{reason, detail}`: an atom naming it, and the values behind it.
+  I am the index of every refusal the compiler can make, a refusal being `{reason, detail}`
+  and its prose derived here. A refusal's kind says what the caller should do:
 
   - `:restructure`: the statement's shape is not one I compile; rewrite it.
   - `:out_of_range`: a bound was exceeded; shrink it, or raise the bound.
@@ -15,16 +15,10 @@ defmodule Zkfol.Refusal do
   @typedoc "A refusal: what it is, and what it is about."
   @type t :: {reason(), detail()}
 
-  @typedoc """
-  A refusal drawn from `reason` only, so a pass can say in its spec which
-  refusals it is able to make: `Refusal.t(Refusal.restructure())`.
-  """
+  @typedoc "A refusal drawn from `reason` only: `Refusal.t(Refusal.restructure())`."
   @type t(reason) :: {reason, detail()}
 
-  @doc """
-  I hold that no element of `enum` satisfies `bad?`. The first that does is
-  the offender, and `refusal` names it.
-  """
+  @doc "I hold that no element of `enum` satisfies `bad?`; `refusal` names the first that does."
   @spec refute(Enumerable.t(), (term() -> boolean()), (term() -> t())) :: :ok | {:error, t()}
   def refute(enum, bad?, refusal) do
     case Enum.find(enum, bad?) do
@@ -33,9 +27,7 @@ defmodule Zkfol.Refusal do
     end
   end
 
-  @doc """
-  I map each element through `fun`, and the first refusal halts the walk.
-  """
+  @doc "I map each element through `fun`, and the first refusal halts the walk."
   @spec map(Enumerable.t(), (term() -> {:ok, term()} | {:error, t()})) ::
           {:ok, [term()]} | {:error, t()}
   def map(enum, fun) do
@@ -59,20 +51,12 @@ defmodule Zkfol.Refusal do
     with {:ok, chunks} <- map(enum, fun), do: {:ok, Enum.concat(chunks)}
   end
 
-  @doc """
-  I read the backend's prose back into a refusal. zinc+ answers with a
-  sentence, so the classifying happens once here rather than at every
-  caller that has to tell a false statement from a dead prover.
-  """
+  @doc "I read the backend's prose back into a refusal."
   @spec from_backend(String.t()) :: t()
   def from_backend("verifier failed" <> _rest = said), do: {:verifier_rejected, %{said: said}}
   def from_backend(said), do: {:prover_failed, %{said: said}}
 
-  @doc """
-  I read AL's prose back into a refusal, the way `from_backend/1` reads
-  zinc+'s. AL answers a blown bound with a sentence and otherwise with
-  its own tuples, which pass through untouched.
-  """
+  @doc "I read AL's blown-bound sentence into a refusal; its own tuples pass through."
   @spec from_al(term()) :: term()
   def from_al({:error, said}) when is_binary(said), do: {:error, {:heap_exhausted, %{said: said}}}
   def from_al(other), do: other

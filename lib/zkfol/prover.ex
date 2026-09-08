@@ -1,11 +1,7 @@
 defmodule Zkfol.Prover do
   @moduledoc """
-  I own the proving conversation: the one actor the NIF answers to,
-  and the protocol callers speak to it. `prove/3` emits and proves;
-  `prove_uair/2` journals an intent, queues the UAIR, and waits on
-  the log for the verdict that settles it. When a verdict lands I
-  record it as the intent's observation; waiters hear of it through
-  the log, not from me.
+  I am the one actor the NIF answers to, journaling each intent and the verdict that
+  settles it on the log.
   """
 
   use GenServer
@@ -19,7 +15,6 @@ defmodule Zkfol.Prover do
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
 
-  # I match the log event that settles `intent`: its observation.
   deffilter Settled, intent: pos_integer() do
     %EventBroker.Event{body: %Zkfol.Log.Event{basedon: ^intent}} -> true
     _ -> false
@@ -27,12 +22,10 @@ defmodule Zkfol.Prover do
 
   typedstruct module: Report, enforce: true do
     @moduledoc """
-    I am the verdict as a value: the NIF's measurements and the claims
-    the verifier read in the clear. I ride the log as the body of a
-    `{:proved, report}` observation, and I exist only where the proof
-    verified — a run that did not leaves `{:prove_failed, reason}`
-    instead, so my existence is the verdict and no field restates it.
+    I am the verdict as a value: the NIF's measurements and the claims read in the clear.
+    I exist only where the proof verified.
     """
+
     field(:prove_ms, float())
     field(:verify_ms, float())
     field(:num_vars, non_neg_integer())
@@ -45,11 +38,7 @@ defmodule Zkfol.Prover do
   @spec start_link(term()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
 
-  @doc """
-  I prove `pred` against `witness` and journal it: an intent, then the
-  report observed, a `Report`. `opts` takes `:name`, `:basedon`,
-  `:claims`. I return `{:ok, report, id}`.
-  """
+  @doc "I emit and prove `pred` on `witness`; `opts` takes `:name`, `:basedon`, `:claims`."
   @spec prove(Ast.pred(), Interpretation.t(), keyword()) ::
           {:ok, Report.t(), pos_integer()} | {:error, Refusal.t()}
   def prove(pred, witness, opts \\ []) do
@@ -75,9 +64,7 @@ defmodule Zkfol.Prover do
     end
   end
 
-  # I wait on the log for the observation that settles intent `id`;
-  # only that intent, so a verdict lingering from an abandoned wait
-  # can never be heard as this one.
+  # Only this intent's verdict, so one lingering from an abandoned wait is never heard here.
   @spec settled(pos_integer(), timeout()) ::
           {:ok, Report.t(), pos_integer()} | {:error, Refusal.t()}
   defp settled(id, timeout) do
@@ -92,7 +79,6 @@ defmodule Zkfol.Prover do
     end
   end
 
-  # Whatever the subscription delivered and nobody consumed, drop.
   @spec drained(pos_integer()) :: :ok
   defp drained(id) do
     receive do
@@ -107,8 +93,7 @@ defmodule Zkfol.Prover do
 
   @impl true
   def init(inflight) do
-    # Trapping exits makes terminate/2 run on the way down: verdicts
-    # owed at death still settle on the log, as failures.
+    # Trap exits so terminate/2 settles the verdicts owed at death.
     Process.flag(:trap_exit, true)
     {:ok, inflight}
   end

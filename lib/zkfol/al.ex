@@ -206,8 +206,7 @@ defmodule Zkfol.Al do
   defp outcome({:aborted, reason}), do: {:no, reason}
   defp outcome(exceeded), do: Refusal.from_al(exceeded)
 
-  # An argument past the last row addresses nothing, and zipping it away
-  # would answer a question no one asked.
+  # An argument past the last row addresses nothing; zipping it away would answer another ask.
   @spec bind([pos_integer()], [integer() | atom()]) :: {:ok, bind()} | {:error, Refusal.t()}
   defp bind(rows, args) when length(args) > length(rows),
     do: {:error, {:arguments_exceed_rows, %{args: length(args), rows: length(rows)}}}

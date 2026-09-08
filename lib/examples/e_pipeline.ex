@@ -13,6 +13,7 @@ defmodule Examples.EPipeline do
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
+  @doc "A stage is a re-run from the source, never a record read back off the log."
   @spec the_trail_replays_the_act() :: [Log.Event.t()]
   example the_trail_replays_the_act do
     pipeline = %Pipeline{passes: [{Doubling, []}, {Zkfol.Phi, []}]}
@@ -25,15 +26,11 @@ defmodule Examples.EPipeline do
 
     assert value == EUser.fib(100)
 
-    # The trail's event shapes are ELog's claim; here the act replays:
-    # the verdicts off the trail, the stages re-run from the source.
     assert Enum.find_value(trail, fn
              %Log.Event{body: {:piped, verdicts}} -> verdicts
              _event -> nil
            end) == [{Doubling, :rewrites}, {Zkfol.Phi, :declines}]
 
-    # A stage is a re-run, never a record: 0 the source, 1 doubled,
-    # 2 the same again, the lowering having nothing left to do.
     assert Log.Ran.stage(ran, 0) == {:ok, entered(source)}
     assert {:ok, doubled} = Log.Ran.stage(ran, 1)
     assert Statement.pred(doubled) != nil

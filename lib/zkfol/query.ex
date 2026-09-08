@@ -40,12 +40,7 @@ defmodule Zkfol.Query do
          do: {:ok, %__MODULE__{pid: pid, ask: ask}}
   end
 
-  @doc """
-  I am the query's next answer: the argument list unified, the end of
-  the search as `:exhausted`, or the refusal that stopped it. A cap
-  that killed the query mid-search reads as a refusal too, and the
-  query closes with it.
-  """
+  @doc "I am the query's next answer, `:exhausted`, or the refusal that stopped it."
   @spec next(t()) :: Ask.outcome()
   def next(query = %__MODULE__{pid: pid}) do
     GenServer.call(pid, :next, :infinity)
@@ -63,14 +58,7 @@ defmodule Zkfol.Query do
     :exit, _gone -> []
   end
 
-  @doc """
-  I am answer `k` (1-based, the latest when unsaid) as a statement:
-  the query's relations at that answer's arguments, ready for the
-  prove-bound pipeline. An answer not yet taken I step forward to,
-  and a search that ends before `k` answers nil.
-
-      Zkfol.Query.statement(query, 10) |> Zkfol.compile()
-  """
+  @doc "I am answer `k` (the latest when unsaid) as a statement, nil when the search ends first."
   @spec statement(t(), pos_integer() | :latest) :: Statement.t() | nil
   def statement(query, k \\ :latest)
 
@@ -123,8 +111,6 @@ defmodule Zkfol.Query do
   #                   Private Implementation                 #
   ############################################################
 
-  # statement(k) reaches for an answer not yet taken: step until it
-  # exists or the search ends.
   @spec advanced(Ask.t(), [Ask.answer()], pos_integer() | :latest) ::
           {Ask.t(), [Ask.answer()]}
   defp advanced(ask, taken, k) when k == :latest or length(taken) >= k, do: {ask, taken}

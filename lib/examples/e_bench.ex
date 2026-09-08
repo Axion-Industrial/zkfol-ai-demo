@@ -1,7 +1,5 @@
 defmodule Examples.EBench do
-  @moduledoc """
-  I am the benchmarker.
-  """
+  @moduledoc "I am the benchmarker."
 
   use ExExample
 
@@ -19,6 +17,7 @@ defmodule Examples.EBench do
     measurement("power 2^#{exponent}", Statement.pred(EUser.power(exponent)), witness)
   end
 
+  @doc "The trace wall in the pinned prover bounds the padded rows, so the default stays small."
   @spec measured_fibonacci(pos_integer()) :: map()
   example measured_fibonacci(n \\ 32) do
     witness = Statement.witness(EUser.fibonacci(n))
@@ -66,7 +65,6 @@ defmodule Examples.EBench do
     )
   end
 
-  # Value-addressed reads through zinc+'s pointer query, end to end.
   @spec measured_hop(pos_integer()) :: map()
   example measured_hop(n \\ 64) do
     {:ok, statement, _trace} =
@@ -109,15 +107,7 @@ defmodule Examples.EBench do
     ]
   end
 
-  @doc """
-  I prove `phi` under `witness` through the journal and keep the numbers.
-  The rss pair brackets emit-prove-verify only: the peak resets at entry,
-  after the caller has already derived the witness, so solving never
-  counts. Peaks at the baseline mean the prover fit under the noise.
-  The measure dispatches on the host: Linux resets and reads the kernel's
-  high-water mark; elsewhere the peak is read as the rss when the prove
-  returns, a floor rather than a peak.
-  """
+  @doc "I prove `phi` under `witness` and keep the numbers; the rss peak resets at entry."
   @spec measurement(String.t(), Zkfol.Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           map()
   def measurement(statement, phi, witness, claims \\ []) do
@@ -137,8 +127,6 @@ defmodule Examples.EBench do
     }
   end
 
-  # Reset the high-water mark where the host keeps one and return
-  # current rss in MB.
   @spec reset_peak_rss() :: non_neg_integer()
   defp reset_peak_rss do
     Enum.each(Process.list(), &:erlang.garbage_collect/1)

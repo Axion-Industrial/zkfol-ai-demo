@@ -1,15 +1,13 @@
 defmodule Zkfol.Doubling do
   @moduledoc """
-  I am the doubling rewrite: a statement-to-statement morphism at claim
-  equivalence. Given a predicate that Zkfol.Facts certifies as an
-  order-2 constant-coefficient recurrence, I replace its length-n index
-  ladder with a walk over the bits of the position, using the kernel
-  pair U (U(1) = 1, U(2) = p):
+  I am the doubling rewrite: an order-2 recurrence's length-n index ladder becomes a walk
+  over the bits of the position, on the kernel pair U (U(1) = 1, U(2) = p):
 
       U(2e)   = U(e) · (2·U(e+1) − p·U(e))
       U(2e+1) = q·U(e)² + U(e+1)²
       x(n)    = x₂·U(m−1) + q·x₁·U(m−2)    at position m = n − start + 1
   """
+
   @behaviour Zkfol.Pipeline
 
   alias Zkfol.Al
@@ -19,11 +17,7 @@ defmodule Zkfol.Doubling do
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
-  @doc """
-  I am the rewrite as a pass, and always a try: statements the facts
-  do not certify, or carrying no integer to claim. A free count runs
-  backward
-  """
+  @doc "I am the rewrite as a pass, always a try: an uncertified statement passes through."
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
   def run(statement = %Statement{rels: [root | _rest], args: [n | _args]}, opts)
@@ -62,8 +56,7 @@ defmodule Zkfol.Doubling do
   defp reduced(value, nil), do: value
   defp reduced(value, mod), do: rem(value, mod)
 
-  # The kernel walks beside the relation it doubles, named after it;
-  # one new atom per relation, bounded by the program.
+  # One new atom per relation, bounded by the program.
   defp named(%Statement{rels: [root | _rest]}, opts),
     do: Keyword.put_new(opts, :name, :"#{root.name}_kernel")
 
@@ -105,7 +98,6 @@ defmodule Zkfol.Doubling do
          do: {:ok, laid.stage}
   end
 
-  # The base column: the kernel pair at position one, reduced.
   @spec base(Facts.t()) :: [integer()]
   defp base(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}),
     do: [1, rem(1, mod), rem(p, mod), 1, rem(x2 * p + q * x1, mod)]
@@ -113,8 +105,6 @@ defmodule Zkfol.Doubling do
   @spec count(pos_integer()) :: pos_integer()
   defp count(m), do: (m - 2) |> Integer.digits(2) |> length()
 
-  # The kernel is itself a relation: one base fact, two step clauses
-  # interpreting a bit, the result riding every clause.
   @spec kernel(Facts.t()) :: Rel.t()
   defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: nil}) do
     Zkfol.Lang.rel :kernel do
@@ -140,9 +130,7 @@ defmodule Zkfol.Doubling do
     end
   end
 
-  # Over Z_mod the same identities, each reduced by the surface's
-  # `mod/2`. The subtraction rides p * mod, so every committed value
-  # the walk lays is a natural.
+  # `p * mod` rides the subtraction so every committed value is a natural.
   defp kernel(descriptor = %Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}) do
     [_x, u0, w0, _e, r0] = base(descriptor)
 
