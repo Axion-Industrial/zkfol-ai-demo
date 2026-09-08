@@ -68,7 +68,7 @@ defmodule Zkfol.Derivation do
   @spec walk(map(), MapSet.t(), boolean(), map()) :: [
           {fact(), {[fact()], non_neg_integer() | nil}}
         ]
-  defp walk(%{label: {_self, m, _args}, children: kids} = node, names, len?, store) do
+  defp walk(node = %{label: {_self, m, _args}, children: kids}, names, len?, store) do
     below = Enum.flat_map(kids, &walk(&1, names, len?, store))
 
     if MapSet.member?(names, m) do
@@ -108,7 +108,7 @@ defmodule Zkfol.Derivation do
   me yields a witness every column of which still holds.
   """
   @spec under(t(), fact()) :: t()
-  def under(%__MODULE__{} = t, fact) do
+  def under(t = %__MODULE__{}, fact) do
     kept = reach([fact], t, MapSet.new())
 
     %__MODULE__{
@@ -137,7 +137,7 @@ defimpl Inspect, for: Zkfol.Derivation do
 
   # fib(3, 2)<-{0,1} reads: this fact's calls consumed facts 0 and 1,
   # in body order. The numbers are positions in my own facts.
-  def inspect(%Zkfol.Derivation{facts: facts} = derivation, _opts) do
+  def inspect(derivation = %Zkfol.Derivation{facts: facts}, _opts) do
     at = facts |> Enum.with_index() |> Map.new()
 
     lines =

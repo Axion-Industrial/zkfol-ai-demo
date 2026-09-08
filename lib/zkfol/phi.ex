@@ -64,7 +64,7 @@ defmodule Zkfol.Phi do
   def run(statement = %Statement{stage: %Derivation{} = derivation}, _opts),
     do: relaid(statement, derivation)
 
-  def run(%Statement{} = statement, _opts), do: {:ok, statement}
+  def run(statement = %Statement{}, _opts), do: {:ok, statement}
 
   @impl Zkfol.Pipeline
   @spec verb() :: Zkfol.Pipeline.verdict()
@@ -72,7 +72,7 @@ defmodule Zkfol.Phi do
 
   @doc "I lay the derivation for the statement."
   @spec relaid(Statement.t(), Derivation.t()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def relaid(%Statement{rels: [root | _rest] = rels} = statement, %Derivation{} = derivation) do
+  def relaid(statement = %Statement{rels: [root | _rest] = rels}, derivation = %Derivation{}) do
     # What the run established of the root itself: the arguments, every hole filled.
     {_name, args} = Derivation.root(derivation, root.name) || {root.name, []}
 
@@ -84,14 +84,14 @@ defmodule Zkfol.Phi do
 
   @doc "I am the predicate of `root` against `rels`, linked."
   @spec lower(Rel.t(), [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
-  def lower(%Rel{} = root, rels) do
+  def lower(root = %Rel{}, rels) do
     with {:ok, pred, alloc} <- compile(root, rels), do: {:ok, Alloc.link(pred, alloc)}
   end
 
   @doc "I compile `root` against `rels` to its predicate and allocation; `args` size its banks."
   @spec compile(Rel.t(), [Rel.t()] | nil, [term()]) ::
           {:ok, Ast.pred(), Alloc.t()} | {:error, Refusal.t()}
-  def compile(%Rel{} = root, rels \\ nil, args \\ []) do
+  def compile(root = %Rel{}, rels \\ nil, args \\ []) do
     with {:ok, [root | _rest] = reached} <- Lang.reached(root, rels || [root]) do
       compiled(root, Map.new(reached, &{&1.name, &1}), args)
     end
@@ -99,7 +99,7 @@ defmodule Zkfol.Phi do
 
   @spec compiled(Rel.t(), %{atom() => Rel.t()}, [term()]) ::
           {:ok, Ast.pred(), Alloc.t()} | {:error, Refusal.t()}
-  defp compiled(%Rel{} = root, scope, args) do
+  defp compiled(root = %Rel{}, scope, args) do
     # A handed scalar is data: its count may place (rule 4), its value never substitutes.
     handed =
       for k <- 0..(root.arity - 1)//1 do
@@ -700,7 +700,7 @@ defmodule Zkfol.Phi do
   # How many cells a value holds, an integer standing for that many.
   @spec size(value()) :: integer() | nil
   defp size(q) when is_integer(q), do: q
-  defp size(%View{} = view), do: View.size(view)
+  defp size(view = %View{}), do: View.size(view)
   defp size([]), do: 0
 
   defp size(%Cons{head: h, tail: t}),

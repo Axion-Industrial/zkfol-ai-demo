@@ -90,7 +90,7 @@ defmodule Zkfol.ZincPlus do
   refused while Elixir refuses it first. No ordinary caller passes it.
   """
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}
-  def request(%Uair{} = uair, opts \\ []) do
+  def request(uair = %Uair{}, opts \\ []) do
     values = List.flatten(uair.columns)
     reads = reads(uair.mode)
 

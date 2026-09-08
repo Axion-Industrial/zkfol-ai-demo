@@ -27,8 +27,8 @@ defmodule Zkfol.Statement do
   @doc "I am the statement `target` stands for, root first, `opts[:args]` its arguments."
   @spec of(t() | Rel.t() | [Rel.t()], keyword()) :: t()
   def of(target, opts \\ [])
-  def of(%__MODULE__{} = statement, _opts), do: statement
-  def of(%Rel{} = root, opts), do: %__MODULE__{rels: [root], args: args(opts)}
+  def of(statement = %__MODULE__{}, _opts), do: statement
+  def of(root = %Rel{}, opts), do: %__MODULE__{rels: [root], args: args(opts)}
   def of(rels, opts) when is_list(rels), do: %__MODULE__{rels: rels, args: args(opts)}
 
   @spec args(keyword()) :: [datum() | :_]
@@ -52,19 +52,19 @@ defmodule Zkfol.Statement do
   def opened(%__MODULE__{stage: %Solved{claims: [_one | _rest] = claims}}, _public),
     do: {:error, {:publicity_is_the_acts, %{claims: claims}}}
 
-  def opened(%__MODULE__{stage: %Solved{lay: lay} = solved} = statement, public) do
+  def opened(statement = %__MODULE__{stage: solved = %Solved{lay: lay}}, public) do
     with {:ok, claims} <- Zkfol.Lay.claims(lay, public),
          do: {:ok, %{statement | stage: %{solved | claims: claims}}}
   end
 
-  def opened(%__MODULE__{} = statement, []), do: {:ok, statement}
+  def opened(statement = %__MODULE__{}, []), do: {:ok, statement}
 
   def opened(%__MODULE__{}, [named | _rest]),
     do: {:error, {:unbound_variable, %{variable: named}}}
 
   @doc "I am the rows of `sym`'s bank in my witness."
   @spec bank(t(), atom()) :: [[non_neg_integer()]]
-  def bank(%__MODULE__{} = statement, sym) do
+  def bank(statement = %__MODULE__{}, sym) do
     laid = Interpretation.rows(witness(statement))
     for i <- Zkfol.Alloc.rows(alloc(statement), sym), do: Enum.at(laid, i - 1)
   end
@@ -76,19 +76,19 @@ defmodule Zkfol.Statement do
 
   @doc "I am the allocation, read off the lay."
   @spec alloc(t()) :: Zkfol.Alloc.t() | nil
-  def alloc(%__MODULE__{} = statement),
+  def alloc(statement = %__MODULE__{}),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.alloc)
 
   @doc "I am the derivation: the run's own once derived, the lay's once solved."
   @spec derivation(t()) :: Zkfol.Derivation.t() | nil
-  def derivation(%__MODULE__{stage: %Zkfol.Derivation{} = derivation}), do: derivation
+  def derivation(%__MODULE__{stage: derivation = %Zkfol.Derivation{}}), do: derivation
 
-  def derivation(%__MODULE__{} = statement),
+  def derivation(statement = %__MODULE__{}),
     do: with(%Zkfol.Lay{} = lay <- lay(statement), do: lay.derivation)
 
   @doc "I am the statement carrying `derivation`: what its relations established, unlaid."
   @spec derived(t(), Zkfol.Derivation.t()) :: t()
-  def derived(%__MODULE__{} = statement, derivation),
+  def derived(statement = %__MODULE__{}, derivation),
     do: %{statement | stage: derivation}
 
   @doc """
@@ -99,7 +99,7 @@ defmodule Zkfol.Statement do
   allocation. Nil when there is no such fact or no derivation.
   """
   @spec under(t(), pos_integer()) :: t() | nil
-  def under(%__MODULE__{rels: rels} = statement, k) when is_integer(k) do
+  def under(statement = %__MODULE__{rels: rels}, k) when is_integer(k) do
     with %Zkfol.Derivation{facts: facts} = d <- derivation(statement),
          {name, tuple} = fact <- Enum.at(facts, k - 1),
          root when not is_nil(root) <- Enum.find(rels, &(&1.name == name)),

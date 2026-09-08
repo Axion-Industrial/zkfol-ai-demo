@@ -316,7 +316,7 @@ defmodule Examples.EProgramSpace do
 
   # A comparison in the walk's body: the guard's slack rides in the predicate.
   @spec guarded(Rel.t()) :: Rel.t()
-  defp guarded(%Rel{clauses: clauses} = rel),
+  defp guarded(rel = %Rel{clauses: clauses}),
     do: %{rel | clauses: for({head, body} <- clauses, do: {head, body ++ compared(head)})}
 
   @spec compared([Term.t()]) :: [Term.goal()]

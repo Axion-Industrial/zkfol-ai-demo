@@ -320,7 +320,7 @@ defmodule Zkfol.Lang do
   `Zkfol.FOL` or `Zkfol.Prims`, and scoped once.
   """
   @spec reached(Rel.t(), [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
-  def reached(%Rel{} = root, rels) do
+  def reached(root = %Rel{}, rels) do
     with {:ok, reached} <-
            gather([{root.name, root.home, true}], Map.new(rels, &{&1.name, &1}), []) do
       scope = MapSet.new(reached, & &1.name)
@@ -329,7 +329,7 @@ defmodule Zkfol.Lang do
   end
 
   @spec scoped(Rel.t(), MapSet.t()) :: Rel.t()
-  defp scoped(%Rel{clauses: clauses} = rel, scope) do
+  defp scoped(rel = %Rel{clauses: clauses}, scope) do
     clauses =
       for {head, body} <- clauses do
         bound = MapSet.new(Term.names(head))
@@ -382,7 +382,7 @@ defmodule Zkfol.Lang do
 
   # A passed name is wanted where it resolves and no relation where it does not.
   @spec wants(Rel.t()) :: [wanted()]
-  defp wants(%Rel{home: home} = rel),
+  defp wants(rel = %Rel{home: home}),
     do:
       for(
         {names, needed?} <- [{Rel.calls(rel), true}, {Rel.passes(rel), false}],

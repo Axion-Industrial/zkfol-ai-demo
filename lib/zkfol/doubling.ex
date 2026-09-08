@@ -26,7 +26,7 @@ defmodule Zkfol.Doubling do
   """
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{rels: [root | _rest], args: [n | _args]} = statement, opts)
+  def run(statement = %Statement{rels: [root | _rest], args: [n | _args]}, opts)
       when is_integer(n) do
     case Facts.recurrence(root) do
       {:error, _outside} -> {:ok, statement}
@@ -42,7 +42,7 @@ defmodule Zkfol.Doubling do
 
   @spec rewritten(Facts.t(), integer(), keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp rewritten(%Facts{initial: [{start, x1}, {_, x2}], mod: mod} = descriptor, n, opts) do
+  defp rewritten(descriptor = %Facts{initial: [{start, x1}, {_, x2}], mod: mod}, n, opts) do
     case n - start + 1 do
       m when m < 1 ->
         {:error, {:precedes_base_case, %{n: n, base: start}}}
@@ -89,7 +89,7 @@ defmodule Zkfol.Doubling do
 
   @spec derived(Statement.t(), pos_integer(), keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp derived(%Statement{rels: rels} = statement, m, solve_opts) do
+  defp derived(statement = %Statement{rels: rels}, m, solve_opts) do
     with {:ok, solved} <- solved(rels, [count(m), :_, :_, m - 2], solve_opts),
          do: {:ok, %{statement | stage: solved}}
   end
@@ -143,7 +143,7 @@ defmodule Zkfol.Doubling do
   # Over Z_mod the same identities, each reduced by the surface's
   # `mod/2`. The subtraction rides p * mod, so every committed value
   # the walk lays is a natural.
-  defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod} = descriptor) do
+  defp kernel(descriptor = %Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}) do
     [_x, u0, w0, _e, r0] = base(descriptor)
 
     Zkfol.Lang.rel :kernel do

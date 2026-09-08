@@ -263,5 +263,5 @@ defmodule Examples.EFace do
   end
 
   @spec nodes(%{atom() => term()}) :: [%{atom() => term()}]
-  defp nodes(%{children: children} = node), do: [node | Enum.flat_map(children, &nodes/1)]
+  defp nodes(node = %{children: children}), do: [node | Enum.flat_map(children, &nodes/1)]
 end

@@ -100,7 +100,7 @@ defmodule Examples.EForgery do
 
   @doc "I am one witness swept: the moves the oracle believed, and the moves it should not have."
   @spec sweep(Statement.t()) :: {[move()], [move()]}
-  def sweep(%Statement{} = statement) do
+  def sweep(statement = %Statement{}) do
     pred = Statement.pred(statement)
     witness = Statement.witness(statement)
     read = read(pred, witness)
@@ -143,7 +143,7 @@ defmodule Examples.EForgery do
 
   @doc "I am the facts a statement leaves to its openings: those no other column reads."
   @spec claimed(Statement.t()) :: [move()]
-  def claimed(%Statement{} = statement) do
+  def claimed(statement = %Statement{}) do
     alloc = Statement.alloc(statement)
     witness = Statement.witness(statement)
     read = read(Statement.pred(statement), witness)
@@ -196,7 +196,7 @@ defmodule Examples.EForgery do
 
   # A sequence the act handed no datum holds the run's answer, which nothing need read back.
   @spec freed(Statement.t()) :: [atom()]
-  defp freed(%Statement{args: args} = statement) do
+  defp freed(statement = %Statement{args: args}) do
     [root | _rest] = Statement.alloc(statement).members
 
     for {:_, %Slot{allocation: {:bank, owner, _at}}} <-
@@ -206,7 +206,7 @@ defmodule Examples.EForgery do
 
   # A value the act handed but did not open is a private witness: free, never a forgery.
   @spec private(Statement.t()) :: MapSet.t()
-  defp private(%Statement{args: args} = statement) do
+  defp private(statement = %Statement{args: args}) do
     alloc = Statement.alloc(statement)
     [root | _rest] = alloc.members
     lay = Statement.lay(statement)
@@ -304,7 +304,7 @@ defmodule Examples.EForgery do
   defp aimed(:x, _x), do: []
 
   @spec standing(Alloc.t()) :: [pos_integer()]
-  defp standing(%Alloc{} = alloc) do
+  defp standing(alloc = %Alloc{}) do
     root = Alloc.root(alloc)
 
     banks =
@@ -315,7 +315,7 @@ defmodule Examples.EForgery do
   end
 
   @spec presence(Statement.t()) :: [pos_integer()]
-  defp presence(%Statement{} = statement) do
+  defp presence(statement = %Statement{}) do
     alloc = Statement.alloc(statement)
     for {:in, _name} = ref <- Alloc.refs(alloc), do: Alloc.row(alloc, ref)
   end

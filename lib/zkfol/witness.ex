@@ -12,7 +12,7 @@ defmodule Zkfol.Witness do
 
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(%Statement{stage: :raw} = statement, opts) do
+  def run(statement = %Statement{stage: :raw}, opts) do
     with {:ok, derivation} <- Al.derived(statement, statement.args, opts),
          do: {:ok, Statement.derived(statement, derivation)}
   end

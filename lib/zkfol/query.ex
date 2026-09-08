@@ -47,7 +47,7 @@ defmodule Zkfol.Query do
   query closes with it.
   """
   @spec next(t()) :: Ask.outcome()
-  def next(%__MODULE__{pid: pid} = query) do
+  def next(query = %__MODULE__{pid: pid}) do
     GenServer.call(pid, :next, :infinity)
   catch
     :exit, _killed ->
@@ -93,14 +93,14 @@ defmodule Zkfol.Query do
   ############################################################
 
   @impl true
-  def init(%Ask{} = ask) do
+  def init(ask = %Ask{}) do
     Process.flag(:trap_exit, true)
     Process.flag(:max_heap_size, %{size: ask.heap, kill: true, error_logger: false})
     {:ok, {ask, []}}
   end
 
   @impl true
-  def handle_call(:next, _from, {%Ask{} = ask, taken}) do
+  def handle_call(:next, _from, {ask = %Ask{}, taken}) do
     {outcome, ask} = Al.step(ask)
 
     case outcome do
@@ -117,7 +117,7 @@ defmodule Zkfol.Query do
   end
 
   @impl true
-  def terminate(_reason, {%Ask{} = ask, _taken}), do: Al.close(ask)
+  def terminate(_reason, {ask = %Ask{}, _taken}), do: Al.close(ask)
 
   ############################################################
   #                   Private Implementation                 #

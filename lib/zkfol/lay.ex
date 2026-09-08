@@ -53,7 +53,7 @@ defmodule Zkfol.Lay do
 
   @doc "I take the join of the derivation and alloc to form information for laying."
   @spec of(Derivation.t(), Alloc.t()) :: t()
-  def of(%Derivation{} = derivation, %Alloc{members: [root | _rest]} = alloc) do
+  def of(derivation = %Derivation{}, alloc = %Alloc{members: [root | _rest]}) do
     lay = %__MODULE__{alloc: alloc, derivation: derivation, stands: []}
 
     case Derivation.root(derivation, root.relation) do
@@ -94,7 +94,7 @@ defmodule Zkfol.Lay do
   @spec claims(t(), [opening()]) :: {:ok, [Interpretation.claim()]} | {:error, Refusal.t()}
   def claims(_lay, []), do: {:ok, []}
 
-  def claims(%__MODULE__{alloc: alloc} = lay, public) do
+  def claims(lay = %__MODULE__{alloc: alloc}, public) do
     with {:ok, named} <- Refusal.flat_map(public, &opened(&1, lay)) do
       witness =
         if Enum.any?(named, &match?({_member, %Slot{allocation: {:node, _}}, _x}, &1)),
@@ -122,7 +122,7 @@ defmodule Zkfol.Lay do
             to_row: pos_integer()
           }
         ]
-  def arrows(%__MODULE__{alloc: alloc} = lay) do
+  def arrows(lay = %__MODULE__{alloc: alloc}) do
     for stand <- lay.stands,
         {%Site{callee: callee, address: address}, _fact} = use <- stand.uses do
       %{
@@ -152,7 +152,7 @@ defmodule Zkfol.Lay do
         ]
   def regions(%__MODULE__{alloc: alloc}), do: regions(alloc)
 
-  def regions(%Alloc{} = alloc) do
+  def regions(alloc = %Alloc{}) do
     for {name, _width} <- Alloc.regions(alloc) do
       rows = Alloc.rows(alloc, name)
       %{name: name, kind: kind(Alloc.member(alloc, name)), first: rows.first, last: rows.last}
@@ -282,9 +282,9 @@ defmodule Zkfol.Lay do
   end
 
   @spec descend([{Derivation.fact(), atom(), aim()}], t()) :: t()
-  defp descend([], %__MODULE__{stands: stands} = lay), do: %{lay | stands: Enum.reverse(stands)}
+  defp descend([], lay = %__MODULE__{stands: stands}), do: %{lay | stands: Enum.reverse(stands)}
 
-  defp descend([{{_relation, tuple} = fact, name, aim} | rest], %__MODULE__{} = lay) do
+  defp descend([{{_relation, tuple} = fact, name, aim} | rest], lay = %__MODULE__{}) do
     %__MODULE__{alloc: alloc, derivation: derivation, stands: stands} = lay
     member = %Member{sites: sites} = Alloc.member(alloc, name)
     taken = MapSet.new(for stand <- stands, stand.member == name, do: stand.column)
@@ -407,7 +407,7 @@ end
 defimpl Inspect, for: Zkfol.Lay do
   import Inspect.Algebra
 
-  def inspect(%Zkfol.Lay{} = lay, _opts) do
+  def inspect(lay = %Zkfol.Lay{}, _opts) do
     regions =
       Enum.map_join(Zkfol.Lay.regions(lay), " ", fn %{name: name, first: first, last: last} ->
         "#{name}:#{first}-#{last}"

@@ -80,8 +80,8 @@ defmodule Zkfol.Al do
 
   @doc "I take the ask's next answer, and the ask to step again."
   @spec step(Ask.t()) :: {Ask.outcome(), Ask.t()}
-  def step(%Ask{state: nil} = ask), do: answered(AL.eval(ask.goal, nil, ask.branch, []), ask)
-  def step(%Ask{state: state} = ask), do: answered(AL.next_solution(state), ask)
+  def step(ask = %Ask{state: nil}), do: answered(AL.eval(ask.goal, nil, ask.branch, []), ask)
+  def step(ask = %Ask{state: state}), do: answered(AL.next_solution(state), ask)
 
   @doc "I retract what the ask posted, by name; the branch keeps everything else."
   @spec close(Ask.t()) :: :ok | {:error, Refusal.t()}
@@ -122,8 +122,8 @@ defmodule Zkfol.Al do
 
   @spec rels(Statement.t() | Rel.t() | [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
   defp rels(%Statement{rels: [root | _rest] = rels}), do: Lang.reached(root, rels)
-  defp rels(%Rel{} = root), do: Lang.reached(root, [root])
-  defp rels([%Rel{} = root | _rest] = list), do: Lang.reached(root, list)
+  defp rels(root = %Rel{}), do: Lang.reached(root, [root])
+  defp rels([root = %Rel{} | _rest] = list), do: Lang.reached(root, list)
   defp rels(_none), do: {:error, {:no_relations, %{}}}
 
   @spec prepared([Rel.t()], [integer() | atom()]) :: {:ok, prep()} | {:error, Refusal.t()}
@@ -154,7 +154,7 @@ defmodule Zkfol.Al do
   # so the child sheds the state and only the derivation leaves.
   @spec capped_eval(Ask.t()) ::
           {:ok, AL.Var.store(), Derivation.t()} | {:no, term()} | {:error, Refusal.t()}
-  defp capped_eval(%Ask{} = ask) do
+  defp capped_eval(ask = %Ask{}) do
     names = MapSet.new(ask.rels, & &1.name)
 
     {pid, ref} =

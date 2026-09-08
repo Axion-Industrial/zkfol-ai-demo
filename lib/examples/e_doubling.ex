@@ -145,7 +145,7 @@ defmodule Examples.EDoubling do
 
   @doc "I read the claimed result out of a rewritten statement's witness: the head claim."
   @spec claimed(Statement.t()) :: integer()
-  def claimed(%Statement{} = statement) do
+  def claimed(statement = %Statement{}) do
     [{_name, row, column} | _rest] = Statement.claims(statement)
     Interpretation.at(Statement.witness(statement), row, column)
   end

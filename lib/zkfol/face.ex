@@ -27,7 +27,7 @@ defmodule Zkfol.Face do
 
   @doc "I am a relation's compiled shape, or why it refuses."
   @spec shape(Lang.Rel.t()) :: %{atom() => term()}
-  def shape(%Lang.Rel{} = rel) do
+  def shape(rel = %Lang.Rel{}) do
     case Zkfol.Phi.compile(rel) do
       {:ok, pred, alloc} ->
         %{
@@ -44,7 +44,7 @@ defmodule Zkfol.Face do
 
   @doc "I am the statement's facts, one map: what a delta view compares."
   @spec summary(Statement.t()) :: %{atom() => term()}
-  def summary(%Statement{} = statement) do
+  def summary(statement = %Statement{}) do
     pred = if match?(%Statement{stage: %Solved{}}, statement), do: Statement.pred(statement)
 
     %{
@@ -62,18 +62,18 @@ defmodule Zkfol.Face do
 
   @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
   @spec text(Statement.t()) :: String.t()
-  def text(statement = %Statement{stage: %Solved{} = solved}) do
+  def text(statement = %Statement{stage: solved = %Solved{}}) do
     elided = %{solved | lay: :"…elided…"}
     inspected(%{statement | stage: elided})
   end
 
-  def text(%Statement{} = statement), do: inspected(statement)
+  def text(statement = %Statement{}), do: inspected(statement)
 
   @doc "I am the derivation shaped for its view: one row per fact, what it consumed, its fan-in."
   @spec derivation(Statement.t() | Zkfol.Derivation.t() | nil) :: %{atom() => term()}
-  def derivation(%Statement{} = statement), do: derivation(Statement.derivation(statement))
+  def derivation(statement = %Statement{}), do: derivation(Statement.derivation(statement))
 
-  def derivation(%Zkfol.Derivation{} = d) do
+  def derivation(d = %Zkfol.Derivation{}) do
     consumption = Zkfol.Derivation.consumption(d)
     fans = consumption |> Enum.flat_map(&elem(&1, 1)) |> Enum.frequencies()
 
@@ -103,7 +103,7 @@ defmodule Zkfol.Face do
   @judgement_keys ~w(labels evals terms trees sources rows regions arrows aims witness)a
 
   @spec judgement(Statement.t()) :: %{atom() => term()}
-  def judgement(%Statement{stage: %Solved{lay: lay}} = statement) do
+  def judgement(statement = %Statement{stage: %Solved{lay: lay}}) do
     witness = Statement.witness(statement)
 
     branches =
@@ -128,7 +128,7 @@ defmodule Zkfol.Face do
 
   @doc "I am the lay's join for its picture: the facts its stands reach, the sites, the stands."
   @spec stands(Zkfol.Lay.t()) :: %{atom() => term()}
-  def stands(%Zkfol.Lay{stands: stands, alloc: alloc, derivation: derivation} = lay) do
+  def stands(lay = %Zkfol.Lay{stands: stands, alloc: alloc, derivation: derivation}) do
     sites =
       for %Zkfol.Alloc.Member{name: name, sites: sites} <- alloc.members,
           do: {name, sites |> Map.values() |> Enum.concat() |> Enum.uniq()}
@@ -170,7 +170,7 @@ defmodule Zkfol.Face do
   # A site stands among the sites of the member whose clause makes the call, not the callee's.
   @spec use(atom(), Zkfol.Alloc.Site.t(), non_neg_integer(), map(), keyword()) ::
           %{atom() => term()}
-  defp use(member, %Zkfol.Alloc.Site{} = site, fact, arrow, sites),
+  defp use(member, site = %Zkfol.Alloc.Site{}, fact, arrow, sites),
     do: %{
       fact: fact,
       site: [member, Enum.find_index(sites[member], &(&1 == site))],
@@ -187,7 +187,7 @@ defmodule Zkfol.Face do
   already is.
   """
   @spec lay(Zkfol.Lay.t()) :: %{atom() => term()}
-  def lay(%Zkfol.Lay{} = lay) do
+  def lay(lay = %Zkfol.Lay{}) do
     %{
       rows: lay_labels(lay),
       regions: Zkfol.Lay.regions(lay),
@@ -219,7 +219,7 @@ defmodule Zkfol.Face do
 
   @doc "I am the emitted UAIR for its grid, every row's kind named."
   @spec grid(Uair.t()) :: %{atom() => term()}
-  def grid(%Uair{} = uair) do
+  def grid(uair = %Uair{}) do
     reads = mode_feed(uair.mode)
 
     %{

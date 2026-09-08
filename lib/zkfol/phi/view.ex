@@ -39,7 +39,7 @@ defmodule Zkfol.Phi.View do
 
   @doc "I am how many outer cells I hold, where that stands still."
   @spec count(t()) :: non_neg_integer() | nil
-  def count(%__MODULE__{} = view), do: if(is_integer(len(view)), do: len(view))
+  def count(view = %__MODULE__{}), do: if(is_integer(len(view)), do: len(view))
 
   @doc "I am how many cells I hold in all, where every extent of mine stands still."
   @spec size(t()) :: non_neg_integer() | nil
@@ -50,7 +50,7 @@ defmodule Zkfol.Phi.View do
   @doc "I say whether my extent stands still: I step rows, or my outer extent is a number."
   @spec finite?(t()) :: boolean()
   def finite?(%__MODULE__{col: nil}), do: false
-  def finite?(%__MODULE__{} = view), do: rowed?(view) or is_integer(len(view))
+  def finite?(view = %__MODULE__{}), do: rowed?(view) or is_integer(len(view))
 
   @doc "I say whether my outer axis steps rows, which only compile time indexes."
   @spec rowed?(t()) :: boolean()
@@ -78,7 +78,7 @@ defmodule Zkfol.Phi.View do
 
   @doc "I am every cell of mine in index order, where every extent stands still."
   @spec cells(t()) :: [Zkfol.Ast.term_t()]
-  def cells(%__MODULE__{axes: axes} = view) do
+  def cells(view = %__MODULE__{axes: axes}) do
     unless Enum.all?(axes, &is_integer(&1.extent)),
       do: throw({:refused, {:unliftable_term, %{term: view}}})
 
@@ -88,18 +88,18 @@ defmodule Zkfol.Phi.View do
 
   @doc "I am my `i`-th outer cell: a view a rank lower, or the cell itself."
   @spec slice(t(), integer()) :: t() | Zkfol.Ast.term_t()
-  def slice(%__MODULE__{axes: [_one]} = view, i), do: cell(view, [i])
+  def slice(view = %__MODULE__{axes: [_one]}, i), do: cell(view, [i])
 
-  def slice(%__MODULE__{axes: [axis | rest]} = view, i),
+  def slice(view = %__MODULE__{axes: [axis | rest]}, i),
     do: %{moved(view, axis, i) | axes: rest}
 
   @doc "I am myself from my `i`-th outer cell on."
   @spec shifted(t(), integer()) :: t()
-  def shifted(%__MODULE__{axes: [axis | rest]} = view, i),
+  def shifted(view = %__MODULE__{axes: [axis | rest]}, i),
     do: %{moved(view, axis, i) | axes: [%{axis | extent: less(axis.extent, i)} | rest]}
 
   @spec moved(t(), axis(), integer()) :: t()
-  defp moved(%__MODULE__{row: {bank, r0}, col: {base, m, a}} = view, axis, i),
+  defp moved(view = %__MODULE__{row: {bank, r0}, col: {base, m, a}}, axis, i),
     do: %{view | row: {bank, r0 + i * axis.row}, col: {base, m, a + i * axis.col}}
 
   @spec less(extent(), integer()) :: extent()
@@ -114,12 +114,12 @@ defmodule Zkfol.Phi.View do
     %{view | col: {:x, mc * m, mc * a + ac}, axes: axes}
   end
 
-  def framed(%__MODULE__{col: {:x, mc, ac}} = view, {:ptr, w}),
+  def framed(view = %__MODULE__{col: {:x, mc, ac}}, {:ptr, w}),
     do: %{view | col: {{:cell, w}, mc, ac}}
 
-  def framed(%__MODULE__{col: nil} = view, _frame), do: view
+  def framed(view = %__MODULE__{col: nil}, _frame), do: view
 
-  def framed(%__MODULE__{} = deref, _frame),
+  def framed(deref = %__MODULE__{}, _frame),
     do: throw({:refused, {:unliftable_term, %{term: deref}}})
 
   @spec scaled(extent(), integer(), integer()) :: extent()
@@ -130,7 +130,7 @@ defmodule Zkfol.Phi.View do
   @spec reframed(t(), Zkfol.Phi.Value.frame()) :: t()
   def reframed(%__MODULE__{row: nil, col: {:x, 0, _q}} = literal, _frame), do: literal
 
-  def reframed(%__MODULE__{col: {:x, mc, ac}} = view, {m, a}) when is_integer(m) do
+  def reframed(view = %__MODULE__{col: {:x, mc, ac}}, {m, a}) when is_integer(m) do
     with {:ok, mc2} <- divided(mc, m),
          {:ok, axes} <- unscaled(view.axes, m, a) do
       %{view | col: {:x, mc2, ac - mc2 * a}, axes: axes}
@@ -139,10 +139,10 @@ defmodule Zkfol.Phi.View do
     end
   end
 
-  def reframed(%__MODULE__{} = view, _frame), do: unplaced(view)
+  def reframed(view = %__MODULE__{}, _frame), do: unplaced(view)
 
   @spec unplaced(t()) :: t()
-  defp unplaced(%__MODULE__{} = view) do
+  defp unplaced(view = %__MODULE__{}) do
     axes =
       for a <- view.axes, do: %{a | extent: if(is_integer(a.extent), do: a.extent, else: :open)}
 
@@ -152,7 +152,7 @@ defmodule Zkfol.Phi.View do
   @spec unscaled([axis()], integer(), integer()) :: {:ok, [axis()]} | :apart
   defp unscaled([], _m, _a), do: {:ok, []}
 
-  defp unscaled([%{extent: {me, ae}} = axis | rest], m, a) do
+  defp unscaled([axis = %{extent: {me, ae}} | rest], m, a) do
     with {:ok, me2} <- divided(me, m),
          {:ok, more} <- unscaled(rest, m, a),
          do: {:ok, [%{axis | extent: normal({me2, ae - me2 * a})} | more]}
@@ -171,17 +171,17 @@ defmodule Zkfol.Phi.View do
   at column X, the head affine in X.
   """
   @spec stepped(t(), extent()) :: t() | nil
-  def stepped(%__MODULE__{} = view, n) when is_integer(n), do: stepped(view, {0, n})
-  def stepped(%__MODULE__{} = view, :open), do: unplaced(view)
+  def stepped(view = %__MODULE__{}, n) when is_integer(n), do: stepped(view, {0, n})
+  def stepped(view = %__MODULE__{}, :open), do: unplaced(view)
 
-  def stepped(%__MODULE__{col: {:x, mc, ac}, axes: [%{extent: e} = axis | rest]} = view, {k, c})
+  def stepped(view = %__MODULE__{col: {:x, mc, ac}, axes: [axis = %{extent: e} | rest]}, {k, c})
       when e != :open do
     {me, ae} = if(is_integer(e), do: {0, e}, else: e)
     col = {:x, mc + axis.col * (me - k), ac + axis.col * (ae - c)}
     %{view | col: col, axes: [%{axis | extent: normal({k, c})} | rest]}
   end
 
-  def stepped(%__MODULE__{} = view, form) do
+  def stepped(view = %__MODULE__{}, form) do
     if view == bank(rows(view), len(view)), do: bank(rows(view), form)
   end
 
@@ -196,7 +196,7 @@ defmodule Zkfol.Phi.View do
   extent deciding outright.
   """
   @spec peeled(t()) :: {:ok, [Zkfol.Ast.pred()]} | :dead
-  def peeled(%__MODULE__{axes: [%{extent: e} | _rest]} = view) do
+  def peeled(view = %__MODULE__{axes: [%{extent: e} | _rest]}) do
     cond do
       e == 0 -> :dead
       is_integer(e) -> {:ok, []}
@@ -207,7 +207,7 @@ defmodule Zkfol.Phi.View do
 
   @doc "I am what a closed end past my cells costs: my presence 0 there, or my extent spent."
   @spec ended(t()) :: {:ok, [Zkfol.Ast.pred()]} | :dead
-  def ended(%__MODULE__{axes: [%{extent: e} | _rest]} = view) do
+  def ended(view = %__MODULE__{axes: [%{extent: e} | _rest]}) do
     cond do
       e == 0 -> {:ok, []}
       is_integer(e) -> :dead
@@ -218,9 +218,9 @@ defmodule Zkfol.Phi.View do
 
   @doc "I am the presence equations fencing me to `n` cells."
   @spec bounded(t(), non_neg_integer()) :: [Zkfol.Ast.pred()]
-  def bounded(%__MODULE__{} = view, 0), do: [Zkfol.Ast.eq(presence(view), 0)]
+  def bounded(view = %__MODULE__{}, 0), do: [Zkfol.Ast.eq(presence(view), 0)]
 
-  def bounded(%__MODULE__{} = view, n),
+  def bounded(view = %__MODULE__{}, n),
     do: [Zkfol.Ast.eq(presence(view), 1), Zkfol.Ast.eq(presence(shifted(view, n)), 0)]
 
   @doc "I am a term as a view of rank zero: a cell at its address, or a term affine in X."
