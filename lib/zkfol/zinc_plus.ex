@@ -7,7 +7,6 @@ defmodule Zkfol.ZincPlus do
   prove, a negative cell, a value or constant past its cell widths.
   """
 
-  use Rustler, otp_app: :zkfol, crate: "zkfol_zinc_plus", mode: :release
   use TypedStruct
 
   import Bitwise
@@ -59,7 +58,22 @@ defmodule Zkfol.ZincPlus do
   declared on them.
   """
   @spec prove_fol(Payload.t()) :: {:ok, pos_integer()} | {:error, String.t()}
-  def prove_fol(_payload), do: :erlang.nif_error(:nif_not_loaded)
+  def prove_fol(payload), do: Zkfol.ZincPlus.Native.prove_fol(payload)
+
+  @typedoc """
+  The pinned code's parameters: a column encodes to `rep_factor` times its cells, an
+  opening reveals `column_openings` positions, `degree` is the protocol's degree bound.
+  """
+  @type pcs_params :: %{
+          rep_factor: pos_integer(),
+          column_openings: pos_integer(),
+          degree: pos_integer(),
+          backend: String.t()
+        }
+
+  @doc "I answer the pinned code's parameters; they move with the dep."
+  @spec pcs_params() :: pcs_params()
+  def pcs_params, do: Zkfol.ZincPlus.Native.pcs_params()
 
   @doc "I queue the UAIR with the prover fitting its magnitude and return an id."
   @spec request(Uair.t(), keyword()) :: {:ok, pos_integer()} | {:error, Refusal.t()}

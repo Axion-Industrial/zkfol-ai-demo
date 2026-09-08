@@ -20,11 +20,19 @@ use zinc_uair::{ideal::DegreeOneIdeal, ideal_collector::IdealOrZero, Uair};
 
 use config::{
     setup_big_pp, setup_huge_pp, setup_pp, BigCfg, BigInt, Cfg, HugeCfg, HugeInt, D, F,
-    PERFORM_CHECKS,
+    NUM_COLUMN_OPENINGS, PERFORM_CHECKS, REP_FACTOR,
 };
 use runtime::{Op, RuntimeUair, Spec, SPEC};
 
 const BACKEND: &str = "zinc-plus-7cf72c4";
+
+#[derive(rustler::NifMap)]
+struct PcsParams {
+    rep_factor: usize,
+    column_openings: usize,
+    degree: usize,
+    backend: String,
+}
 
 #[derive(rustler::NifMap)]
 struct Report {
@@ -325,4 +333,19 @@ fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
     )
 }
 
-rustler::init!("Elixir.Zkfol.ZincPlus");
+/// The pinned code's parameters, asked of the backend rather than quoted:
+/// they move with the dep, so a caller that reads them here cannot go
+/// stale the way a copy would. A column of `2^num_vars` cells encodes to
+/// `rep_factor` times that, and an opening reveals `column_openings` of
+/// the codeword's positions.
+#[rustler::nif]
+fn pcs_params() -> PcsParams {
+    PcsParams {
+        rep_factor: REP_FACTOR,
+        column_openings: NUM_COLUMN_OPENINGS,
+        degree: D,
+        backend: BACKEND.to_string(),
+    }
+}
+
+rustler::init!("Elixir.Zkfol.ZincPlus.Native");
