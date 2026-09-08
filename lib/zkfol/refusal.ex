@@ -175,6 +175,12 @@ defmodule Zkfol.Refusal do
   defp said({:beyond_the_rows, %{sequence: seq}}),
     do: {:out_of_range, "a claim on the sequence #{seq} reaches beyond the cells it holds"}
 
+  defp said({:selection_changes_claim, %{claim: name, row: row, column: x}}),
+    do:
+      {:restructure,
+       "the unconditional selection would change #{name} at (#{row}, #{x}); " <>
+         "this opening needs a conditional lookup"}
+
   defp said({:selection_outside_trace, %{cell: cell, column: x}}),
     do: {:out_of_range, "no selection names #{inspect(cell)} at column #{x}: outside the trace"}
 

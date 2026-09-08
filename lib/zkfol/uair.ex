@@ -95,12 +95,13 @@ defmodule Zkfol.Uair do
   def emit(pred, witness, claims \\ []) do
     public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
-    with :ok <- models(pred, witness),
+    with {:ok, resolved} <- resolve_claims(claims, witness),
+         :ok <- models(pred, witness),
          {pred, witness} = materialized(pred, witness),
          len = Interpretation.len(witness),
          num_vars = num_vars(len),
          {:ok, stood} <- stood(pred, len),
-         witness = filled(witness, stood),
+         {:ok, witness} <- filled(witness, stood, claims),
          naturals = natural_rows(pred),
          permuted = for(g <- stood, {i, _c} <- Enum.concat(g.selections), uniq: true, do: i),
          kind = &kind(&1, Interpretation.arity(witness), len),
@@ -119,7 +120,6 @@ defmodule Zkfol.Uair do
            Composed.value_rows(lowering) ++
              naturals ++ permuted ++ for({i, _c, _target} <- ties, do: i),
          refs = refs(poly, kind),
-         {:ok, resolved} <- resolve_claims(claims, witness),
          :ok <- models(pred, witness) do
       layout = layout(poly, refs, unread, public)
       program = poly |> resolve(len, layout, kind) |> postfix()
@@ -344,9 +344,10 @@ defmodule Zkfol.Uair do
     end)
   end
 
-  # A selection fails only where the group's branch does not answer; there its cells are padding.
-  @spec filled(Interpretation.t(), [Group.t()]) :: Interpretation.t()
-  defp filled(witness, stood) do
+  # An unconditional backend selection may fill inactive cells, but never change an opening.
+  @spec filled(Interpretation.t(), [Group.t()], [Interpretation.claim()]) ::
+          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp filled(witness, stood, claims) do
     fills =
       for group <- stood,
           cells <- group.selections,
@@ -356,11 +357,24 @@ defmodule Zkfol.Uair do
           into: %{},
           do: {cell, value}
 
-    Interpretation.new(
-      for {row, i} <- Enum.with_index(Interpretation.rows(witness), 1) do
-        for {held, c} <- Enum.with_index(row, 1), do: Map.get(fills, {i, c}, held)
-      end
-    )
+    with :ok <-
+           Refusal.refute(
+             claims,
+             fn {_name, i, c} ->
+               held = Interpretation.at(witness, i, c)
+               Map.get(fills, {i, c}, held) != held
+             end,
+             fn {name, i, c} ->
+               {:selection_changes_claim, %{claim: name, row: i, column: c}}
+             end
+           ) do
+      {:ok,
+       Interpretation.new(
+         for {row, i} <- Enum.with_index(Interpretation.rows(witness), 1) do
+           for {held, c} <- Enum.with_index(row, 1), do: Map.get(fills, {i, c}, held)
+         end
+       )}
+    end
   end
 
   # A cell stands at `len - c` of its column; a table is one group.
