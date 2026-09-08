@@ -137,9 +137,8 @@ ZkfolElements class >> headerBox: aPosition [
 
 { #category : 'building' }
 ZkfolElements class >> labelWidthFor: someStrings [
-	"One width for every row label, sized to the longest so the grid's
-	 cells align whatever the labels say."
-	^ 74 max: 16 + ((someStrings inject: 0 into: [ :max :each | max max: each size ]) * 6)
+	"One bounded width for every row label, keeping the cells beside their names."
+	^ 74 max: (280 min: 16 + ((someStrings inject: 0 into: [ :max :each | max max: each size ]) * 6))
 ]
 
 { #category : 'building' }
@@ -155,13 +154,15 @@ ZkfolElements class >> overlay: anId [
 
 { #category : 'building' }
 ZkfolElements class >> rowLabel: aString width: aNumber [
-	"A row's introduction, left-aligned at the grid's one label width."
+	"A row's introduction, elided to its width with the full name on hover."
 	^ BrHorizontalPane new
 		size: aNumber @ 20;
 		margin: (BlInsets all: 1);
 		padding: (BlInsets left: 4);
 		alignCenterLeft;
-		addChild: (BlTextElement new
+		addAptitude: (BrGlamorousWithLabelTooltipAptitude new text: aString);
+		addChild: (BlShrinkingTextElement new
+			constraintsDo: [ :c | c horizontal matchParent ];
 			text: (aString asRopedText fontSize: 10);
 			yourself);
 		yourself
