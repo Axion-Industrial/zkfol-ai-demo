@@ -1,3 +1,17 @@
+* V0.5.0
+** Features
+- Shared matrix views and dynamic conses, with a reusable predicate per shape
+- Standard relations in ~Zkfol.FOL~; Sudoku proofs share one puzzle bank
+- Word lookups for ranges and distinctness; public arguments and cells
+- GT allocation joins, pointer and cost views, program browsing and replay
+** Changes
+- ~Phi~ lowers, ~Alloc~ records the layout, ~Lay~ places the derivation
+- Query cleanup, pointer bounds, proof padding and GT navigation fixes
+- ~mix test~ uses an isolated store beside the live node
+** Dependencies
+- AL 0.2.2 preview (~906d30e5~), ~gt_bridge~ 0.20.1
+- Zinc+ ~66776a3a~
+
 * V0.4.0
 ** Features
 - Guards compile: ~x > 2~ reaches the predicate as a committed slack row
