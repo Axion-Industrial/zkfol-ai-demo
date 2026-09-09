@@ -11,11 +11,12 @@ defmodule Zkfol.Phi.Walk do
 
   ### Public API
 
-  - `fetch/2`: read a binding with its resolved element shape.
+  - `fetch/2`, `follow/2`: follow aliases and read values with their resolved element shapes.
   - `refine/2`, `shapes/1`: retain and collect element shape requirements.
   - `merge/2`: combine parameter declarations.
   - `constrain/2`: retain the equations required by an observation.
   - `bind/3`, `bind/4`: bind a parameter and record its allocation.
+  - `allocate/3`: choose storage for a newly resolved parameter.
   - `bank/3`, `bank/4`: give an unresolved parameter its own sequence storage.
   - `peel/2`, `ended/2`: observe a source bracket, recording its storage requirements.
   """
@@ -27,7 +28,7 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Alloc.Site
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
-  alias Zkfol.Phi.{Cons, Value, View}
+  alias Zkfol.Phi.{Cons, Ref, Value, View}
   alias Zkfol.Phi.View.{Element, Fields, Record}
 
   defmodule Clause do
@@ -90,7 +91,18 @@ defmodule Zkfol.Phi.Walk do
 
   @doc "I resolve the element shapes of a bound value before handing it to another walk."
   @spec fetch(t(), term()) :: Value.t()
-  def fetch(walk, name), do: Value.shaped(Map.fetch!(walk.env, name), walk.shapes)
+  def fetch(walk, name), do: follow(walk, Map.fetch!(walk.env, name))
+
+  @doc "I follow parameter aliases, retaining an unresolved reference's identity."
+  @spec follow(t(), Value.t()) :: Value.t()
+  def follow(walk, fresh = {:fresh, ref}) do
+    case Map.fetch(walk.env, ref) do
+      {:ok, value} -> follow(walk, value)
+      :error -> fresh
+    end
+  end
+
+  def follow(walk, value), do: Value.shaped(value, walk.shapes)
 
   @doc "I retain compatible shape requirements, independently of storage ownership."
   @spec refine(t(), %{Ast.row_ref() => View.element()}) :: t()
@@ -143,6 +155,31 @@ defmodule Zkfol.Phi.Walk do
       | env: Map.put(walk.env, ref, value),
         parameters: Map.put(walk.parameters, ref, allocation)
     }
+
+  @doc """
+  I choose storage for a newly resolved parameter. Structure shares its existing access;
+  scalars and node references get parameter cells. Matching must constrain the chosen access
+  to equal the value: this operation records storage without adding equations.
+  """
+  @spec allocate(t(), Ast.row_ref(), Value.t()) :: t()
+  def allocate(walk, ref, value) do
+    cell = Ast.cell(ref)
+
+    cond do
+      is_integer(value) ->
+        bind(walk, ref, {:count, value, cell}, {:cell, ref})
+
+      is_struct(value, Ref) ->
+        bind(walk, ref, %Ref{id: cell}, {:node, ref})
+
+      is_list(value) or is_struct(value, View) or is_struct(value, Cons) or
+        is_struct(value, Element) or is_struct(value, Fields) or match?({:rel, _, _}, value) ->
+        bind(walk, ref, value, :none)
+
+      true ->
+        bind(walk, ref, cell, {:cell, ref})
+    end
+  end
 
   @doc "I give a parameter its own sequence bank; matching its records can require more rows."
   @spec bank(t(), Ast.row_ref(), View.extent(), View.element()) :: t()

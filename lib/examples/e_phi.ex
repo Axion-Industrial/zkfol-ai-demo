@@ -5,6 +5,9 @@ defmodule Examples.EPhi do
   `cell/0` and `rows/0` expose the grid's trace addresses.
   `parameters/0`, `matched_parameters/0`, and `shared_tail/0` follow a relation's
   declarations through matching an element and sharing the remaining sequence.
+  `unresolved/0`, `aliased/0`, and `resolved_alias/0` follow a parameter's identity
+  until it shares a record access. `allocated/0` and `constrained_allocation/0`
+  separate choosing storage from requiring its value.
   `walk/0` gives Fibonacci's actual lowering; `walk/2` takes another program.
   """
 
@@ -15,7 +18,7 @@ defmodule Examples.EPhi do
   alias Zkfol.Ast
   alias Zkfol.Lang.Rel
   alias Zkfol.Phi
-  alias Zkfol.Phi.{Cons, View, Walk}
+  alias Zkfol.Phi.{Cons, Expression, View, Walk}
   alias Zkfol.Pipeline
   alias Zkfol.Statement
   alias Zkfol.Witness
@@ -136,6 +139,66 @@ defmodule Examples.EPhi do
     assert Walk.fetch(walk, :a) == View.cell(tail, [0, 0])
     assert Walk.fetch(walk, :b) == View.cell(tail, [0, 1])
     assert walk.banks == [] and walk.slots == []
+    walk
+  end
+
+  @doc "I bind a source name to an unresolved parameter: passing it retains its identity."
+  @spec unresolved() :: Walk.t()
+  example unresolved do
+    ref = {:result, {:param, :answer}}
+    walk = Phi.match([{:var, :answer}], [{:fresh, ref}], empty())
+
+    assert Expression.resolve({:var, :missing}, walk) == {:unbound, :missing}
+    assert Expression.argument({:var, :answer}, walk) == {:fresh, ref}
+    assert Expression.resolve({:var, :answer}, walk) == {:ok, Ast.cell(ref)}
+    assert walk.parameters == %{} and walk.slots == [] and walk.eqs == []
+    walk
+  end
+
+  @doc "I make two parameters refer to the same unresolved value."
+  @spec aliased() :: Walk.t()
+  example aliased do
+    next = {:continuation, {:param, :answer}}
+    first = Walk.fetch(unresolved(), :answer)
+    walk = Phi.match([{:fresh, next}], [first], unresolved())
+
+    assert Walk.fetch(walk, :answer) == {:fresh, next}
+    assert Expression.argument({:var, :answer}, walk) == {:fresh, next}
+    assert walk.parameters == %{} and walk.slots == [] and walk.eqs == []
+    walk
+  end
+
+  @doc "I resolve the alias to a record tail; both names share its access and known shape."
+  @spec resolved_alias() :: Walk.t()
+  example resolved_alias do
+    tail = Walk.fetch(matched_record(), :t)
+    walk = Phi.match([{:var, :answer}], [tail], aliased())
+
+    assert Walk.fetch(walk, :answer) == tail
+    assert Expression.resolve({:var, :answer}, walk) == {:ok, tail}
+    assert walk.parameters == %{{:continuation, {:param, :answer}} => :none}
+    assert walk.banks == [] and walk.slots == [] and walk.eqs == []
+    walk
+  end
+
+  @doc "I choose a parameter cell for a scalar; choosing storage alone imposes no equation."
+  @spec allocated() :: Walk.t()
+  example allocated do
+    ref = {:result, {:param, :answer}}
+    walk = Walk.allocate(unresolved(), ref, 7)
+
+    assert Walk.fetch(walk, :answer) == {:count, 7, Ast.cell(ref)}
+    assert walk.parameters == %{ref => {:cell, ref}}
+    assert walk.eqs == []
+    walk
+  end
+
+  @doc "I constrain the allocated answer to equal seven; its storage stays the same."
+  @spec constrained_allocation() :: Walk.t()
+  example constrained_allocation do
+    walk = Phi.match([{:var, :answer}], [7], allocated())
+    assert walk.parameters == allocated().parameters
+    assert walk.eqs == [Ast.eq(Ast.cell({:result, {:param, :answer}}), 7)]
     walk
   end
 
