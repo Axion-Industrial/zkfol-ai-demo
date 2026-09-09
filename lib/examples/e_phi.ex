@@ -151,7 +151,7 @@ defmodule Examples.EPhi do
     ref = {:result, {:param, :answer}}
     walk = Phi.match([{:var, :answer}], [{:fresh, ref}], empty())
 
-    assert Expression.resolve({:var, :missing}, walk) == {:unbound, :missing}
+    assert Expression.resolve({:var, :missing}, walk) == {:waiting, [:missing]}
     assert Expression.argument({:var, :answer}, walk) == {:fresh, ref}
     assert Expression.resolve({:var, :answer}, walk) == {:ok, Ast.cell(ref)}
     assert walk.parameters == %{} and walk.slots == [] and walk.eqs == []

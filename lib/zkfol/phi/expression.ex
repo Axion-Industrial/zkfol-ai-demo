@@ -2,7 +2,7 @@ defmodule Zkfol.Phi.Expression do
   @moduledoc """
   I interpret source expressions using a walk's bindings, without allocating storage.
 
-  A missing source variable is `{:unbound, name}`. An unresolved parameter already
+  Missing source bindings are `{:waiting, names}`. An unresolved parameter already
   has an identity: a call argument retains it, while an expression can read its cell.
 
   ### Public API
@@ -15,17 +15,17 @@ defmodule Zkfol.Phi.Expression do
   alias Zkfol.Ast
   alias Zkfol.Phi.{Cons, Value, Walk}
 
-  @type result :: {:ok, Value.t()} | {:unbound, atom()}
   @type waiting :: {:waiting, [atom()]}
+  @type result :: {:ok, Value.t()} | waiting()
 
   @doc "I interpret a source expression; an unbound variable is a result, not a cell."
   @spec resolve(term(), Walk.t()) :: result()
   def resolve({:var, name}, walk) when not is_map_key(walk.env, name),
-    do: {:unbound, name}
+    do: {:waiting, [name]}
 
   def resolve({:var, name}, walk) do
     case Walk.fetch(walk, name) do
-      :fresh -> {:unbound, name}
+      :fresh -> {:waiting, [name]}
       fresh = {:fresh, _ref} -> resolve(fresh, walk)
       value -> {:ok, value}
     end
@@ -43,12 +43,12 @@ defmodule Zkfol.Phi.Expression do
     |> Enum.reduce_while({:ok, []}, fn term, {:ok, values} ->
       case resolve(term, walk) do
         {:ok, value} -> {:cont, {:ok, [value | values]}}
-        unbound -> {:halt, unbound}
+        waiting -> {:halt, waiting}
       end
     end)
     |> case do
       {:ok, values} -> {:ok, {:rel, relation, Enum.reverse(values)}}
-      unbound -> unbound
+      waiting -> waiting
     end
   end
 
@@ -74,7 +74,7 @@ defmodule Zkfol.Phi.Expression do
   def resolve!(term, walk) do
     case resolve(term, walk) do
       {:ok, value} -> value
-      {:unbound, name} -> throw({:refused, {:unbound_variable, %{variable: name}}})
+      {:waiting, [name]} -> throw({:refused, {:unbound_variable, %{variable: name}}})
     end
   end
 
@@ -87,7 +87,7 @@ defmodule Zkfol.Phi.Expression do
   def argument(term, walk) do
     case resolve(term, walk) do
       {:ok, value} -> value
-      {:unbound, _name} -> :fresh
+      {:waiting, _names} -> :fresh
     end
   end
 
@@ -121,10 +121,5 @@ defmodule Zkfol.Phi.Expression do
     end
   end
 
-  def solve(term, walk) do
-    case resolve(term, walk) do
-      {:ok, value} -> {:ok, value}
-      {:unbound, name} -> {:waiting, [name]}
-    end
-  end
+  def solve(term, walk), do: resolve(term, walk)
 end

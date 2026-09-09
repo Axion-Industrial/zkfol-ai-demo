@@ -623,24 +623,18 @@ defmodule Zkfol.Phi do
 
   # A variable or arithmetic expression can bind; a structure first needs its own value.
   defp equation_side(pattern, other, walk) do
-    result =
-      case pattern do
-        {:var, _name} ->
-          with {:ok, value} <- Expression.resolve(other, walk), do: unify(pattern, value, walk)
+    case pattern do
+      {:var, _name} ->
+        with {:ok, value} <- Expression.resolve(other, walk), do: unify(pattern, value, walk)
 
-        {op, _a, _b} when op in [:add, :mul] ->
-          with {:ok, value} <- Expression.resolve(other, walk),
-               do: bind_expression(pattern, value, walk)
+      {op, _a, _b} when op in [:add, :mul] ->
+        with {:ok, value} <- Expression.resolve(other, walk),
+             do: bind_expression(pattern, value, walk)
 
-        _structure ->
-          with {:ok, pattern} <- Expression.resolve(pattern, walk),
-               {:ok, value} <- Expression.resolve(other, walk),
-               do: unify(pattern, value, walk)
-      end
-
-    case result do
-      {:unbound, name} -> {:waiting, [name]}
-      result -> result
+      _structure ->
+        with {:ok, pattern} <- Expression.resolve(pattern, walk),
+             {:ok, value} <- Expression.resolve(other, walk),
+             do: unify(pattern, value, walk)
     end
   end
 
