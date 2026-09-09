@@ -12,7 +12,7 @@ defmodule Zkfol.Phi.Walk do
   ### Public API
 
   - `fetch/2`, `follow/2`: follow aliases and read values with their resolved element shapes.
-  - `refine/2`, `shapes/1`: retain and collect element shape requirements.
+  - `refine/2`: retain element shape requirements.
   - `merge/2`: combine parameter declarations.
   - `constrain/2`: retain the equations required by an observation.
   - `bind/3`, `bind/4`: bind a parameter and record its allocation.
@@ -107,10 +107,6 @@ defmodule Zkfol.Phi.Walk do
   @doc "I retain compatible shape requirements, independently of storage ownership."
   @spec refine(t(), %{Ast.row_ref() => View.element()}) :: t()
   def refine(walk, shapes), do: %{walk | shapes: merge_shapes(walk.shapes, shapes)}
-
-  @doc "I collect the element shapes established by completed walks."
-  @spec shapes([t()]) :: %{Ast.row_ref() => View.element()}
-  def shapes(walks), do: walks |> Enum.map(& &1.shapes) |> Enum.reduce(%{}, &merge_shapes/2)
 
   defp merge_shapes(a, b) do
     Map.merge(a, b, fn

@@ -8,6 +8,9 @@ defmodule Examples.EPhi do
   `unresolved/0`, `aliased/0`, and `resolved_alias/0` follow a parameter's identity
   until it shares a record access. `allocated/0` and `constrained_allocation/0`
   separate choosing storage from requiring its value.
+  `prepared_primitive/0`, `waiting_equation/0`, and `ready_equation/0` expose a
+  primitive's output and the binding its equation needs. `equations/0` and
+  `scheduled_equations/0` show dependencies resolving despite reversed goal order.
   `walk/0` gives Fibonacci's actual lowering; `walk/2` takes another program.
   """
 
@@ -200,6 +203,80 @@ defmodule Examples.EPhi do
     assert walk.parameters == allocated().parameters
     assert walk.eqs == [Ast.eq(Ast.cell({:result, {:param, :answer}}), 7)]
     walk
+  end
+
+  @doc "I prepare a primitive with an existing input and a repeated output name; it gets one cell."
+  @spec prepared_primitive() :: Walk.t()
+  example prepared_primitive do
+    args = [{:var, :x}, {:var, :remainder}, {:var, :remainder}]
+    {[input, output, output], walk} = Phi.prepare(args, bound(), :primitive, [0])
+
+    assert input == Walk.fetch(bound(), :x)
+    assert Walk.fetch(walk, :remainder) == output
+    assert length(walk.slots) == 1 and walk.eqs == []
+    walk
+  end
+
+  @doc "I need offset before I can constrain the primitive's remainder to twice that offset."
+  @spec waiting_equation() :: Expression.waiting()
+  example waiting_equation do
+    waiting =
+      Phi.equate({:var, :remainder}, {:mul, {:var, :offset}, 2}, prepared_primitive())
+
+    assert waiting == {:waiting, [:offset]}
+    waiting
+  end
+
+  @doc "I bind offset; the same equation can now constrain the prepared output."
+  @spec ready_equation() :: Walk.t()
+  example ready_equation do
+    {:waiting, [:offset]} = waiting_equation()
+    before = Phi.match([{:var, :offset}], [7], prepared_primitive())
+    walk = Phi.equate({:var, :remainder}, {:mul, {:var, :offset}, 2}, before)
+
+    assert walk.eqs == [Ast.eq(Walk.fetch(walk, :remainder), 14)]
+    assert walk.slots == before.slots
+    walk
+  end
+
+  @doc "I write output = middle * 2 before the equation that establishes middle."
+  @spec equations() :: Rel.t()
+  example equations do
+    %Rel{
+      name: :afterward,
+      arity: 2,
+      clauses: [
+        {[{:var, :input}, {:var, :output}],
+         [
+           {:eq, {:var, :output}, {:mul, {:var, :middle}, 2}},
+           {:eq, {:var, :middle}, {:add, {:var, :input}, 1}}
+         ]}
+      ]
+    }
+  end
+
+  @doc "I derive and lay the same answer in either goal order, on the same predicate and allocation."
+  @spec scheduled_equations() :: Statement.t()
+  example scheduled_equations do
+    relation = equations()
+    [{head, goals}] = relation.clauses
+    reversed = %{relation | clauses: [{head, Enum.reverse(goals)}]}
+    assert {:ok, predicate, allocation} = Phi.compile(relation)
+    assert Phi.compile(reversed) == {:ok, predicate, allocation}
+    pipeline = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
+
+    statements =
+      for relation <- [relation, reversed] do
+        {:ok, statement, _trace} = Pipeline.run(pipeline, Statement.of(relation, args: [3, :_]))
+
+        assert Zkfol.Derivation.root(Statement.derivation(statement), :afterward) ==
+                 {:afterward, [3, 8]}
+
+        assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+        statement
+      end
+
+    hd(statements)
   end
 
   @doc "I run a statement through Witness and Phi and return the lowering it retained."

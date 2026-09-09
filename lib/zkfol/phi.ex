@@ -23,6 +23,8 @@ defmodule Zkfol.Phi do
   - `lower/2`: that predicate, linked.
   - `parameters/3`, `parameters/4`: declare a member's parameter accesses and storage.
   - `match/3`: match patterns against symbolic accesses, continuing an inspectable walk.
+  - `equate/3`: attempt an equation, reporting the bindings it needs when it must wait.
+  - `prepare/4`: prepare a primitive's arguments and local output storage.
   """
 
   @behaviour Zkfol.Pipeline
@@ -43,6 +45,7 @@ defmodule Zkfol.Phi do
   alias Zkfol.Phi.View.{Element, Fields, Record}
   alias Zkfol.Phi.Value
   alias Zkfol.Phi.Expression
+  alias Zkfol.Phi.Schedule
   alias Zkfol.Phi.Walk
   alias Zkfol.Phi.Walk.Clause
   alias Zkfol.Refusal
@@ -213,7 +216,7 @@ defmodule Zkfol.Phi do
       for clause <- live,
           do: Ast.conj([Ast.eq({:cell, {:in, name}}, 1) | Enum.reverse(clause.eqs)])
 
-    {binds, slots, banks} = allocate_parameters(refs, initial, live)
+    {binds, slots, banks, shapes} = allocate_parameters(refs, initial, live)
 
     sites =
       Map.new(Enum.with_index(clauses), fn
@@ -237,7 +240,7 @@ defmodule Zkfol.Phi do
       members: [member | banks] ++ Enum.flat_map(live, & &1.members),
       predicates: [predicate | Enum.flat_map(live, & &1.predicates)],
       clauses: clauses,
-      shapes: Walk.shapes([initial | live])
+      shapes: shapes
     }
 
     {name, binds, walk}
@@ -315,10 +318,11 @@ defmodule Zkfol.Phi do
   # Clauses resolve unknown bindings; surviving reads demand storage for unresolved scalars.
   # Allocation-producing rules record their decisions; aliases require no storage.
   @spec allocate_parameters([Ast.row_ref()], Walk.t(), [Walk.t()]) ::
-          {[value()], [Slot.t()], [Bank.t()]}
+          {[value()], [Slot.t()], [Bank.t()], %{Ast.row_ref() => View.element()}}
   defp allocate_parameters(refs, initial, clauses) do
-    declarations = [initial | clauses]
-    shapes = Walk.shapes(declarations)
+    # Earlier declarations take precedence; collect them once for all parameters.
+    declared = List.foldr([initial | clauses], %Walk{}, &Walk.merge/2)
+    shapes = declared.shapes
 
     constraints =
       for %Walk{eqs: [_ | _] = eqs} <- clauses, do: Value.shaped(Ast.conj(eqs), shapes)
@@ -328,10 +332,9 @@ defmodule Zkfol.Phi do
     parameters =
       for ref = {_name, {:param, sym}} <- refs do
         allocation =
-          Enum.find_value(declarations, & &1.parameters[ref]) ||
-            if(ref in read, do: {:cell, ref}, else: :none)
+          Map.get(declared.parameters, ref, if(ref in read, do: {:cell, ref}, else: :none))
 
-        access = Enum.find_value(declarations, & &1.env[ref]) || {:fresh, ref}
+        access = Map.get(declared.env, ref, {:fresh, ref})
         {Value.shaped(access, shapes), %Slot{name: sym, allocation: allocation}}
       end
 
@@ -348,7 +351,7 @@ defmodule Zkfol.Phi do
           }
 
     {binds, slots} = Enum.unzip(parameters)
-    {binds, slots, banks}
+    {binds, slots, banks, shapes}
   end
 
   ############################################################
@@ -574,43 +577,22 @@ defmodule Zkfol.Phi do
     walks
   end
 
-  # A goal naming a value nothing said yet waits for another pass; a dead conjunct ends the walk.
+  # Goal interpretation reports dependencies; the schedule determines when to retry.
   @spec compile_goals([term()], Walk.t(), ctx()) :: Walk.t() | :dead
-  defp compile_goals(goals, walk, ctx),
-    do: walk_goals(Enum.with_index(goals), ctx, walk)
+  defp compile_goals(goals, walk, ctx) do
+    Schedule.run(Schedule.new(goals), walk, fn goal, k, walk ->
+      goal_context = %{
+        ctx
+        | site: [k | ctx.site],
+          taken: Enum.into(Alloc.names(walk.members), ctx.taken)
+      }
 
-  defp walk_goals(goals, ctx, walk) do
-    {walk, stalled} =
-      Enum.reduce_while(goals, {walk, []}, fn {goal, k}, {walk, stalled} ->
-        ctx = %{
-          ctx
-          | site: [k | ctx.site],
-            taken: Enum.into(Alloc.names(walk.members), ctx.taken)
-        }
-
-        case compile_goal(goal, walk, ctx) do
-          # A dead conjunct is the whole clause: it says only falsity.
-          :dead ->
-            {:halt, {:dead, []}}
-
-          more = %Walk{} ->
-            {:cont, {more, stalled}}
-
-          :stalled ->
-            {:cont, {walk, stalled ++ [{goal, k}]}}
-        end
-      end)
-
-    cond do
-      stalled == [] -> walk
-      length(stalled) < length(goals) -> walk_goals(stalled, ctx, walk)
-      true -> throw({:refused, {:unbound_variable, %{goals: for({g, _k} <- stalled, do: g)}}})
-    end
+      compile_goal(goal, walk, goal_context)
+    end)
   end
 
-  @spec compile_goal(term(), Walk.t(), ctx()) :: Walk.t() | :dead | :stalled
-  defp compile_goal({:eq, a, b}, walk, _ctx),
-    do: sided(a, b, walk) || sided(b, a, walk) || :stalled
+  @spec compile_goal(term(), Walk.t(), ctx()) :: Walk.t() | :dead | Expression.waiting()
+  defp compile_goal({:eq, a, b}, walk, _ctx), do: equate(a, b, walk)
 
   defp compile_goal({:call, q, args}, walk, ctx) do
     {callee, args} =
@@ -631,21 +613,35 @@ defmodule Zkfol.Phi do
     end
   end
 
-  # A name or a sum takes the other side's value; a structure must be said itself.
-  @spec sided(term(), term(), Walk.t()) :: Walk.t() | :dead | nil
-  defp sided(pattern, other, walk) do
-    case pattern do
-      {:var, _v} ->
-        unify(pattern, Expression.resolve!(other, walk), walk)
+  @doc "I attempt either direction of an equation, or report bindings that would let it progress."
+  @spec equate(term(), term(), Walk.t()) :: Walk.t() | :dead | Expression.waiting()
+  def equate(a, b, walk) do
+    with {:waiting, left} <- equation_side(a, b, walk),
+         {:waiting, right} <- equation_side(b, a, walk),
+         do: {:waiting, Enum.uniq(left ++ right)}
+  end
 
-      {op, _a, _b} when op in [:add, :mul] ->
-        unify(pattern, Expression.resolve!(other, walk), walk)
+  # A variable or arithmetic expression can bind; a structure first needs its own value.
+  defp equation_side(pattern, other, walk) do
+    result =
+      case pattern do
+        {:var, _name} ->
+          with {:ok, value} <- Expression.resolve(other, walk), do: unify(pattern, value, walk)
 
-      _structure ->
-        unify(Expression.resolve!(pattern, walk), Expression.resolve!(other, walk), walk)
+        {op, _a, _b} when op in [:add, :mul] ->
+          with {:ok, value} <- Expression.resolve(other, walk),
+               do: bind_expression(pattern, value, walk)
+
+        _structure ->
+          with {:ok, pattern} <- Expression.resolve(pattern, walk),
+               {:ok, value} <- Expression.resolve(other, walk),
+               do: unify(pattern, value, walk)
+      end
+
+    case result do
+      {:unbound, name} -> {:waiting, [name]}
+      result -> result
     end
-  catch
-    {:refused, {:unbound_variable, _detail}} -> nil
   end
 
   ############################################################
@@ -964,20 +960,7 @@ defmodule Zkfol.Phi do
         %Walk{} = unify(v, selected, walk)
 
       nil ->
-        {resolved, walk} =
-          Enum.map_reduce(args, walk, fn arg, walk ->
-            case {arg, Expression.argument(arg, walk)} do
-              {{:var, v}, :fresh} ->
-                ref = {ctx.member, {:own, {v, ctx.site}}}
-                slot = %Slot{name: v, allocation: {:cell, ref}}
-
-                {Ast.cell(ref),
-                 %{walk | env: Map.put(walk.env, v, Ast.cell(ref)), slots: walk.slots ++ [slot]}}
-
-              _held ->
-                {Value.elements(Expression.resolve!(arg, walk)), walk}
-            end
-          end)
+        {resolved, walk} = prepare(args, walk, ctx.member, ctx.site)
 
         Walk.constrain(walk, Ast.folded(apply(module, op, resolved)))
     end
@@ -988,6 +971,23 @@ defmodule Zkfol.Phi do
 
     {:refused, {reason, detail}} ->
       throw({:refused, {reason, Map.put(detail, :relation, callee.name)}})
+  end
+
+  @doc "I prepare primitive arguments, allocating one local cell for each unbound output name."
+  @spec prepare([term()], Walk.t(), atom(), [term()]) :: {[Value.t()], Walk.t()}
+  def prepare(args, walk, member, site) do
+    Enum.map_reduce(args, walk, fn arg, walk ->
+      case {arg, Expression.argument(arg, walk)} do
+        {{:var, name}, :fresh} ->
+          ref = {member, {:own, {name, site}}}
+          cell = Ast.cell(ref)
+          slot = %Slot{name: name, allocation: {:cell, ref}}
+          {cell, %{walk | env: Map.put(walk.env, name, cell), slots: walk.slots ++ [slot]}}
+
+        _bound ->
+          {Value.elements(Expression.resolve!(arg, walk)), walk}
+      end
+    end)
   end
 
   @spec pick({module(), atom()}, [term()], Walk.t()) :: {term(), value()} | nil
@@ -1085,12 +1085,10 @@ defmodule Zkfol.Phi do
          do: unify(t, vt, walk)
   end
 
-  defp unify({op, _a, _b} = pattern, value, walk = %Walk{env: env}) when op in [:add, :mul] do
-    case Expression.solve(pattern, walk) do
-      {:ok, ^pattern} -> equated(pattern, value, walk)
-      {:ok, held} -> unify(held, value, walk)
-      {:free, v, rebuilt} -> %{walk | env: Map.put(env, v, rebuilt.(Value.scalar(value)))}
-      :stuck -> throw({:refused, {:unbound_variable, %{equation: pattern}}})
+  defp unify(pattern = {op, _a, _b}, value, walk) when op in [:add, :mul] do
+    case bind_expression(pattern, value, walk) do
+      {:waiting, _names} -> throw({:refused, {:unbound_variable, %{equation: pattern}}})
+      matched -> matched
     end
   end
 
@@ -1121,6 +1119,22 @@ defmodule Zkfol.Phi do
        do: unify(value, element, walk)
 
   defp unify(a, b, walk), do: equated(a, b, walk)
+
+  defp bind_expression(pattern, value, walk) do
+    case Expression.solve(pattern, walk) do
+      {:ok, ^pattern} ->
+        equated(pattern, value, walk)
+
+      {:ok, bound} ->
+        unify(bound, value, walk)
+
+      {:free, name, rebuild} ->
+        %{walk | env: Map.put(walk.env, name, rebuild.(Value.scalar(value)))}
+
+      waiting = {:waiting, _names} ->
+        waiting
+    end
+  end
 
   @spec equated(value(), value(), Walk.t()) :: Walk.t() | :dead
   defp equated(a, b, walk) do

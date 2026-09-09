@@ -16,6 +16,7 @@ defmodule Zkfol.Phi.Expression do
   alias Zkfol.Phi.{Cons, Value, Walk}
 
   @type result :: {:ok, Value.t()} | {:unbound, atom()}
+  @type waiting :: {:waiting, [atom()]}
 
   @doc "I interpret a source expression; an unbound variable is a result, not a cell."
   @spec resolve(term(), Walk.t()) :: result()
@@ -92,7 +93,7 @@ defmodule Zkfol.Phi.Expression do
 
   @doc "I isolate one unknown in a sum; the returned function computes it from the other side."
   @spec solve(term(), Walk.t()) ::
-          {:ok, Value.t()} | {:free, atom(), (Value.scalar() -> Value.scalar())} | :stuck
+          {:ok, Value.t()} | {:free, atom(), (Value.scalar() -> Value.scalar())} | waiting()
   def solve({:var, name}, walk) when not is_map_key(walk.env, name),
     do: {:free, name, & &1}
 
@@ -109,15 +110,21 @@ defmodule Zkfol.Phi.Expression do
       {{:free, name, rebuild}, {:ok, b}} ->
         {:free, name, fn other -> rebuild.(Ast.add(other, Ast.mul(Value.scalar(b), -1))) end}
 
-      _stuck ->
-        :stuck
+      {{:free, a, _rebuild_a}, {:free, b, _rebuild_b}} ->
+        {:waiting, Enum.uniq([a, b])}
+
+      {waiting = {:waiting, _names}, _right} ->
+        waiting
+
+      {_left, waiting = {:waiting, _names}} ->
+        waiting
     end
   end
 
   def solve(term, walk) do
     case resolve(term, walk) do
       {:ok, value} -> {:ok, value}
-      {:unbound, _name} -> :stuck
+      {:unbound, name} -> {:waiting, [name]}
     end
   end
 end
