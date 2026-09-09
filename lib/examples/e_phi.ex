@@ -63,7 +63,7 @@ defmodule Examples.EPhi do
     walk = Phi.match([head], [row()], empty())
     assert walk.env.x == View.cell(grid(), [0, 0])
     assert walk.env.xs == tl(row())
-    assert walk.parameters == %{} and walk.banks == [] and walk.slots == [] and walk.eqs == []
+    assert walk.parameters == %{} and walk.slots == [] and walk.eqs == []
     walk
   end
 
@@ -73,7 +73,7 @@ defmodule Examples.EPhi do
     walk = Phi.match([{:var, :x}], [View.cell(grid(), [0, 1])], bound())
     assert walk.env == bound().env
     assert walk.eqs == [Ast.eq(bound().env.x, View.cell(grid(), [0, 1]))]
-    assert walk.banks == bound().banks and walk.slots == bound().slots
+    assert walk.parameters == bound().parameters and walk.slots == bound().slots
     walk
   end
 
@@ -94,7 +94,7 @@ defmodule Examples.EPhi do
     {head, _body} = List.last(EUser.total().clauses)
     walk = Phi.match(head, [input, answer], before)
 
-    assert walk.banks == before.banks
+    assert Walk.banks(walk) == Walk.banks(before)
     assert walk.env.h == View.slice(input, 0)
     assert walk.env.t == View.shifted(input, 1)
     walk
@@ -109,7 +109,7 @@ defmodule Examples.EPhi do
 
     assert walk.env[ref] == tail
     assert walk.parameters[ref] == :none
-    assert walk.banks == [] and walk.slots == []
+    assert Walk.banks(walk) == [] and walk.slots == []
     walk
   end
 
@@ -141,7 +141,7 @@ defmodule Examples.EPhi do
     walk = Phi.match(head, [tail, :fresh], empty())
     assert Walk.fetch(walk, :a) == View.cell(tail, [0, 0])
     assert Walk.fetch(walk, :b) == View.cell(tail, [0, 1])
-    assert walk.banks == [] and walk.slots == []
+    assert Walk.banks(walk) == [] and walk.slots == []
     walk
   end
 
@@ -180,7 +180,7 @@ defmodule Examples.EPhi do
     assert Walk.fetch(walk, :answer) == tail
     assert Expression.resolve({:var, :answer}, walk) == {:ok, tail}
     assert walk.parameters == %{{:continuation, {:param, :answer}} => :none}
-    assert walk.banks == [] and walk.slots == [] and walk.eqs == []
+    assert Walk.banks(walk) == [] and walk.slots == [] and walk.eqs == []
     walk
   end
 

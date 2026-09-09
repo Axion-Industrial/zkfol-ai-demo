@@ -424,7 +424,7 @@ defmodule Zkfol.Face do
     |> ColumnedList.title("Storage")
     |> ColumnedList.priority(4)
     |> ColumnedList.items([
-      {"Owned banks", walk.banks},
+      {"Owned banks", Zkfol.Phi.Walk.banks(walk)},
       {"Element shapes", walk.shapes},
       {"Parameters", walk.parameters},
       {"Slots", walk.slots},

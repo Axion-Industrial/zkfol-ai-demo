@@ -4,8 +4,8 @@ defmodule Zkfol.Phi.Walk do
 
   `env` binds source variables and parameter references to symbolic values.
   `parameters` records each parameter's allocation; `:none` means it shares an
-  existing access. `banks` names owned storage; `shapes` records observations of owned or borrowed
-  elements. `slots` holds local storage.
+  existing access. `shapes` records observations of owned or borrowed elements.
+  `slots` holds local storage.
   An impossible walk is `:dead`.
   A member retains its clauses; each clause's body retains the clauses of members it calls.
 
@@ -17,6 +17,7 @@ defmodule Zkfol.Phi.Walk do
   - `constrain/2`: retain the equations required by an observation.
   - `bind/3`, `bind/4`: bind a parameter and record its allocation.
   - `allocate/3`: choose storage for a newly resolved parameter.
+  - `banks/1`: the banks owned by parameter allocations.
   - `bank/3`, `bank/4`: give an unresolved parameter its own sequence storage.
   - `peel/2`, `ended/2`: observe a source bracket, recording its storage requirements.
   """
@@ -50,7 +51,6 @@ defmodule Zkfol.Phi.Walk do
     field(:env, map(), default: %{})
     field(:shapes, %{Ast.row_ref() => View.element()}, default: %{})
     field(:parameters, %{Ast.row_ref() => Zkfol.Alloc.allocation()}, default: %{})
-    field(:banks, [atom()], default: [])
     field(:members, [Member.t() | Bank.t()], default: [])
     field(:predicates, [Ast.pred()], default: [])
     field(:eqs, [Ast.pred()], default: [])
@@ -66,7 +66,6 @@ defmodule Zkfol.Phi.Walk do
       walk
       | env: Map.merge(walk.env, declaration.env),
         parameters: Map.merge(walk.parameters, declaration.parameters),
-        banks: Enum.uniq(walk.banks ++ declaration.banks),
         shapes: merge_shapes(walk.shapes, declaration.shapes)
     }
   end
@@ -177,14 +176,19 @@ defmodule Zkfol.Phi.Walk do
     end
   end
 
+  @doc "I return the banks owned by parameter allocations."
+  @spec banks(t()) :: [atom()]
+  def banks(%__MODULE__{parameters: parameters}) do
+    for {_ref, {:bank, name, _address}} <- parameters, do: name
+  end
+
   @doc "I give a parameter its own sequence bank; matching its records can require more rows."
   @spec bank(t(), Ast.row_ref(), View.extent(), View.element()) :: t()
   def bank(walk = %__MODULE__{}, ref, extent, element \\ :unknown) do
     bank = Bank.of(ref)
     view = View.bank(bank, element, extent)
     walk = bind(walk, ref, view, {:bank, bank, view.col || Ast.address(:x, 0, 0)})
-    walk = if element == :unknown, do: walk, else: refine(walk, %{view.row => element})
-    %{walk | banks: Enum.uniq([bank | walk.banks])}
+    if element == :unknown, do: walk, else: refine(walk, %{view.row => element})
   end
 
   @doc "I peel an unresolved record or an existing pair; ownership does not change its meaning."

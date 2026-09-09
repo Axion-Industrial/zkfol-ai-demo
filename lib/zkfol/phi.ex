@@ -204,7 +204,7 @@ defmodule Zkfol.Phi do
     ctx = %{
       ctx
       | ancestors: [{member, binds} | ctx.ancestors],
-        taken: Enum.into([name | initial.banks], ctx.taken),
+        taken: Enum.into([name | Walk.banks(initial)], ctx.taken),
         member: name
     }
 
@@ -776,8 +776,9 @@ defmodule Zkfol.Phi do
   defp inline_clause(name, {k, head, body, inner}, args, caller, ctx) do
     if length(ctx.site) > 3000, do: throw({:refused, {:unroll_budget, %{relation: name}}})
 
-    with walk = %Walk{members: [], slots: [], sites: [], banks: []} <-
-           compile_goals(body, inner, %{ctx | site: [k, name | ctx.site]}) do
+    with walk = %Walk{members: [], slots: [], sites: []} <-
+           compile_goals(body, inner, %{ctx | site: [k, name | ctx.site]}),
+         [] <- Walk.banks(walk) do
       outputs = for pattern <- head, do: Expression.resolve!(pattern, walk)
       free = walk.eqs == [] and not Enum.any?(outputs, &arithmetic?/1)
 
@@ -791,7 +792,7 @@ defmodule Zkfol.Phi do
       end
     else
       :dead -> :dead
-      %Walk{} -> :residual
+      _allocated -> :residual
     end
   catch
     {:refused, {:unroll_budget, _detail} = refusal} -> throw({:refused, refusal})
