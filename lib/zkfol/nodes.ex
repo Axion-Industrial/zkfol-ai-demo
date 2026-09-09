@@ -145,9 +145,8 @@ defmodule Zkfol.Nodes do
     end
   end
 
-  defp node(_ref, value)
-       when is_struct(value, View.Element) or is_struct(value, View.Fields),
-       do: throw({:refused, {:unliftable_term, %{term: value}}})
+  defp node(_ref, value = %View.Element{}),
+    do: throw({:refused, {:unliftable_term, %{term: value}}})
 
   defp node(ref, scalar) do
     Ast.conj([

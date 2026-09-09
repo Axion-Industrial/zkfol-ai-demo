@@ -30,7 +30,7 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
   alias Zkfol.Phi.{Cons, Ref, Value, View}
-  alias Zkfol.Phi.View.{Element, Fields, Record}
+  alias Zkfol.Phi.View.{Element, Record}
 
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
@@ -77,7 +77,7 @@ defmodule Zkfol.Phi.Walk do
       eqs
       |> Enum.flat_map(
         &Ast.reduce(&1, [], fn
-          %Element{row: row}, rows -> [row | rows]
+          %Element{row: row, part: :whole}, rows -> [row | rows]
           _term, rows -> rows
         end)
       )
@@ -168,7 +168,7 @@ defmodule Zkfol.Phi.Walk do
         bind(walk, ref, %Ref{id: cell}, {:node, ref})
 
       is_list(value) or is_struct(value, View) or is_struct(value, Cons) or
-        is_struct(value, Element) or is_struct(value, Fields) or match?({:rel, _, _}, value) ->
+        is_struct(value, Element) or match?({:rel, _, _}, value) ->
         bind(walk, ref, value, :none)
 
       true ->
@@ -193,35 +193,65 @@ defmodule Zkfol.Phi.Walk do
 
   @doc "I peel an unresolved record or an existing pair; ownership does not change its meaning."
   @spec peel(t(), Value.t()) :: {:ok, Value.t(), Value.t(), t()} | :dead
-  def peel(walk, element = %Element{}), do: peel(walk, %Fields{element: element})
+  def peel(walk, element = %Element{part: :whole}),
+    do: peel(walk, %{element | part: {:fields, 0}})
 
   def peel(
         walk,
-        fields = %Fields{
-          element: %Element{row: row = {bank, first}, col: {:at, base, m, a}},
-          offset: n
+        fields = %Element{
+          row: row = {bank, first},
+          col: {:at, base, m, a},
+          part: {:fields, n}
         }
       ) do
     walk = refine(walk, %{row => %Record{width: {:at_least, n + 1}}})
-    {:ok, Ast.at({bank, first + n}, base, m, a), %{fields | offset: n + 1}, walk}
+    {:ok, Ast.at({bank, first + n}, base, m, a), %{fields | part: {:fields, n + 1}}, walk}
   end
 
   def peel(walk, value) do
-    value = Value.shaped(value, walk.shapes)
+    case Value.shaped(value, walk.shapes) do
+      %Cons{head: head, tail: tail} ->
+        {:ok, head, tail, walk}
 
-    with {:ok, head, tail, equations} <- Cons.peel(value),
-         do: {:ok, head, tail, constrain(walk, equations)}
+      [head | tail] ->
+        {:ok, head, tail, walk}
+
+      view = %View{col: col} when col != nil ->
+        with walk = %__MODULE__{} <- presence(walk, view, 1),
+             do: {:ok, View.slice(view, 0), View.shifted(view, 1), walk}
+
+      ref = %Ref{} ->
+        {:ok, %Ref{id: Ref.read(:head, ref)}, %Ref{id: Ref.read(:tail, ref)},
+         constrain(walk, [Ast.eq(Ref.read(:tag, ref), 2)])}
+
+      _other ->
+        :dead
+    end
   end
 
   @doc "I close a record's shape or require an existing sequence to end."
   @spec ended(t(), Value.t()) :: t() | :dead
-  def ended(walk, %Element{row: row}), do: refine(walk, %{row => %Record{width: 0}})
+  def ended(walk, %Element{row: row, part: :whole}),
+    do: refine(walk, %{row => %Record{width: 0}})
 
-  def ended(walk, %Fields{element: %Element{row: row}, offset: width}),
+  def ended(walk, %Element{row: row, part: {:fields, width}}),
     do: refine(walk, %{row => %Record{width: width}})
 
   def ended(walk, value) do
-    with {:ok, equations} <- Cons.ended(Value.shaped(value, walk.shapes)),
-         do: constrain(walk, equations)
+    case Value.shaped(value, walk.shapes) do
+      [] -> walk
+      view = %View{col: col} when col != nil -> presence(walk, view, 0)
+      %Ref{id: id} -> constrain(walk, [Ast.eq(id, 1)])
+      _other -> :dead
+    end
   end
+
+  # A known length decides presence; otherwise the bank's presence cell must say it.
+  defp presence(walk, %View{length: n}, required) when is_integer(n) do
+    present = if n == 0, do: 0, else: 1
+    if present == required, do: walk, else: :dead
+  end
+
+  defp presence(walk, view, required),
+    do: constrain(walk, [Ast.eq(View.presence(view), required)])
 end

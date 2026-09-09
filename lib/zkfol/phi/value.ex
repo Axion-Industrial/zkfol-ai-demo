@@ -17,7 +17,7 @@ defmodule Zkfol.Phi.Value do
 
   alias Zkfol.Ast
   alias Zkfol.Phi.{Cons, Ref, View}
-  alias Zkfol.Phi.View.{Element, Fields, Record}
+  alias Zkfol.Phi.View.{Element, Record}
 
   @typedoc "A scalar expression can name an element whose shape its constraint will resolve."
   @type scalar :: Ast.poly(Ast.ep_leaf() | {:reify, Ast.pred()} | Element.t())
@@ -29,7 +29,6 @@ defmodule Zkfol.Phi.Value do
   @type t ::
           scalar()
           | View.t()
-          | Fields.t()
           | Cons.t()
           | Ref.t()
           | [t()]
@@ -80,9 +79,6 @@ defmodule Zkfol.Phi.Value do
   def frame({:fresh, ref}, frame), do: frame({:cell, ref}, frame)
   def frame(form, {:at, :x, 1, 0}), do: form
 
-  def frame(fields = %Fields{element: element}, frame),
-    do: %{fields | element: frame(element, frame)}
-
   def frame(element = %Element{col: col}, frame) do
     with col = {:at, _, _, _} <- Ast.reframe(col, frame),
          do: %{element | col: col},
@@ -121,9 +117,6 @@ defmodule Zkfol.Phi.Value do
   @spec unframe(t(), frame()) :: t()
   def unframe(form, {:at, :x, 1, 0}), do: form
 
-  def unframe(fields = %Fields{element: element}, frame),
-    do: %{fields | element: unframe(element, frame)}
-
   def unframe(element = %Element{col: col}, frame) do
     with col = {:at, _, _, _} <- Ast.unframe(col, frame),
          do: %{element | col: col},
@@ -158,18 +151,19 @@ defmodule Zkfol.Phi.Value do
   def shaped(view = %View{row: row}, shapes),
     do: %{view | element: Map.get(shapes, row, view.element)}
 
-  def shaped(element = %Element{row: row, col: {:at, base, m, a}}, shapes) do
+  def shaped(element = %Element{row: row, col: {:at, base, m, a}, part: :whole}, shapes) do
     case Map.get(shapes, row, :unknown) do
       :unknown -> element
       :scalar -> Ast.at(row, base, m, a)
-      %Record{} -> shaped(%Fields{element: element}, shapes)
+      %Record{} -> shaped(%{element | part: {:fields, 0}}, shapes)
     end
   end
 
   def shaped(
-        fields = %Fields{
-          element: %Element{row: row = {bank, first}, col: {:at, base, m, a}},
-          offset: n
+        fields = %Element{
+          row: row = {bank, first},
+          col: {:at, base, m, a},
+          part: {:fields, n}
         },
         shapes
       ) do
@@ -193,7 +187,7 @@ defmodule Zkfol.Phi.Value do
 
   @doc "I read a scalar value, refusing structure where arithmetic requires a number."
   @spec scalar(t()) :: scalar()
-  def scalar(fields = %Fields{}),
+  def scalar(fields = %Element{part: {:fields, _n}}),
     do: throw({:refused, {:unliftable_term, %{term: fields}}})
 
   def scalar(ref = %Ref{}), do: Ref.read(:value, ref)

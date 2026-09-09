@@ -42,7 +42,7 @@ defmodule Zkfol.Phi do
   alias Zkfol.Phi.Ref
   alias Zkfol.Phi.Cons
   alias Zkfol.Phi.View
-  alias Zkfol.Phi.View.{Element, Fields, Record}
+  alias Zkfol.Phi.View.{Element, Record}
   alias Zkfol.Phi.Value
   alias Zkfol.Phi.Expression
   alias Zkfol.Phi.Schedule
@@ -283,7 +283,7 @@ defmodule Zkfol.Phi do
               (extent == :open and (form == :fresh or match?({:fresh, _}, form))) ->
             Walk.bind(empty, ref, %Ref{id: Ast.cell(ref)}, {:node, ref})
 
-          extent == nil or is_struct(form, Element) or is_struct(form, Fields) ->
+          extent == nil or is_struct(form, Element) ->
             access = if k == j, do: Ast.add(:x, o), else: form
             Walk.bind(empty, ref, access)
 
@@ -739,7 +739,6 @@ defmodule Zkfol.Phi do
   @spec finite?(value()) :: boolean()
   defp finite?(%Ref{}), do: false
   defp finite?(%Element{}), do: false
-  defp finite?(%Fields{}), do: false
   defp finite?(%View{} = view), do: View.finite?(view)
   defp finite?(%Cons{head: h, tail: t}), do: finite?(h) and finite?(t)
   defp finite?([h | t]), do: finite?(h) and finite?(t)
@@ -758,7 +757,6 @@ defmodule Zkfol.Phi do
 
   defp size([h | t]), do: with(a when a != nil <- size(h), b when b != nil <- size(t), do: a + b)
   defp size(%Element{}), do: nil
-  defp size(%Fields{}), do: nil
   defp size(:fresh), do: nil
   defp size({:fresh, _ref}), do: nil
   defp size({:rel, _p, _f}), do: nil
@@ -923,7 +921,6 @@ defmodule Zkfol.Phi do
   @spec liftable(value()) :: value()
   defp liftable(%Ref{} = ref), do: ref
   defp liftable(element = %Element{}), do: element
-  defp liftable(fields = %Fields{}), do: fields
   defp liftable(%View{} = view), do: view
   defp liftable(%Cons{} = cons), do: Ref.of(cons)
   defp liftable(form) when is_list(form) or is_integer(form) or form == :fresh, do: form
@@ -1059,7 +1056,7 @@ defmodule Zkfol.Phi do
        when is_integer(q) and (form == :x or elem(form, 0) in [:cell, :add, :mul]),
        do: Walk.constrain(walk, pinned(form, q))
 
-  defp unify(q, %Fields{}, _walk) when is_integer(q), do: :dead
+  defp unify(q, %Element{part: {:fields, _n}}, _walk) when is_integer(q), do: :dead
 
   defp unify(q, element = %Element{}, walk) when is_integer(q),
     do: Walk.constrain(walk, [Ast.eq(element, q)])
@@ -1109,8 +1106,7 @@ defmodule Zkfol.Phi do
   defp unify({:rel, _p, _f}, _value, _walk), do: :dead
 
   defp unify(element, value, walk)
-       when (is_struct(element, Element) or is_struct(element, Fields)) and
-              (is_list(value) or is_struct(value, Cons)),
+       when is_struct(element, Element) and (is_list(value) or is_struct(value, Cons)),
        do: unify(value, element, walk)
 
   defp unify(a, b, walk), do: equated(a, b, walk)

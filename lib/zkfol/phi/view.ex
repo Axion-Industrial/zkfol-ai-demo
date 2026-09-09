@@ -17,7 +17,7 @@ defmodule Zkfol.Phi.View do
   - `cell/2`, `cells/1`, `slice/2`, `shifted/2`: access and traversal over the same cells.
   - `count/1`, `size/1`, `width/1`, `finite?/1`, `rows/1`: shape and access span.
   - `framed/2`, `reframed/2`, `stepped/2`: express the view at a call's column.
-  - `presence/1`, `peeled/1`, `ended/1`, `bounded/2`: equations required by observations.
+  - `presence/1`, `bounded/2`: presence at an address and the bounds of a literal bank.
   """
 
   use TypedStruct
@@ -36,22 +36,18 @@ defmodule Zkfol.Phi.View do
   end
 
   defmodule Element do
-    @moduledoc "I access an element whose shape is unresolved."
+    @moduledoc """
+    I access an element whose shape is unresolved, or the remaining fields of its record.
+
+    `part` is `:whole` until the element is opened as a record; `{:fields, n}`
+    skips its first `n` fields. Both retain the same element address.
+    """
     use TypedStruct
 
     typedstruct enforce: true do
       field(:row, Zkfol.Ast.row_ref())
       field(:col, Zkfol.Ast.address())
-    end
-  end
-
-  defmodule Fields do
-    @moduledoc "I access the remaining fields of an opened record whose width is unresolved."
-    use TypedStruct
-
-    typedstruct enforce: true do
-      field(:element, Zkfol.Phi.View.Element.t())
-      field(:offset, non_neg_integer(), default: 0, enforce: false)
+      field(:part, :whole | {:fields, non_neg_integer()}, default: :whole, enforce: false)
     end
   end
 
@@ -128,7 +124,7 @@ defmodule Zkfol.Phi.View do
 
   @doc "I select one scalar or a record of references to existing cells."
   @spec slice(t(), integer()) ::
-          [Zkfol.Ast.term_t()] | Zkfol.Ast.term_t() | Element.t() | Fields.t()
+          [Zkfol.Ast.term_t()] | Zkfol.Ast.term_t() | Element.t()
   def slice(view = %__MODULE__{element: :unknown}, i) do
     {row, col} = Ast.read(cell(view, [i]))
     %Element{row: row, col: col}
@@ -136,7 +132,7 @@ defmodule Zkfol.Phi.View do
 
   def slice(view = %__MODULE__{element: %Record{width: {:at_least, _}}}, i) do
     {row, col} = Ast.read(cell(view, [i]))
-    %Fields{element: %Element{row: row, col: col}}
+    %Element{row: row, col: col, part: {:fields, 0}}
   end
 
   def slice(view = %__MODULE__{element: :scalar}, i), do: cell(view, [i])
@@ -188,33 +184,6 @@ defmodule Zkfol.Phi.View do
   @spec presence(t()) :: Zkfol.Ast.term_t()
   def presence(%__MODULE__{row: {bank, _r}, col: {:at, base, m, a}}),
     do: Zkfol.Ast.at({:in, bank}, base, m, a)
-
-  @doc """
-  I require an element: a known length decides directly; an unknown sequence
-  length requires presence at its head.
-  """
-  @spec peeled(t()) :: {:ok, [Zkfol.Ast.pred()]} | :dead
-  def peeled(view = %__MODULE__{}) do
-    e = view.length
-
-    cond do
-      e == 0 -> :dead
-      is_integer(e) -> {:ok, []}
-      true -> {:ok, [Zkfol.Ast.eq(presence(view), 1)]}
-    end
-  end
-
-  @doc "I require an empty sequence: a known length decides directly; otherwise its head must be absent."
-  @spec ended(t()) :: {:ok, [Zkfol.Ast.pred()]} | :dead
-  def ended(view = %__MODULE__{}) do
-    e = view.length
-
-    cond do
-      e == 0 -> {:ok, []}
-      is_integer(e) -> :dead
-      true -> {:ok, [Zkfol.Ast.eq(presence(view), 0)]}
-    end
-  end
 
   @doc "I require presence for exactly `n` elements."
   @spec bounded(t(), non_neg_integer()) :: [Zkfol.Ast.pred()]

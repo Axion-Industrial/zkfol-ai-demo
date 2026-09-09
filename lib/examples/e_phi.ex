@@ -5,6 +5,7 @@ defmodule Examples.EPhi do
   `cell/0` and `rows/0` expose the grid's trace addresses.
   `parameters/0`, `matched_parameters/0`, and `shared_tail/0` follow a relation's
   declarations through matching an element and sharing the remaining sequence.
+  `opened_record/0` retains a record's remaining fields at the same element address.
   `unresolved/0`, `aliased/0`, and `resolved_alias/0` follow a parameter's identity
   until it shares a record access. `allocated/0` and `constrained_allocation/0`
   separate choosing storage from requiring its value.
@@ -119,6 +120,19 @@ defmodule Examples.EPhi do
     relation = EUser.rows()
     {_counter, walk} = Phi.parameters(relation, [:fresh, :fresh], %{rows: relation})
     assert Walk.fetch(walk, {:rows, {:param, :a1}}).element == :unknown
+    walk
+  end
+
+  @doc "I open an unknown element as a record; its remaining fields keep the same address."
+  @spec opened_record() :: Walk.t()
+  example opened_record do
+    input = Walk.fetch(record_parameters(), {:rows, {:param, :a1}})
+    element = View.slice(input, 0)
+    walk = Phi.match([{:cons, {:var, :first}, {:var, :rest}}], [element], empty())
+
+    assert Walk.fetch(walk, :first) == View.cell(input, [0, 0])
+    assert Walk.fetch(walk, :rest) == %{element | part: {:fields, 1}}
+    assert Walk.banks(walk) == [] and walk.eqs == []
     walk
   end
 
@@ -297,7 +311,7 @@ defmodule Examples.EPhi do
 
     cons = Cons.new(Ast.cell({:input, 2}), tail)
     assert %Cons{} = cons
-    assert {:ok, Ast.cell({:input, 2}), tail, []} == Cons.peel(cons)
+    assert {:ok, Ast.cell({:input, 2}), tail, empty()} == Walk.peel(empty(), cons)
     cons
   end
 end
