@@ -26,7 +26,33 @@ defmodule Examples.EUair do
   defrel selected_when(0, cells)
 
   defrel selected_when(1, cells) do
+    permutation(2, cells)
+  end
+
+  defrel apart(cells) do
     all_distinct(cells)
+  end
+
+  @doc "Distinct private values prove through a sorted copy; a repeat is refused before the prover."
+  @spec private_distinctness() :: Prover.Report.t()
+  example private_distinctness do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [apart()], args: [[5, 9, 2]]})
+
+    pred = Statement.pred(statement)
+    witness = Statement.witness(statement)
+    {:ok, uair} = Uair.emit(pred, witness)
+    assert uair.selected_lookups == []
+    assert [%ZincPlus.Permuted{pairs: pairs}] = uair.permuted_lookups
+    assert length(pairs) == uair.len
+    {:ok, report, _id} = Prover.prove_uair(uair, name: :apart)
+
+    {:ok, claims} = Zkfol.Lay.claims(Statement.lay(statement), [1])
+    [{_name, row, column} | _rest] = for {"apart.cells", _, _} = claim <- claims, do: claim
+    repeated = EAst.tamper(witness, row, column, 9)
+    refute Semantics.valid?(pred, repeated)
+    assert {:error, {:witness_unsatisfies_schedule, _column}} = Uair.emit(pred, repeated)
+    report
   end
 
   @doc "An inactive selection cannot replace the values an act opens."

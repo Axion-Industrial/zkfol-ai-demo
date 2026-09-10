@@ -496,7 +496,8 @@ defmodule Zkfol.Face do
 
   @spec said(Ast.pred() | Ast.term_t()) :: String.t()
   defp said(node)
-       when is_tuple(node) and elem(node, 0) in [:eq, :conj, :disj, :natural, :permutes],
+       when is_tuple(node) and
+              elem(node, 0) in [:eq, :conj, :disj, :natural, :permutes, :distinct, :permuted],
        do: phi_text(node)
 
   defp said(node), do: term_text(node)
@@ -565,6 +566,15 @@ defmodule Zkfol.Face do
       "permutes(" <>
         Enum.map_join(cells, ", ", &term_text/1) <>
         " : #{List.first(values)}..#{List.last(values)})"
+
+  defp phi_text({:distinct, cells}),
+    do: "distinct(" <> Enum.map_join(cells, ", ", &term_text/1) <> ")"
+
+  defp phi_text({:permuted, cells, copy}),
+    do:
+      "permuted(" <>
+        Enum.map_join(cells, ", ", &term_text/1) <>
+        " ~ " <> Enum.map_join(copy, ", ", &term_text/1) <> ")"
 
   @spec term_text(Ast.term_t()) :: String.t()
   defp term_text(term), do: poly_text(term, &ast_leaf/1)

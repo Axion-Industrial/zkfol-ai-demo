@@ -28,6 +28,15 @@ pub struct Selected {
     pub selections: Vec<Vec<(u32, u32)>>,
 }
 
+/// One Permuted lookup group: the int columns it spans and its pairs of
+/// selections, each a `(slot, row)` list; each pair holds one multiset.
+#[derive(Clone, Debug, rustler::NifStruct)]
+#[module = "Zkfol.ZincPlus.Permuted"]
+pub struct Permuted {
+    pub columns: Vec<usize>,
+    pub pairs: Vec<(Vec<(u32, u32)>, Vec<(u32, u32)>)>,
+}
+
 /// What a tied cell is fixed to: an int column the cell's private value
 /// fills at every row.
 #[derive(Clone, Debug, rustler::NifTaggedEnum)]
@@ -68,6 +77,8 @@ pub struct Spec {
     /// The Selected groups, one a table: each names its own cells, so it
     /// says nothing about the rows no selection reaches.
     pub selected: Vec<Selected>,
+    /// The Permuted groups, one a table, each naming its pairs of cells.
+    pub permuted: Vec<Permuted>,
     /// The cells the statement fixes. A named position is public
     /// structure, so the verifier evaluates each indicator itself and the
     /// proof carries nothing for one.
@@ -144,6 +155,12 @@ where
                         values: group.values.clone(),
                         selections: group.selections.clone(),
                     },
+                })
+            }))
+            .chain(spec.permuted.iter().flat_map(|group| {
+                group.columns.iter().map(|&col| LookupColumnSpec {
+                    column_index: col,
+                    table_type: LookupTableType::Permuted { pairs: group.pairs.clone() },
                 })
             }))
             .collect();

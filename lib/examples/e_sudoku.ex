@@ -16,10 +16,6 @@ defmodule Examples.ESudoku do
   alias Zkfol.Uair
   alias Zkfol.Witness
 
-  defrel triple(a, b, c) do
-    all_distinct([a, b, c])
-  end
-
   @solution [
     [9, 8, 7, 6, 5, 4, 3, 2, 1],
     [2, 4, 6, 1, 7, 3, 9, 8, 5],
@@ -44,22 +40,6 @@ defmodule Examples.ESudoku do
     grid
   end
 
-  @doc "Cells apart but not 1..n derive and refuse to prove: distinct's proof says 1..n exactly."
-  @spec distinct_wants_one_to_n() :: Refusal.t()
-  example distinct_wants_one_to_n do
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [triple()], args: [2, 3, 4]})
-
-    {:error, refusal} =
-      Prover.prove(Statement.pred(statement), Statement.witness(statement),
-        claims: Statement.claims(statement),
-        name: :not_from_one
-      )
-
-    assert {:witness_unsatisfies_schedule, _detail} = refusal
-    refusal
-  end
-
   @doc "The columns and boxes are a selection each, the rows a selection a column."
   @spec pattern_selected() :: Statement.t()
   example pattern_selected do
@@ -68,7 +48,7 @@ defmodule Examples.ESudoku do
 
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
 
-    assert length(uair.word_lookups) == 18
+    assert uair.word_lookups == []
     [%{values: values, selections: selections}] = uair.selected_lookups
     assert values == Enum.to_list(1..9)
     assert length(selections) == 18 + uair.len
@@ -214,11 +194,11 @@ defmodule Examples.ESudoku do
 
   defrel families(x) do
     column(x, cols)
-    each(all_distinct, cols)
+    each(permutation(9), cols)
     column(cols, rs)
-    each(all_distinct, rs)
+    each(permutation(9), rs)
     boxes(3, x, bs)
-    each(all_distinct, bs)
+    each(permutation(9), bs)
   end
 
   defrel boxes(n, rows, bs) do
@@ -233,12 +213,11 @@ defmodule Examples.ESudoku do
     length(x, n)
     n = blocks ** 2
     blocks > 0
-    each(each(between(1, n)), x)
-    each(all_distinct, x)
+    each(permutation(n), x)
     column(x, cols)
-    each(all_distinct, cols)
+    each(permutation(n), cols)
     boxes(blocks, x, bs)
-    each(all_distinct, bs)
+    each(permutation(n), bs)
     each(each(label), x)
   end
 
@@ -254,11 +233,11 @@ defmodule Examples.ESudoku do
 
   defrel families16(x) do
     column(x, cols)
-    each(all_distinct, cols)
+    each(permutation(16), cols)
     column(cols, rs)
-    each(all_distinct, rs)
+    each(permutation(16), rs)
     boxes(4, x, bs)
-    each(all_distinct, bs)
+    each(permutation(16), bs)
   end
 
   defrel clued16(x) do
