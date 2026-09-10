@@ -42,11 +42,30 @@ defmodule Examples.EFol do
     each(all_distinct, back)
   end
 
+  defrel bumped(ys) do
+    Zkfol.FOL.map(Examples.EUser.succ(), [1, 2, 3], ys)
+  end
+
   defrel rising([_last])
 
   defrel rising([a, b | t]) do
     a < b
     rising([b | t])
+  end
+
+  @doc "A call or a passed relation written with its module is that module's."
+  @spec qualified_map() :: Statement.t()
+  example qualified_map do
+    [{_head, [{:call, {Zkfol.FOL, :map}, [{:papply, {EUser, :succ}, []} | _]}]}] =
+      bumped().clauses
+
+    assert Enum.take(Zkfol.stream(bumped(), [:_]), 1) == [[[2, 3, 4]]]
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [bumped()], args: [:_]})
+
+    assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
   end
 
   @spec ranged() :: Statement.t()
