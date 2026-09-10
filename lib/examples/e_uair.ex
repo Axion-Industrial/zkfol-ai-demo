@@ -16,6 +16,7 @@ defmodule Examples.EUair do
   alias Zkfol.Log
   alias Zkfol.Prover
   alias Zkfol.Refusal
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
