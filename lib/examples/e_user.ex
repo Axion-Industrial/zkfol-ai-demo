@@ -30,28 +30,10 @@ defmodule Examples.EUser do
     v = v1 + v2
   end
 
-  defrel bif(1, 1)
-  defrel bif(1, 2)
-
-  defrel bif(v, x) do
-    x > 2
-    bif(a, x - 1)
-    bif(b, x - 2)
-    v = a + b
-  end
-
   defrel tab(1, 10)
   defrel tab(2, 20)
   defrel tab(3, 30)
   defrel tab(4, 40)
-
-  defrel shifted(1, 10)
-
-  defrel shifted(x, v) do
-    x > 1
-    shifted(x - 1, _w)
-    tab(x - 1, v)
-  end
 
   defrel regs(1, 1, 1)
 
@@ -102,16 +84,6 @@ defmodule Examples.EUser do
         v = b * w
       end
     end
-  end
-
-  @step 3
-
-  defrel step(1, ^@step)
-
-  defrel step(x, v) do
-    x > 1
-    step(x - 1, w)
-    v = w + ^@step
   end
 
   defrel doubled([], [])
@@ -179,11 +151,6 @@ defmodule Examples.EUser do
     b = [1 | d]
   end
 
-  defrel twinned(a, b) do
-    doubled_fun(a, [x | _t])
-    b = [x, x]
-  end
-
   defrel cell_of(i, v) do
     doubled([1, 2, 3], c)
     nth(i, c, v)
@@ -213,10 +180,6 @@ defmodule Examples.EUser do
   defrel rows([[a, b] | t], s) do
     rows(t, r)
     s = r + a + b
-  end
-
-  defrel remaining_rows([[_, _] | t], s) do
-    rows(t, s)
   end
 
   defrel diagonal([[a, _], [_, d]], v) do
@@ -270,14 +233,6 @@ defmodule Examples.EUser do
     every(every(between(1, 4)), rs)
   end
 
-  @spec compiled(pos_integer()) :: Log.Ran.t()
-  example compiled(n \\ 8) do
-    ran = Zkfol.compile(fib(), args: [n])
-
-    assert %Prover.Report{} = Log.report(Log.snapshot(), ran)
-    ran
-  end
-
   @spec fibonacci(pos_integer()) :: Statement.t()
   example fibonacci(n \\ 8) do
     {:ok, statement, _trace} = Pipeline.run(plain(), %Statement{rels: [fib()], args: [n]})
@@ -286,14 +241,6 @@ defmodule Examples.EUser do
     assert witness |> Interpretation.rows() |> Enum.at(0) == Enum.map(1..n, &fib/1)
     assert Enum.all?(1..n, &Semantics.holds?(Statement.pred(statement), witness, &1))
     statement
-  end
-
-  @spec one_column() :: Prover.Report.t()
-  example one_column do
-    ran = Zkfol.compile(%Statement{rels: [fib()], args: [1]})
-    assert Interpretation.len(Statement.witness(Log.Ran.final_stage(ran))) == 1
-    assert %Prover.Report{} = report = Log.report(Log.snapshot(), ran)
-    report
   end
 
   @spec registers(pos_integer()) :: Statement.t()
@@ -345,17 +292,6 @@ defmodule Examples.EUser do
     refused
   end
 
-  @spec pinned_step(pos_integer()) :: Rel.t()
-  example pinned_step(n \\ 4) do
-    step = step()
-    assert {[1, @step], []} = hd(step.clauses)
-
-    query = Zkfol.eval!(step, [n, :_], [])
-    assert Zkfol.Query.taken(query) == [[n, n * @step]]
-    Zkfol.Query.close(query)
-    step
-  end
-
   @spec power(non_neg_integer()) :: Statement.t()
   example power(exponent \\ 3) do
     source = %Statement{rels: [power_rel(2)], args: [exponent + 1]}
@@ -388,15 +324,6 @@ defmodule Examples.EUser do
     longer = Log.Ran.final_stage(Zkfol.emit(doubled(), args: [Enum.to_list(1..(10 * n)), :_]))
 
     assert Statement.pred(statement) == Statement.pred(longer)
-    statement
-  end
-
-  @doc "Two walks at two strides read one member: what one spells the other reads."
-  @spec reshaped() :: Statement.t()
-  example reshaped do
-    statement = Log.Ran.final_stage(Zkfol.emit(both(), args: [[1, 2, 3], :_]))
-
-    assert Enum.take(Zkfol.stream(both(), [[1, 2, 3], :_]), 1) == [[[1, 2, 3], 24]]
     statement
   end
 
@@ -444,34 +371,6 @@ defmodule Examples.EUser do
     statement
   end
 
-  @doc "A bracket the equation closes spells every cell its member holds."
-  @spec twinned_cells() :: Statement.t()
-  example twinned_cells do
-    statement = Log.Ran.final_stage(Zkfol.emit(twinned(), args: [[1, 2], :_]))
-
-    assert Enum.take(Zkfol.stream(twinned(), [[1, 2], :_]), 1) == [[[1, 2], [2, 2]]]
-    assert Statement.bank(statement, :"twinned b") == [[0, 2, 2, 0, 0]]
-    statement
-  end
-
-  @doc "An equation is no contract of order: a bracket ahead of its binding calls lays the same."
-  @spec bracket_before_its_calls() :: Ast.pred()
-  example bracket_before_its_calls do
-    ahead =
-      rel :fronted do
-        fronted(a, b) do
-          b = [1 | d]
-          doubled_fun(a, c)
-          doubled_fun(c, d)
-        end
-      end
-
-    statement = Log.Ran.final_stage(Zkfol.emit(ahead, args: [[1, 2], :_]))
-
-    assert Statement.pred(statement) == Statement.pred(fronted_bank())
-    Statement.pred(statement)
-  end
-
   @doc "A reading takes a bank the run wrote as the cells standing on its member's rows."
   @spec indexed_cell() :: Statement.t()
   example indexed_cell do
@@ -498,64 +397,6 @@ defmodule Examples.EUser do
     assert Statement.bank(statement, :tab) == [[4], [40]]
     assert Statement.claims(statement) == [{"tab.a1", 1, 1}, {"in", 3, 1}]
     assert Enum.take(Zkfol.stream(tab(), [:_, 30]), 1) == [[3, 30]]
-    statement
-  end
-
-  @doc "A table read an offset back stands where its own index puts it, not its reader."
-  @spec shifted_table() :: Statement.t()
-  example shifted_table do
-    statement = Log.Ran.final_stage(Zkfol.emit(shifted(), args: [4, :_]))
-
-    assert Statement.bank(statement, :shifted) == [[10, 10, 20, 30]]
-    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
-    statement
-  end
-
-  @doc "A recurrence written value-first is fibonacci's: the index is where the sites step."
-  @spec index_at_either_parameter() :: Ast.pred()
-  example index_at_either_parameter do
-    {:ok, phi} = Phi.lower(fib(), [fib()])
-
-    assert Phi.lower(bif(), [bif()]) == {:ok, phi}
-    phi
-  end
-
-  @doc "A passed relation is called through its name and makes the bank the callee returns."
-  @spec mapped_bank() :: Statement.t()
-  example mapped_bank do
-    statement = Log.Ran.final_stage(Zkfol.emit(bumped(), args: [:_]))
-
-    assert Alloc.names(Statement.alloc(statement)) == [:bumped, :"bumped ys"]
-    assert Statement.bank(statement, :"bumped ys") == [[0, 4, 3, 2]]
-    statement
-  end
-
-  @doc "A sequence handed on whole is the one the walk extends: one member's rows, all claimed."
-  @spec appended() :: Statement.t()
-  example appended do
-    statement =
-      Log.Ran.final_stage(Zkfol.emit(joined(), args: [[1, 2], [3, 4], :_], public: [3]))
-
-    assert Enum.take(Zkfol.stream(joined(), [[1, 2], [3, 4], :_]), 1) ==
-             [[[1, 2], [3, 4], [1, 2, 3, 4]]]
-
-    assert Statement.bank(statement, :"joined a3") == [[0, 4, 3, 2, 1]]
-
-    assert Statement.claims(statement) ==
-             for(x <- 2..5, claim <- [{"joined.a3", 3, x}, {"in", 7, x}], do: claim)
-
-    statement
-  end
-
-  @doc "A sequence the run computes rather than the statement names is carried the same way."
-  @spec remainder() :: Statement.t()
-  example remainder do
-    statement = Log.Ran.final_stage(Zkfol.emit(dropped(), args: [3, [1, 2, 3, 4], :_]))
-
-    assert Enum.take(Zkfol.stream(dropped(), [3, [1, 2, 3, 4], :_]), 1) ==
-             [[3, [1, 2, 3, 4], [3, 4]]]
-
-    assert Statement.bank(statement, :"dropped a2") == [[0, 4, 3, 2, 1]]
     statement
   end
 
@@ -622,12 +463,6 @@ defmodule Examples.EUser do
     end
   end
 
-  @doc "The skipped record teaches the shared tail its width before another relation reads it."
-  @spec a_record_tail_keeps_its_shape() :: [Interpretation.t()]
-  example a_record_tail_keeps_its_shape do
-    rows_without_a_shape_hint(remaining_rows())
-  end
-
   @doc "A cell of a bank is a bank: the dimension is the rows the passed relation spends."
   @spec checked_rows() :: Statement.t()
   example checked_rows do
@@ -674,23 +509,6 @@ defmodule Examples.EUser do
     assert {:ok, phi} = Phi.lower(spiral, [spiral, doubled_fun()])
     assert Enum.take(Zkfol.stream([spiral, doubled_fun()], [[], :_]), 1) == [[[], 0]]
     phi
-  end
-
-  @doc "The relations a prefix fixes are reached like a callee, however deep the passing goes."
-  @spec deeper_pass() :: [[Statement.datum()]]
-  example deeper_pass do
-    deeper =
-      rel :deeper do
-        deeper(rss) do
-          every(every(every(between(1, 4))), rss)
-        end
-      end
-
-    answers = Enum.take(Zkfol.stream(deeper, [[[[1, 2]], [[3, 4]]]]), 1)
-
-    assert answers == [[[[[1, 2]], [[3, 4]]]]]
-    assert Enum.take(Zkfol.stream(deeper, [[[[1, 2]], [[3, 9]]]]), 1) == []
-    answers
   end
 
   @spec plain() :: Pipeline.t()

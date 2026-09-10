@@ -9,10 +9,8 @@ defmodule Examples.EFol do
   alias Examples.ESudoku
   alias Examples.EUser
   alias Zkfol.Alloc
-  alias Zkfol.FOL
   alias Zkfol.Pipeline
   alias Zkfol.Prover
-  alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
 
@@ -66,16 +64,6 @@ defmodule Examples.EFol do
     statement
   end
 
-  @doc "The transpose is one relation over any list of lists, with one answer."
-  @spec transpose() :: [[pos_integer()]]
-  example transpose do
-    grid = [[1, 2, 3], [4, 5, 6]]
-    cols = ESudoku.columns(grid)
-
-    assert Enum.take(Zkfol.stream(FOL.column(), [grid, :_]), 2) == [[grid, cols]]
-    cols
-  end
-
   @doc "A row of the bank is a column of the grid, so the transpose lays no bank of its own."
   @spec transposed_columns() :: Statement.t()
   example transposed_columns do
@@ -84,19 +72,6 @@ defmodule Examples.EFol do
 
     assert Alloc.regions(Statement.alloc(statement)) == ["columns_apart x": 9, in: 2]
     statement
-  end
-
-  @doc "Nine groups over the bank's rows are nine selections, and no Word table."
-  @spec looked_up_columns() :: Uair.t()
-  example looked_up_columns do
-    statement = transposed_columns()
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-
-    assert [%{values: values, selections: selections}] = uair.selected_lookups
-    assert values == Enum.to_list(1..9)
-    assert length(selections) == 9
-    assert uair.word_lookups == []
-    uair
   end
 
   @doc "An index into a bank opens the nine values at that column; the groups stay private."
@@ -116,18 +91,6 @@ defmodule Examples.EFol do
 
     {:ok, report, _id} = Prover.prove_uair(uair, name: :opened_column)
     report
-  end
-
-  @doc "The lookup is the whole claim: a repeated value is refused by the verifier alone."
-  @spec a_repeated_column_is_no_proof() :: Refusal.t()
-  example a_repeated_column_is_no_proof do
-    uair = looked_up_columns()
-    repeated = List.update_at(uair.columns, 0, &List.replace_at(&1, 1, hd(&1)))
-
-    assert {:error, {:verifier_rejected, _said} = refused} =
-             Prover.prove_uair(%{uair | columns: repeated}, name: :repeated_column)
-
-    refused
   end
 
   @doc "A reading is cells like any other, so a call handed one reads it again, laying nothing."

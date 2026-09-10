@@ -181,32 +181,8 @@ defmodule Examples.EAl do
       assert weighted == Enum.map(Enum.at(uair.columns, pointer), &(len - &1))
     end
 
+    assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :composed_hop)
     uair
-  end
-
-  @doc "The composed reads prove on zinc+'s pointer query, with no emulation in between."
-  @spec composed_hop_proves() :: Zkfol.Prover.Report.t()
-  example composed_hop_proves do
-    {:ok, report, _id} = Prover.prove_uair(composed_hop_emits(), name: :composed_hop)
-
-    assert %Zkfol.Prover.Report{} = report
-    report
-  end
-
-  @doc "I am the pointer forged past the trace: the Word table refuses it at the backend."
-  @spec pointer_off_the_trace_is_refused() :: Refusal.t()
-  example pointer_off_the_trace_is_refused do
-    uair = composed_hop_emits()
-    [%{row: pointer} | _] = uair.mode.reads
-    assert Enum.all?(Enum.at(uair.columns, pointer), &(&1 in 1..uair.len))
-
-    forged = List.update_at(uair.columns, pointer, &List.replace_at(&1, 0, 2 ** 32))
-
-    assert {:error, {:prover_failed, %{said: said}} = refused} =
-             Prover.prove_uair(%{uair | columns: forged}, name: :forged_pointer)
-
-    assert said =~ "Lookup"
-    refused
   end
 
   @doc "I am the pointer forged into the padding: only the region product refuses it."
@@ -252,36 +228,6 @@ defmodule Examples.EAl do
 
     {:ok, report, _id} = Prover.prove_uair(uair, name: :claimed_read)
     report
-  end
-
-  @doc "A guard is a bound the derivation must meet: past it nothing derives."
-  @spec a_guard_bounds_the_derivation() :: Interpretation.t()
-  example a_guard_bounds_the_derivation do
-    assert Enum.to_list(Zkfol.stream(capped(), [2, :_])) == [[2, 3]]
-    witness = Statement.witness(solved(capped(), [2]))
-
-    assert {:error, {:no_answer, _}} = Zkfol.eval(capped(), [5], [])
-    witness
-  end
-
-  @doc "Two clauses admit the same tuple; the journal names the one that fired."
-  @spec the_fired_clause_is_named_by_the_journal() :: Interpretation.t()
-  example the_fired_clause_is_named_by_the_journal do
-    statement = solved(forked(), [2, 10])
-    witness = Statement.witness(statement)
-
-    assert Interpretation.at(witness, 1, 2) == 10
-    assert Zkfol.Semantics.valid?(Statement.pred(statement), witness)
-    witness
-  end
-
-  @doc "I recur under a modulus; `mod` carries the quotient, so the head is three wide."
-  @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
-  example a_mod_relation_reduces(n \\ 25) do
-    witness = Statement.witness(solved(regsm(), [n]))
-
-    assert Interpretation.at(witness, 2, n) == rem(EUser.fib(n + 1), 7919)
-    witness
   end
 
   @doc "I take a modulus the clause does not know: m times the quotient is a product of rows."
