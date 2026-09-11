@@ -61,7 +61,7 @@ defmodule Zkfol.Prims do
   @phi {Zkfol.Ast, :permutation}
   defrel permutation(n, cells) do
     length(cells, n)
-    each(between(1, n), cells)
+    each(cells, between(1, n))
     all_distinct(cells)
   end
 

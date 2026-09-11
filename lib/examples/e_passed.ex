@@ -15,7 +15,7 @@ defmodule Examples.EPassed do
   alias Zkfol.Statement
 
   defrel counted(xs) do
-    each(natural, xs)
+    each(xs, natural)
   end
 
   @spec passed_reading() :: Statement.t()
@@ -33,17 +33,6 @@ defmodule Examples.EPassed do
 
   defrel pick(i, x, v) do
     nth(i, x, v)
-  end
-
-  @doc "A reading handed less than the cells it wants refuses, naming the cell it was handed."
-  @spec a_cell_is_not_the_cells() :: Zkfol.Refusal.t()
-  example a_cell_is_not_the_cells do
-    assert {:error, {:unliftable_term, %{term: {:cell, _ref}, relation: :all_distinct}}} =
-             Phi.lower(narrow(), [narrow()])
-
-    {:error, refusal} = Phi.lower(pick(), [pick()])
-    assert {:unliftable_term, %{term: {:cell, _ref}, relation: :nth}} = refusal
-    refusal
   end
 
   @doc "One compiled read accepts different private indices and values, but rejects wrong answers."

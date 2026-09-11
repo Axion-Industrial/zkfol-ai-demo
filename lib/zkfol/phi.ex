@@ -98,7 +98,10 @@ defmodule Zkfol.Phi do
   @doc "I am the predicate of `root` against `rels`, linked."
   @spec lower(Rel.t(), [Rel.t()]) :: {:ok, Ast.pred()} | {:error, Refusal.t()}
   def lower(root = %Rel{}, rels) do
-    with {:ok, pred, alloc} <- compile(root, rels), do: {:ok, Alloc.link(pred, alloc)}
+    case compile(root, rels) do
+      {:ok, pred, alloc} -> {:ok, Alloc.link(pred, alloc)}
+      x -> x
+    end
   end
 
   @doc "I compile `root` against `rels` to its predicate and allocation; `args` size its banks."

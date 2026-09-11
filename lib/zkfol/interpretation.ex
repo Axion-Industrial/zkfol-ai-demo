@@ -6,14 +6,15 @@ defmodule Zkfol.Interpretation do
 
   use TypedStruct
 
-  @typedoc "A public claim: the named cell (row, column) carries the result."
+  @typedoc "I denote if a particular cell in the witness is made public.
+            The layout is: {label, row, column}"
   @type claim :: {String.t(), pos_integer(), pos_integer()}
 
   typedstruct enforce: true do
     field(:rows, tuple())
   end
 
-  @doc "I build an interpretation from equal-length rows of integers; a cell may be negative."
+  @doc "I build an interpretation from equal-length rows of integers."
   @spec new([[integer()]]) :: t()
   def new([first | _] = rows) when first != [] do
     widths = rows |> Enum.map(&length/1) |> Enum.uniq()

@@ -369,73 +369,6 @@ defmodule Zkfol.Face do
     )
   end
 
-  defview inputs_view(%Zkfol.Phi.Walk.Clause{head: head, accesses: accesses}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Inputs")
-    |> ColumnedList.priority(1)
-    |> ColumnedList.items(Enum.zip(head, accesses))
-    |> ColumnedList.column("Pattern", fn {pattern, _access} -> surface_text(pattern) end)
-    |> ColumnedList.column("Access", fn {_pattern, access} -> inspected(access) end)
-    |> ColumnedList.send(fn {_pattern, access} -> access end)
-  end
-
-  defview steps_view(clause = %Zkfol.Phi.Walk.Clause{}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Steps")
-    |> ColumnedList.priority(2)
-    |> ColumnedList.items([
-      {"Before head", clause.before},
-      {"After head", clause.matched},
-      {"After body", clause.compiled}
-    ])
-    |> ColumnedList.column("Step", fn {name, _state} -> name end)
-    |> ColumnedList.send(fn {_name, state} -> state end)
-  end
-
-  defview predicates_view(%Zkfol.Phi.Walk{predicates: predicates}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Predicates")
-    |> ColumnedList.priority(5)
-    |> ColumnedList.items(predicates)
-    |> ColumnedList.column("Predicate", &phi_text/1)
-  end
-
-  defview bindings_view(walk = %Zkfol.Phi.Walk{env: env}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Bindings")
-    |> ColumnedList.priority(2)
-    |> ColumnedList.items(
-      for {name, _access} <- Enum.sort(env), do: {name, Zkfol.Phi.Walk.fetch(walk, name)}
-    )
-    |> ColumnedList.column("Name", fn {name, _access} -> inspect(name) end)
-    |> ColumnedList.column("Access", fn {_name, access} -> inspected(access) end)
-    |> ColumnedList.send(fn {_name, access} -> access end)
-  end
-
-  defview equations_view(%Zkfol.Phi.Walk{eqs: eqs}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Equations")
-    |> ColumnedList.priority(3)
-    |> ColumnedList.items(Enum.reverse(eqs))
-    |> ColumnedList.column("Equation", &phi_text/1)
-  end
-
-  defview storage_view(walk = %Zkfol.Phi.Walk{}, builder) do
-    builder.columned_list()
-    |> ColumnedList.title("Storage")
-    |> ColumnedList.priority(4)
-    |> ColumnedList.items([
-      {"Owned banks", Zkfol.Phi.Walk.banks(walk)},
-      {"Element shapes", walk.shapes},
-      {"Parameters", walk.parameters},
-      {"Slots", walk.slots},
-      {"Members", walk.members}
-    ])
-    |> ColumnedList.column("What", fn {name, _value} -> name end)
-    |> ColumnedList.column("Value", fn {_name, value} -> inspected(value) end)
-    |> ColumnedList.send(fn {_name, value} -> value end)
-  end
-
   defview regions_view(alloc = %Zkfol.Alloc{}, builder) do
     builder.columned_list()
     |> ColumnedList.title("Regions")
@@ -621,9 +554,9 @@ defmodule Zkfol.Face do
   end
 
   @spec clause_text(atom(), [term()], [term()]) :: String.t()
-  defp clause_text(name, head, []), do: call_text(name, head)
+  def clause_text(name, head, []), do: call_text(name, head)
 
-  defp clause_text(name, head, body),
+  def clause_text(name, head, body),
     do: call_text(name, head) <> " do " <> Enum.map_join(body, "; ", &goal_text/1) <> " end"
 
   @spec call_text(Zkfol.Lang.Term.name(), [term()]) :: String.t()
@@ -636,7 +569,7 @@ defmodule Zkfol.Face do
   defp goal_text({:eq, t, u}), do: surface_text(t) <> " = " <> surface_text(u)
 
   @spec surface_text(term()) :: String.t()
-  defp surface_text(term), do: poly_text(term, &surface_leaf/1)
+  def surface_text(term), do: poly_text(term, &surface_leaf/1)
 
   @spec surface_leaf(term()) :: String.t()
   defp surface_leaf({:var, name}), do: to_string(name)
@@ -650,21 +583,21 @@ defmodule Zkfol.Face do
   defp conjuncts_of(pred), do: [pred]
 
   @spec phi_text(Ast.pred()) :: String.t()
-  defp phi_text({:eq, t, u}), do: term_text(t) <> " = " <> term_text(u)
-  defp phi_text({:natural, t}), do: "natural(" <> term_text(t) <> ")"
-  defp phi_text({:conj, goals}), do: Enum.map_join(goals, " and ", &phi_text/1)
-  defp phi_text({:disj, goals}), do: Enum.map_join(goals, " or ", &phi_text/1)
+  def phi_text({:eq, t, u}), do: term_text(t) <> " = " <> term_text(u)
+  def phi_text({:natural, t}), do: "natural(" <> term_text(t) <> ")"
+  def phi_text({:conj, goals}), do: Enum.map_join(goals, " and ", &phi_text/1)
+  def phi_text({:disj, goals}), do: Enum.map_join(goals, " or ", &phi_text/1)
 
-  defp phi_text({:permutes, cells, values}),
+  def phi_text({:permutes, cells, values}),
     do:
       "permutes(" <>
         Enum.map_join(cells, ", ", &term_text/1) <>
         " : #{List.first(values)}..#{List.last(values)})"
 
-  defp phi_text({:distinct, cells}),
+  def phi_text({:distinct, cells}),
     do: "distinct(" <> Enum.map_join(cells, ", ", &term_text/1) <> ")"
 
-  defp phi_text({:permuted, cells, copy}),
+  def phi_text({:permuted, cells, copy}),
     do:
       "permuted(" <>
         Enum.map_join(cells, ", ", &term_text/1) <>
@@ -734,5 +667,5 @@ defmodule Zkfol.Face do
   end
 
   @spec inspected(term()) :: String.t()
-  defp inspected(term), do: inspect(term, pretty: true, limit: 100, printable_limit: 2048)
+  def inspected(term), do: inspect(term, pretty: true, limit: 100, printable_limit: 2048)
 end

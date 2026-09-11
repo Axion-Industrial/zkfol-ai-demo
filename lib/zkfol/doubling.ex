@@ -24,10 +24,10 @@ defmodule Zkfol.Doubling do
       when is_integer(n) and length(args) <= 1 do
     with {:ok, [root = %Rel{al: nil, phi: nil} | helpers]} <-
            Zkfol.Lang.reached(root, statement.rels),
-         {:ok, descriptor} <- Facts.recurrence(root),
+         {:ok, descriptor} <- Facts.of(root),
          canonical = %{root | home: nil},
          {:ok, [_root | ^helpers]} <- Zkfol.Lang.reached(canonical, [canonical]),
-         true <- descriptor.mod == nil or (descriptor.p >= 0 and descriptor.q >= 0) do
+         true <- descriptor.modulus == nil or natural?(descriptor.coefficients) do
       rewritten(descriptor, n, List.first(args, :_), named(statement, opts))
     else
       _uncertified -> {:ok, statement}
@@ -40,9 +40,13 @@ defmodule Zkfol.Doubling do
   @spec verb() :: Zkfol.Pipeline.verdict()
   def verb, do: :rewrites
 
+  # A reduced step commits every value as a natural, so its coefficients must be.
+  @spec natural?({integer(), integer()}) :: boolean()
+  defp natural?({p, q}), do: p >= 0 and q >= 0
+
   @spec rewritten(Facts.t(), integer(), Statement.datum() | :_, keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp rewritten(descriptor = %Facts{initial: [{start, x1}, {_, x2}]}, n, result, opts) do
+  defp rewritten(descriptor = %Facts{base: [{start, x1}, {_, x2}]}, n, result, opts) do
     case n - start + 1 do
       m when m < 1 ->
         {:error, {:precedes_base_case, %{n: n, base: start}}}
@@ -103,14 +107,14 @@ defmodule Zkfol.Doubling do
   end
 
   @spec base(Facts.t()) :: [integer()]
-  defp base(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}),
+  defp base(%Facts{coefficients: {p, q}, base: [{_, x1}, {_, x2}], modulus: mod}),
     do: [1, rem(1, mod), rem(p, mod), 1, rem(x2 * p + q * x1, mod)]
 
   @spec count(pos_integer()) :: pos_integer()
   defp count(m), do: (m - 2) |> Integer.digits(2) |> length()
 
   @spec kernel(Facts.t()) :: Rel.t()
-  defp kernel(%Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: nil}) do
+  defp kernel(%Facts{coefficients: {p, q}, base: [{_, x1}, {_, x2}], modulus: nil}) do
     Zkfol.Lang.rel :kernel do
       kernel(1, 1, ^p, 1, ^(x2 * p + q * x1))
 
@@ -135,7 +139,7 @@ defmodule Zkfol.Doubling do
   end
 
   # `p * mod` rides the subtraction so every committed value is a natural.
-  defp kernel(descriptor = %Facts{p: p, q: q, initial: [{_, x1}, {_, x2}], mod: mod}) do
+  defp kernel(descriptor = %Facts{coefficients: {p, q}, base: [{_, x1}, {_, x2}], modulus: mod}) do
     [_x, u0, w0, _e, r0] = base(descriptor)
 
     Zkfol.Lang.rel :kernel do

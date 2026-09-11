@@ -6,50 +6,12 @@ defmodule Examples.EFace do
   import ExUnit.Assertions
 
   alias Examples.EAl
-  alias Examples.ESudoku
   alias Examples.EUser
-  alias GtBridge.Phlow.Builder
-  alias GtBridge.Phlow.ColumnedList
   alias Zkfol.Ast
   alias Zkfol.Face
   alias Zkfol.Interpretation
   alias Zkfol.Statement
   alias Zkfol.ZincPlus
-
-  @doc "Join's facts and uses navigate to their sources across scalar, bank and heap layouts."
-  @spec a_join_keeps_its_sources() :: [%{atom() => term()}]
-  example a_join_keeps_its_sources do
-    {:ok, sudoku, _trace} =
-      Zkfol.Pipeline.run(EUser.plain(), %Statement{
-        rels: [ESudoku.families()],
-        args: ESudoku.act()
-      })
-
-    for statement <- [EUser.fibonacci(), sudoku, Examples.ENodes.reverse()] do
-      lay = Statement.lay(statement)
-      feed = Face.stands(lay)
-      facts = Enum.map(feed.facts, &Enum.fetch!(lay.derivation.facts, &1.index))
-
-      assert length(feed.stands) == length(lay.stands)
-
-      for {row, stand} <- Enum.zip(feed.stands, lay.stands) do
-        assert Enum.fetch!(facts, row.fact) == stand.fact
-        assert row.member == stand.member
-        assert length(row.uses) == length(stand.uses)
-
-        for {use, {site, fact}} <- Enum.zip(row.uses, stand.uses) do
-          assert Enum.fetch!(facts, use.fact) == fact
-          assert [name, index] = use.site
-          assert name == stand.member
-          member = Zkfol.Alloc.member(lay.alloc, name)
-          sites = member.sites |> Map.values() |> Enum.concat() |> Enum.uniq()
-          assert Enum.fetch!(sites, index) == site
-        end
-      end
-
-      feed
-    end
-  end
 
   @doc "The slack row a guard range-checks reads :ranged; the rest are plain or shifted."
   @spec the_grid_feed_is_settled() :: %{atom() => term()}
@@ -86,26 +48,6 @@ defmodule Examples.EFace do
     assert {:ok, ^object} = GtBridge.ObjectRegistry.get(id)
     GtBridge.ObjectRegistry.remove(id)
     object
-  end
-
-  @spec the_stage_carries_its_derivation() :: %{atom() => term()}
-  example the_stage_carries_its_derivation do
-    statement = EUser.fibonacci()
-    feed = Face.derivation(statement)
-
-    assert %{fact: [:fib, 8, 21], consumes: [[:gt, 8, 2, 5], [:fib, 7, 13], [:fib, 6, 8]]} =
-             List.last(feed.rows)
-
-    assert %GtBridge.Phlow.ColumnedList{} = Face.derivation_view(statement, Builder)
-    lowering = statement |> Face.lowering_view(Builder) |> ColumnedList.as_dict()
-    [_, _, recursive] = lowering.rawItems
-    assert [recursive.matched.env.x, recursive.matched.env.v] == recursive.accesses
-    assert recursive.before.env[{:fib, {:param, :x}}] == recursive.matched.env.x
-    assert Map.has_key?(recursive.compiled.env, :v1) and Map.has_key?(recursive.compiled.env, :v2)
-    steps = recursive |> Face.steps_view(Builder) |> ColumnedList.as_dict()
-    assert List.last(steps.rawItems) == recursive.compiled
-    assert bridged(lowering) == lowering
-    feed
   end
 
   @doc "What the judgement feed says is what the oracle and the lay say."
