@@ -31,15 +31,13 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Alloc.Site
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
-  alias Zkfol.Phi.{Cons, Ref, Value, View}
-  alias Zkfol.Phi.View.{Element, Record}
+  alias Zkfol.Phi.{Place, Shape, Value}
 
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
     use TypedStruct
     use GtBridge.View
     alias GtBridge.Phlow.ColumnedList
-
 
     typedstruct enforce: true do
       field(:member, atom())
@@ -79,7 +77,7 @@ defmodule Zkfol.Phi.Walk do
 
   typedstruct do
     field(:env, map(), default: %{})
-    field(:shapes, %{Ast.row_ref() => View.element()}, default: %{})
+    field(:shapes, %{Ast.row_ref() => Shape.t()}, default: %{})
     field(:parameters, %{Ast.row_ref() => Zkfol.Alloc.allocation()}, default: %{})
     field(:members, [Member.t() | Bank.t()], default: [])
     field(:predicates, [Ast.pred()], default: [])
@@ -107,14 +105,21 @@ defmodule Zkfol.Phi.Walk do
       eqs
       |> Enum.flat_map(
         &Ast.reduce(&1, [], fn
-          %Element{row: row, part: :whole}, rows -> [row | rows]
+          {:across, row, _address, 0}, rows -> [row | rows]
           _term, rows -> rows
         end)
       )
+      |> Enum.reject(&match?({:list, _, _}, Map.get(walk.shapes, &1)))
       |> Map.new(&{&1, :scalar})
 
     walk = refine(walk, required)
     eqs = Enum.map(eqs, &Value.shaped(&1, walk.shapes))
+
+    # A record read as a number has no number: its fields came back as a list.
+    for eq <- eqs, Ast.reduce(eq, false, &(&2 or (is_list(&1) and &1 != []))) do
+      throw({:refused, {:unliftable_term, %{term: eq}}})
+    end
+
     %{walk | eqs: Enum.reverse(eqs, walk.eqs)}
   end
 
@@ -134,27 +139,15 @@ defmodule Zkfol.Phi.Walk do
   def follow(walk, value), do: Value.shaped(value, walk.shapes)
 
   @doc "I retain compatible shape requirements, independently of storage ownership."
-  @spec refine(t(), %{Ast.row_ref() => View.element()}) :: t()
+  @spec refine(t(), %{Ast.row_ref() => Shape.t()}) :: t()
   def refine(walk, shapes), do: %{walk | shapes: merge_shapes(walk.shapes, shapes)}
 
   defp merge_shapes(a, b) do
-    Map.merge(a, b, fn
-      _row, shape, shape ->
-        shape
-
-      _row, %Record{width: {:at_least, a}}, %Record{width: {:at_least, b}} ->
-        %Record{width: {:at_least, max(a, b)}}
-
-      _row, %Record{width: {:at_least, min}}, shape = %Record{width: width}
-      when is_integer(width) and width >= min ->
-        shape
-
-      _row, shape = %Record{width: width}, %Record{width: {:at_least, min}}
-      when is_integer(width) and width >= min ->
-        shape
-
-      row, a, b ->
-        throw({:refused, {:unliftable_term, %{term: {row, a, b}}}})
+    Map.merge(a, b, fn row, x, y ->
+      case Shape.meet(x, y) do
+        :contradiction -> throw({:refused, {:unliftable_term, %{term: {row, x, y}}}})
+        shape -> shape
+      end
     end)
   end
 
@@ -194,11 +187,11 @@ defmodule Zkfol.Phi.Walk do
       is_integer(value) ->
         bind(walk, ref, {:count, value, cell}, {:cell, ref})
 
-      is_struct(value, Ref) ->
-        bind(walk, ref, %Ref{id: cell}, {:node, ref})
+      match?({:node, _id}, value) ->
+        bind(walk, ref, {:node, cell}, {:node, ref})
 
-      is_list(value) or is_struct(value, View) or is_struct(value, Cons) or
-        is_struct(value, Element) or match?({:rel, _, _}, value) ->
+      is_list(value) or match?({:along, _, _}, value) or match?({:pair, _, _}, value) or
+        match?({:across, _, _, _}, value) or match?({:rel, _, _}, value) ->
         bind(walk, ref, value, :none)
 
       true ->
@@ -212,47 +205,36 @@ defmodule Zkfol.Phi.Walk do
     for {_ref, {:bank, name, _address}} <- parameters, do: name
   end
 
-  @doc "I give a parameter its own sequence bank; matching its records can require more rows."
-  @spec bank(t(), Ast.row_ref(), View.extent(), View.element()) :: t()
-  def bank(walk = %__MODULE__{}, ref, extent, element \\ :unknown) do
-    bank = Bank.of(ref)
-    view = View.bank(bank, element, extent)
-    walk = bind(walk, ref, view, {:bank, bank, view.col || Ast.address(:x, 0, 0)})
-    if element == :unknown, do: walk, else: refine(walk, %{view.row => element})
+  @doc "I give a parameter the bank it is laid along, knowing of its rows what the shape says."
+  @spec bank(t(), Ast.row_ref(), Place.t(), Shape.t()) :: t()
+  def bank(walk = %__MODULE__{}, ref, along = {:along, row = {bank, 1}, address}, shape) do
+    {:list, _extent, element} = shape
+    walk = bind(walk, ref, along, {:bank, bank, address})
+    if element == :unknown, do: walk, else: refine(walk, %{row => element})
   end
 
   @doc "I peel an unresolved record or an existing pair; ownership does not change its meaning."
   @spec peel(t(), Value.t()) :: {:ok, Value.t(), Value.t(), t()} | :dead
-  def peel(walk, element = %Element{part: :whole}),
-    do: peel(walk, %{element | part: {:fields, 0}})
-
-  def peel(
-        walk,
-        fields = %Element{
-          row: row = {bank, first},
-          col: {:at, base, m, a},
-          part: {:fields, n}
-        }
-      ) do
-    walk = refine(walk, %{row => %Record{width: {:at_least, n + 1}}})
-    {:ok, Ast.at({bank, first + n}, base, m, a), %{fields | part: {:fields, n + 1}}, walk}
+  def peel(walk, {:across, row = {bank, first}, col = {:at, base, m, a}, n}) do
+    walk = refine(walk, %{row => {:list, {:at_least, n + 1}, :scalar}})
+    {:ok, Ast.at({bank, first + n}, base, m, a), {:across, row, col, n + 1}, walk}
   end
 
   def peel(walk, value) do
     case Value.shaped(value, walk.shapes) do
-      %Cons{head: head, tail: tail} ->
+      {:pair, head, tail} ->
         {:ok, head, tail, walk}
 
       [head | tail] ->
         {:ok, head, tail, walk}
 
-      view = %View{col: col} when col != nil ->
-        with walk = %__MODULE__{} <- presence(walk, view, 1),
-             do: {:ok, View.slice(view, 0), View.shifted(view, 1), walk}
+      along = {:along, _row, _address} ->
+        with walk = %__MODULE__{} <- presence(walk, along, 1),
+             do: {:ok, Place.slice(along, 0, walk.shapes), Place.shifted(along, 1), walk}
 
-      ref = %Ref{} ->
-        {:ok, %Ref{id: Ref.read(:head, ref)}, %Ref{id: Ref.read(:tail, ref)},
-         constrain(walk, [Ast.eq(Ref.read(:tag, ref), 2)])}
+      {:node, id} ->
+        {:ok, {:node, Place.read(:head, id)}, {:node, Place.read(:tail, id)},
+         constrain(walk, [Ast.eq(Place.read(:tag, id), 2)])}
 
       _other ->
         :dead
@@ -261,29 +243,27 @@ defmodule Zkfol.Phi.Walk do
 
   @doc "I close a record's shape or require an existing sequence to end."
   @spec ended(t(), Value.t()) :: t() | :dead
-  def ended(walk, %Element{row: row, part: :whole}),
-    do: refine(walk, %{row => %Record{width: 0}})
-
-  def ended(walk, %Element{row: row, part: {:fields, width}}),
-    do: refine(walk, %{row => %Record{width: width}})
+  def ended(walk, {:across, row, _address, width}),
+    do: refine(walk, %{row => {:list, {0, width}, :scalar}})
 
   def ended(walk, value) do
     case Value.shaped(value, walk.shapes) do
       [] -> walk
-      view = %View{col: col} when col != nil -> presence(walk, view, 0)
-      %Ref{id: id} -> constrain(walk, [Ast.eq(id, 1)])
+      along = {:along, _row, _address} -> presence(walk, along, 0)
+      {:node, id} -> constrain(walk, [Ast.eq(id, 1)])
       _other -> :dead
     end
   end
 
   # A known length decides presence; otherwise the bank's presence cell must say it.
-  defp presence(walk, %View{length: n}, required) when is_integer(n) do
-    present = if n == 0, do: 0, else: 1
-    if present == required, do: walk, else: :dead
+  defp presence(walk, along, required) do
+    case Place.count(along) do
+      nil -> constrain(walk, [Ast.eq(Place.presence(along), required)])
+      0 when required == 0 -> walk
+      n when n > 0 and required == 1 -> walk
+      _other -> :dead
+    end
   end
-
-  defp presence(walk, view, required),
-    do: constrain(walk, [Ast.eq(View.presence(view), required)])
 
   ############################################################
   #                            Views                         #

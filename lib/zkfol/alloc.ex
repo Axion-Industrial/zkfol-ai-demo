@@ -51,6 +51,7 @@ defmodule Zkfol.Alloc do
     typedstruct enforce: true do
       field(:name, atom())
       field(:depth, pos_integer())
+      field(:element, Zkfol.Phi.Shape.t(), default: :unknown)
     end
 
     @doc "I am the name of the bank a parameter's cells stand in."

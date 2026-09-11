@@ -73,6 +73,18 @@ defmodule Zkfol.Lang do
     def passed({:var, name}, bound), do: if(not MapSet.member?(bound, name), do: {name, []})
     def passed(_term, _bound), do: nil
 
+    @doc "I am the elements a closed bracket lists; a bracket open past a name lists none for sure."
+    @spec closed(term()) :: [term()] | nil
+    def closed(nil), do: []
+    def closed({:var, _name}), do: nil
+
+    def closed({:cons, head, tail}) do
+      case closed(tail) do
+        nil -> nil
+        rest -> [head | rest]
+      end
+    end
+
     @doc "I say whether a term is a sequence: a bracket or the empty one."
     @spec sequence?(term()) :: boolean()
     def sequence?(nil), do: true
@@ -277,8 +289,8 @@ defmodule Zkfol.Lang do
   defp term([{:|, _meta, [head, tail]}]), do: {:cons, term(head), term(tail)}
   defp term([head | tail]), do: {:cons, term(head), term(tail)}
   defp term({name, _meta, ctx}) when is_atom(name) and is_atom(ctx), do: {:var, name}
-  defp term({:+, _meta, [a, b]}), do: {:add, term(a), term(b)}
-  defp term({:*, _meta, [a, b]}), do: {:mul, term(a), term(b)}
+  defp term({:+, _meta, [a, b]}), do: sum(term(a), term(b))
+  defp term({:*, _meta, [a, b]}), do: product(term(a), term(b))
 
   defp term({:**, _meta, [a, q]}) when is_integer(q) and q > 0,
     do: Enum.reduce(2..q//1, term(a), fn _k, acc -> {:mul, acc, term(a)} end)
@@ -296,6 +308,15 @@ defmodule Zkfol.Lang do
 
   defp term({{:., _dot, [mod, name]}, _meta, args}) when is_atom(mod) and is_list(args),
     do: {:papply, {mod, name}, Enum.map(args, &term/1)}
+
+  # A constant rides right, so every reader of a sum or product sees one form.
+  @spec sum(Term.t(), Term.t()) :: Term.t()
+  defp sum(q, t) when is_integer(q) and not is_integer(t), do: {:add, t, q}
+  defp sum(t, u), do: {:add, t, u}
+
+  @spec product(Term.t(), Term.t()) :: Term.t()
+  defp product(q, t) when is_integer(q) and not is_integer(t), do: {:mul, t, q}
+  defp product(t, u), do: {:mul, t, u}
 
   # The index names the existential a call of the library stands on, one per site.
   @spec goals([Macro.t()]) :: [term()]
