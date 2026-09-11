@@ -50,6 +50,11 @@ defmodule Zkfol.Interpretation do
     end
   end
 
+  @doc "I am me with C@i,x replaced."
+  @spec put(t(), pos_integer(), pos_integer(), integer()) :: t()
+  def put(%__MODULE__{rows: rows}, i, x, value),
+    do: %__MODULE__{rows: put_elem(rows, i - 1, put_elem(elem(rows, i - 1), x - 1, value))}
+
   @doc "I return the number of rows, ar(C)."
   @spec arity(t()) :: pos_integer()
   def arity(%__MODULE__{rows: rows}), do: tuple_size(rows)

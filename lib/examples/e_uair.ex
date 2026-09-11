@@ -178,7 +178,7 @@ defmodule Examples.EUair do
     statement = EUser.registers_mod(6)
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
 
-    assert {4, 32, 8} in uair.word_lookups
+    assert {5, 32, 8} in uair.word_lookups
     assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :slacked_trace)
     uair
   end
@@ -230,7 +230,7 @@ defmodule Examples.EUair do
       uair.columns
       |> at.(0, &(&1 + modulus))
       |> at.(2, &(&1 - 1))
-      |> at.(4, &(&1 - modulus))
+      |> at.(5, &(&1 - modulus))
 
     forged = %{uair | columns: columns}
     assert hd(Enum.at(columns, 0)) >= modulus
