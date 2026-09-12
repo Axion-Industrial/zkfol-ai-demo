@@ -86,7 +86,9 @@ defmodule Zkfol.Al do
   @doc "I retract this ask’s clauses; other installations keep theirs."
   @spec close(Ask.t()) :: :ok | {:error, Refusal.t()}
   def close(%Ask{rels: rels, branch: branch, heap: heap, class: class}) do
-    program = AL.ast_to_pattern({:__block__, [], retractions(Enum.map(rels, & &1.name), class)})
+    program =
+      AL.ast_to_pattern({:__block__, [], retractions(Enum.map(rels, &method(&1.name)), class)})
+
     install(program, branch, heap)
   end
 
@@ -147,7 +149,8 @@ defmodule Zkfol.Al do
   @spec asking(prep(), [Statement.datum() | :_], atom()) :: program()
   defp asking(%{root: root, bind: bind, len?: len?}, arguments, class) do
     sized = if len?, do: [Map.fetch!(bind, 1)], else: []
-    [AL.ast_to_pattern({root.name, [], [class | goal(root.arity, bind, arguments) ++ sized]})]
+    goal = {method(root.name), [], [class | goal(root.arity, bind, arguments) ++ sized]}
+    [AL.ast_to_pattern(goal)]
   end
 
   # AL keeps every call under the frame that made it, so its journal is the derivation. The
@@ -156,7 +159,7 @@ defmodule Zkfol.Al do
   @spec capped_eval(Ask.t()) ::
           {:ok, AL.Var.store(), Derivation.t()} | {:no, term()} | {:error, Refusal.t()}
   defp capped_eval(ask = %Ask{}) do
-    names = MapSet.new(ask.rels, & &1.name)
+    names = Map.new(ask.rels, &{method(&1.name), {&1.name, &1.arity}})
 
     {pid, ref} =
       spawn_monitor(fn ->
@@ -271,7 +274,7 @@ defmodule Zkfol.Al do
           {:ok,
            defmethod(
              class,
-             rname,
+             method(rname),
              [v(:self) | params ++ lenp],
              {:__block__, [], reading ++ posted ++ goals}
            )}
@@ -366,7 +369,7 @@ defmodule Zkfol.Al do
     ]
   end
 
-  defp sent(name, args, _i, _j), do: [{name, [], [v(:self) | args]}]
+  defp sent(name, args, _i, _j), do: [{method(name), [], [v(:self) | args]}]
 
   @spec argument({term(), term()}, non_neg_integer(), non_neg_integer()) ::
           {:ok, {[Macro.t()], Macro.t()}} | {:error, Refusal.t()}
@@ -378,7 +381,7 @@ defmodule Zkfol.Al do
              argument({held, "#{k}p#{p}"}, i, j)
            end) do
       {built, bound} = Enum.unzip(fixed)
-      {:ok, {Enum.concat(built) ++ [functor(fresh, name, [v(:self) | bound])], fresh}}
+      {:ok, {Enum.concat(built) ++ [functor(fresh, method(name), [v(:self) | bound])], fresh}}
     end
   end
 
@@ -425,6 +428,10 @@ defmodule Zkfol.Al do
       Term.reduce(head ++ body, false, &(&2 or &1 == :len))
     end)
   end
+
+  @doc "I am the method name a relation is installed under. The prefix keeps relation names from shadowing AL's own methods, such as `concat`."
+  @spec method(atom()) :: atom()
+  def method(name), do: :"rel:#{name}"
 
   @spec defmethod(atom(), atom(), [Macro.t()], Macro.t()) :: Macro.t()
   defp defmethod(class, name, head, body), do: {:defmethod, [], [class, name, head, [do: body]]}

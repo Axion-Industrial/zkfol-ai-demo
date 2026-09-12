@@ -21,7 +21,10 @@ defmodule Zkfol.Derivation do
   I am the derivation AL's journal carries, deduplicated, callees ahead of their callers;
   each fact sits beside what its calls consumed and the seq that established it.
   """
-  @spec of(AL.t(), MapSet.t(), boolean()) :: t()
+  @typedoc "The relations by the method each is installed as: its name and arity."
+  @type methods :: %{atom() => {atom(), non_neg_integer()}}
+
+  @spec of(AL.t(), methods(), boolean()) :: t()
   def of(%AL{domino: %{trace: trace}, active_choicepoint: %{store: store}}, names, len?) do
     tree = trace |> Enum.reverse() |> AL.Trace.derivation_tree(store)
     nodes = tree |> List.wrap() |> Enum.flat_map(&walk(&1, names, len?, store))
@@ -55,19 +58,19 @@ defmodule Zkfol.Derivation do
   @spec consumption(t()) :: [{fact(), [fact()]}]
   def consumption(%__MODULE__{consumed: consumed}), do: consumed
 
-  @spec walk(map(), MapSet.t(), boolean(), map()) :: [
+  @spec walk(map(), methods(), boolean(), map()) :: [
           {fact(), {[fact()], non_neg_integer() | nil}}
         ]
-  defp walk(node = %{label: {_self, m, _args}, children: kids}, names, len?, store) do
+  defp walk(node = %{label: label, children: kids}, names, len?, store) do
     below = Enum.flat_map(kids, &walk(&1, names, len?, store))
 
-    if MapSet.member?(names, m) do
+    if fact?(label, names, len?) do
       consumed =
-        for %{label: {_self, k, _args}} = kid <- kids,
-            MapSet.member?(names, k),
-            do: fact_of(kid, len?, store)
+        for %{label: kid_label} = kid <- kids,
+            fact?(kid_label, names, len?),
+            do: fact_of(kid, names, len?, store)
 
-      below ++ [{fact_of(node, len?, store), {consumed, node.clause}}]
+      below ++ [{fact_of(node, names, len?, store), {consumed, node.clause}}]
     else
       below
     end
@@ -75,10 +78,22 @@ defmodule Zkfol.Derivation do
 
   defp walk(_node, _names, _len?, _store), do: []
 
-  @spec fact_of(map(), boolean(), map()) :: fact()
-  defp fact_of(%{label: {_self, m, args}, derived: derived}, len?, store) do
+  # I match a journal node to a relation by its method name and arity.
+  @spec fact?(term(), methods(), boolean()) :: boolean()
+  defp fact?({_self, m, args}, names, len?) do
+    case Map.get(names, m) do
+      {_name, arity} -> arity == length(args) - if(len?, do: 1, else: 0)
+      nil -> false
+    end
+  end
+
+  defp fact?(_label, _names, _len?), do: false
+
+  @spec fact_of(map(), methods(), boolean(), map()) :: fact()
+  defp fact_of(%{label: {_self, m, args}, derived: derived}, names, len?, store) do
+    {name, _arity} = Map.fetch!(names, m)
     values = for arg <- args, do: arg |> resolved(derived) |> AL.Var.subst(store)
-    {m, if(len?, do: Enum.drop(values, -1), else: values)}
+    {name, if(len?, do: Enum.drop(values, -1), else: values)}
   end
 
   # A sequence built one call at a time was journalled with its tail still open.

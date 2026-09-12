@@ -84,7 +84,10 @@ defmodule Examples.EQuery do
 
   @spec answers?(Zkfol.Al.Ask.t()) :: boolean()
   defp answers?(%Zkfol.Al.Ask{branch: branch, class: class}) do
-    goal = [AL.ast_to_pattern(quote(do: tab(unquote(class), _x, _v)))]
+    goal = [
+      AL.ast_to_pattern({Zkfol.Al.method(:tab), [], [class, {:_x, [], nil}, {:_v, [], nil}]})
+    ]
+
     match?({:atomic, _answer}, AL.eval(goal, nil, branch, []))
   end
 
