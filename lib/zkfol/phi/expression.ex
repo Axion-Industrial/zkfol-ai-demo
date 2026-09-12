@@ -13,8 +13,7 @@ defmodule Zkfol.Phi.Expression do
   """
 
   alias Zkfol.Ast
-  alias Zkfol.Phi.{Value, Walk}
-  alias Zkfol.Unrolling
+  alias Zkfol.Phi.{Place, Value, Walk}
 
   @type waiting :: {:waiting, [atom()]}
   @type result :: {:ok, Value.t()} | waiting()
@@ -60,7 +59,7 @@ defmodule Zkfol.Phi.Expression do
         case op do
           :add -> Ast.add(Value.scalar(a), Value.scalar(b))
           :mul -> Ast.mul(Value.scalar(a), Value.scalar(b))
-          :cons -> Unrolling.consed(a, b, walk.shapes, walk.unrolling)
+          :cons -> Place.consed(a, b, walk.shapes)
         end
 
       {:ok, value}

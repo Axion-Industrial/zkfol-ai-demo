@@ -76,7 +76,7 @@ defmodule Zkfol.Phi do
   @spec verb() :: Zkfol.Pipeline.verdict()
   def verb, do: :lowers
 
-  @doc "I lay the derivation for the statement; `unrolling: false` lays it with lists held behind pointers."
+  @doc "I lay the derivation for the statement; `unrolling: false` lays it with every list in the heap."
   @spec relaid(Statement.t(), Derivation.t(), keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
   def relaid(
@@ -109,7 +109,7 @@ defmodule Zkfol.Phi do
 
   @doc """
   I compile `root` against `rels` to its predicate and allocation; `args` size its banks.
-  `unrolling: false` compiles with every list held behind a pointer.
+  `unrolling: false` compiles without `Zkfol.Unrolling`: every list in the heap.
   """
   @spec compile(Rel.t(), [Rel.t()] | nil, [term()], keyword()) ::
           {:ok, Ast.pred(), Alloc.t()} | {:error, Refusal.t()}
@@ -259,69 +259,30 @@ defmodule Zkfol.Phi do
   #                   Parameter Allocation                   #
   ############################################################
 
-  # Each parameter is declared as what it stands on, before any clause is matched. The
-  # layout decides from the relation's clauses and the handed places; the walk receives
-  # the decision as the values it reads today.
+  # Each parameter is declared before any clause is matched: as the place Unrolling gives
+  # it, a new bank declared with its shape, or as its plain place when nothing unrolls.
   @spec parameters(Rel.t(), [value()], Place.known(), ctx(), [Ast.row_ref()]) ::
           {{non_neg_integer(), integer()} | nil, Walk.t()}
-  defp parameters(rel, handed, known, %{scope: scope, unrolling: on}, refs) do
-    {{step, counter}, shapes} = Unrolling.shapes(rel, handed, known, scope, on)
-    places = Unrolling.places(rel, refs, handed, shapes, {step, counter}, on)
+  defp parameters(rel, handed, known, %{scope: scope, unrolling: true}, refs) do
+    {counter, shapes, places} = Unrolling.parameters(rel, refs, handed, known, scope)
 
     declarations =
-      for {{ref, form, place, shape}, k} <-
-            Enum.with_index(Enum.zip([refs, handed, places, shapes])) do
-        declared(rel, ref, form, place, shape, {step, counter}, k)
+      for {ref, form, place, shape} <- Enum.zip([refs, handed, places, shapes]) do
+        if Place.is_laid(place) and not Place.is_laid(form),
+          do: Walk.bank(%Walk{}, ref, place, shape),
+          else: Walk.bind(%Walk{}, ref, place)
       end
 
-    initial = Walk.refine(%Walk{unrolling: on}, known)
-    {counter, Enum.reduce(declarations, initial, &Walk.merge/2)}
+    {counter, Enum.reduce(declarations, Walk.refine(%Walk{}, known), &Walk.merge/2)}
   end
 
-  # The layout's decision as a declaration over the value it was made for.
-  @spec declared(
-          Rel.t(),
-          Ast.row_ref(),
-          value(),
-          Place.t(),
-          Shape.t(),
-          Unrolling.steps(),
-          integer()
-        ) ::
-          Walk.t()
-  defp declared(_rel, ref, form, place, shape, {step, counter}, k) do
-    {j, o} = counter || {nil, 0}
+  defp parameters(rel, handed, known, %{unrolling: false}, refs) do
+    declarations =
+      for {{ref, form}, k} <- Enum.with_index(Enum.zip(refs, handed)) do
+        Walk.bind(%Walk{}, ref, Place.plain(form, ref, Layout.list?(rel.clauses, k)))
+      end
 
-    case {place, form} do
-      {{:node, _id}, _form} ->
-        Walk.bind(%Walk{}, ref, {:node, Ast.cell(ref)}, {:node, ref})
-
-      {_column, _form} when k == j and shape == :scalar ->
-        Walk.bind(%Walk{}, ref, Ast.add(:x, o))
-
-      # A constant placed in a cell is a count the cell holds.
-      {{:cell, ^ref}, q} when is_integer(q) ->
-        Walk.bind(%Walk{}, ref, {:count, q, Ast.cell(ref)})
-
-      # A passed relation's fixed arguments are stored in the member's own cells; the call
-      # equates them with the caller's values.
-      {_relation, {:rel, p, fixed}} ->
-        {name, {:param, sym}} = ref
-        rows = for k <- 1..length(fixed)//1, do: {name, {:own, {:"#{sym}.#{k}", []}}}
-        Walk.bind(%Walk{}, ref, {:rel, p, Enum.map(rows, &Ast.cell/1)}, {:rel, p, rows})
-
-      {laid, laid} when Place.is_laid(laid) and step != nil and counter != nil ->
-        Walk.bind(%Walk{}, ref, Place.stepped(form, shape))
-
-      {laid, laid} when Place.is_laid(laid) ->
-        Walk.bind(%Walk{}, ref, form)
-
-      {laid, _handed} when Place.is_laid(laid) ->
-        Walk.bank(%Walk{}, ref, laid, shape)
-
-      {_read_as_it_is, _form} ->
-        Walk.bind(%Walk{}, ref, form)
-    end
+    {nil, Enum.reduce(declarations, Walk.refine(%Walk{}, known), &Walk.merge/2)}
   end
 
   # A parameter the clauses bound keeps the storage they chose; one they only read gets a
@@ -480,15 +441,21 @@ defmodule Zkfol.Phi do
         end
       end
 
+    # A call to a relation that never reaches itself is unrolled; a recursive call is
+    # unrolled only as Unrolling allows, and is a member without it.
     {strategy, inlining} =
-      Unrolling.strategy(callee, values, walk.shapes, ctx.inlining, ctx.recursive, ctx.unrolling)
+      cond do
+        callee.name not in ctx.recursive -> {:inline, ctx.inlining}
+        ctx.unrolling -> Unrolling.strategy(callee, values, walk.shapes, ctx.inlining)
+        true -> {:residual, ctx.inlining}
+      end
 
     within = %{ctx | inlining: inlining}
 
     expansions =
       for {{head, body}, k} <- Enum.with_index(callee.clauses),
           inner = %Walk{} <-
-            [match(head, values, %Walk{shapes: walk.shapes, unrolling: walk.unrolling})] do
+            [match(head, values, %Walk{shapes: walk.shapes})] do
         if strategy == :residual,
           do: :residual,
           else: inline_clause(callee.name, {k, head, body, inner}, args, walk, within)
@@ -628,8 +595,8 @@ defmodule Zkfol.Phi do
   defp reuse_member(callee, values, ctx) do
     with {%Member{name: ancestor, steps: steps}, binds} <-
            Enum.find(ctx.ancestors, fn {member, _binds} -> member.relation == callee.name end),
-         true <- Unrolling.continues?(values, binds) do
-      frame = framed_at(Unrolling.frame(values, steps, ctx.unrolling), ancestor, ctx)
+         true <- continues?(values, binds) do
+      frame = framed_at(if(steps, do: Unrolling.frame(values, steps), else: :ptr), ancestor, ctx)
       {ancestor, binds, frame, %Walk{}}
     else
       _another -> nil
@@ -639,28 +606,58 @@ defmodule Zkfol.Phi do
   # A bank made from a literal holds exactly those cells: its presence is bounded here.
   @spec place_new_member(Rel.t(), [value()], Place.known(), ctx()) :: placement()
   defp place_new_member(callee, values, known, ctx) do
-    lifted = for form <- values, do: Unrolling.liftable(form)
-    {_step, steps} = Unrolling.column_counter(callee.clauses, lifted, known, ctx.unrolling)
+    lifted = for form <- values, do: Value.handed(form)
 
     frame =
-      case Unrolling.frame(values, steps, ctx.unrolling) do
-        # With unrolling on, a callee that counts no column stands at the caller's column,
-        # because unrolling gives each call its own column. Off, it stands at a pointer.
-        :ptr when steps == nil and ctx.unrolling -> Ast.address(:x, 1, 0)
-        frame -> framed_at(frame, callee.name, ctx)
-      end
+      framed_at(
+        if(ctx.unrolling, do: Unrolling.new_frame(callee, values, lifted, known), else: :ptr),
+        callee.name,
+        ctx
+      )
 
     {name, binds, walk} =
       compile_member(callee, for(form <- lifted, do: Value.unframe(form, frame)), known, ctx)
 
     bounded =
       for {cells, bind} <- Enum.zip(lifted, binds),
-          Unrolling.data_list?(cells),
+          Layout.data?(cells),
           laid when Place.is_laid(laid) <- [Value.frame(bind, frame)],
           eq <- Place.bounded(laid, length(cells)),
           do: eq
 
     {name, binds, frame, %{walk | eqs: bounded}}
+  end
+
+  # A call continues the member being compiled unless it hands a literal list, a pair
+  # built from source, a node, a different passed relation, or a different constant.
+  @spec continues?([value()], [value()]) :: boolean()
+  defp continues?(values, binds) do
+    Enum.all?(Enum.zip(values, binds), fn
+      {_value, {:node, _id}} ->
+        true
+
+      # A member specialized on a constant continues only with that constant.
+      {value, bind} when is_integer(bind) ->
+        value == bind
+
+      {cells, _bind} when is_list(cells) ->
+        false
+
+      {{:pair, _, _}, _bind} ->
+        false
+
+      {:fresh, laid} when Place.is_laid(laid) ->
+        match?({m, _a} when m != 0, Place.extent(laid))
+
+      {{:node, _id}, _bind} ->
+        false
+
+      {{:rel, _p, _fixed} = passed, bind} ->
+        bind == passed
+
+      _form ->
+        true
+    end)
   end
 
   # A call with no affine frame reads through a pointer cell owned by the call site.

@@ -87,7 +87,6 @@ defmodule Zkfol.Phi.Walk do
     field(:sites, [{non_neg_integer(), Site.t()}], default: [])
     field(:slots, [Slot.t()], default: [])
     field(:clauses, [Clause.t()], default: [])
-    field(:unrolling, boolean(), default: true)
   end
 
   @doc "I merge a parameter declaration into a walk; the declaration's entries take precedence."
@@ -155,12 +154,17 @@ defmodule Zkfol.Phi.Walk do
   end
 
   @doc """
-  I bind a parameter to an access. A handed count gets a cell, the column uses no row,
-  and other accesses are shared. A fresh parameter waits for matching to resolve it.
+  I bind a parameter to an access. A node in the parameter's cell owns it, as a passed
+  relation owns the cells of its fixed arguments; a handed count gets a cell; the column
+  uses no row; other accesses are shared. A fresh parameter waits for matching to resolve it.
   """
   @spec bind(t(), Ast.row_ref(), Value.t()) :: t()
   def bind(walk, _ref, :fresh), do: walk
   def bind(walk, _ref, {:fresh, _unplaced}), do: walk
+  def bind(walk, ref, node = {:node, {:cell, ref}}), do: bind(walk, ref, node, {:node, ref})
+
+  def bind(walk, ref, passed = {:rel, p, cells}),
+    do: bind(walk, ref, passed, {:rel, p, Enum.map(cells, fn {:cell, row} -> row end)})
 
   def bind(walk, ref, {:count, q, _cell}),
     do: bind(walk, ref, {:count, q, Ast.cell(ref)}, {:cell, ref})

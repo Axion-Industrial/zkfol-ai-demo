@@ -21,16 +21,17 @@ defmodule Zkfol.Phi.Place do
   ### Public API
 
   - `shape/2`: the shape of a place, given the banks' shapes.
-  - `peel/2`, `ended/2`: a list as head and tail, or as empty, and what that taught.
   - `is_laid/1`: the guard for a list in a bank, `along` or `held`.
   - `slice/3`, `shifted/2`: one element of a list in a bank, and the list past `i`.
   - `extent/1`, `count/1`, `width/2`, `cells/2`, `size/2`: what a list in a bank holds.
   - `stepped/2`, `presence/1`, `bounded/2`: a list re-headed along the trace, and its presence.
-  - `address/1`: the column form of a list's head, as the allocation and the backend read it.
+  - `address/1`, `headed/2`: the column form of a list's head, and the list with its head at an address.
+  - `resolved/2`: an element read across rows, as far as its bank's shape is known.
   - `fresh?/1`: whether nothing has bound the place.
   - `affine/1`: the coefficients of a scalar place that is `m * X + a`.
-  - `framed/2`, `unframed/2`: an addressed place from a call's column, and back.
   - `head/1`: the head of a list of a shape unrolled along the trace, which ends at column one.
+  - `consed/3`: the list a peeled head and tail came from, or their pair.
+  - `plain/3`, `owned/2`: a parameter's place when nothing unrolls; a passed relation in own cells.
   - `node_of/1`, `read/2`: the node realizing a place, and a field read through a node.
   """
 
@@ -59,9 +60,6 @@ defmodule Zkfol.Phi.Place do
 
   @typedoc "What is known of each bank: the shape of every element on its rows."
   @type known :: %{Ast.row_ref() => Shape.t()}
-
-  @typedoc "What an observation learned: a bank's shape, or nothing."
-  @type learned :: known()
 
   @doc "I match a list in a bank: `along` or `held`."
   defguard is_laid(place) when is_tuple(place) and elem(place, 0) in [:along, :held]
@@ -96,6 +94,11 @@ defmodule Zkfol.Phi.Place do
   @spec address(t()) :: Ast.address()
   def address({:along, _row, head}), do: head
   def address({:held, _row, ref, {m, a}}), do: Ast.address({:cell, ref}, m, a)
+
+  @doc "I return the list in a bank whose head is at an address: `along` when the address is in X, `held` when it is behind a cell."
+  @spec headed(Ast.row_ref(), Ast.address()) :: t()
+  def headed(row, head = {:at, :x, _m, _a}), do: {:along, row, head}
+  def headed(row, {:at, {:cell, ref}, m, a}), do: {:held, row, ref, {m, a}}
 
   @doc "I return a list's extent. A list along the trace ends at column one, so its extent is its head column minus one. A held list is open."
   @spec extent(t()) :: Shape.extent()
@@ -151,77 +154,27 @@ defmodule Zkfol.Phi.Place do
     end
   end
 
-  @doc """
-  I return a list's first element and the rest. The element of an `along` list is a cell
-  when the bank holds scalars, and an `across` record otherwise. Peeling a record says the
-  bank's elements have one more field than was known; I return that too.
-  """
-  @spec peel(t(), known()) :: {:ok, t(), t(), learned()} | :dead
-  def peel(place, known) do
-    case place do
-      {:pair, head, tail} ->
-        {:ok, head, tail, %{}}
-
-      [head | tail] ->
-        {:ok, head, tail, %{}}
-
-      {:node, id} ->
-        {:ok, {:node, read(:head, id)}, {:node, read(:tail, id)}, %{}}
-
-      laid when is_laid(laid) ->
-        {:ok, slice(laid, 0, known), shifted(laid, 1), %{}}
-
-      {:across, row = {bank, first}, address, skipped} ->
-        opened = {:list, {:at_least, skipped + 1}, :scalar}
-
-        case Shape.meet(Map.get(known, row, :unknown), opened) do
-          :contradiction ->
-            :dead
-
-          shape ->
-            field = at({bank, first + skipped}, address)
-            {:ok, field, {:across, row, address, skipped + 1}, %{row => shape}}
-        end
-
-      _ ->
-        :dead
-    end
-  end
-
-  @doc "I return what a list being empty says of its bank, or `:dead` when it cannot be empty."
-  @spec ended(t(), known()) :: {:ok, learned()} | :dead
-  def ended(place, known) do
-    case place do
-      [] ->
-        {:ok, %{}}
-
-      {:node, _id} ->
-        {:ok, %{}}
-
-      laid when is_laid(laid) ->
-        {:ok, %{}}
-
-      {:across, row, _address, skipped} ->
-        case Shape.meet(Map.get(known, row, :unknown), {:list, {0, skipped}, :scalar}) do
-          :contradiction -> :dead
-          shape -> {:ok, %{row => shape}}
-        end
-
-      _scalar_or_nothing ->
-        :dead
-    end
-  end
-
   @doc "I return element `i` of a list in a bank: a cell, a record's cells, or an element not yet known."
   @spec slice(t(), integer(), known()) :: t()
-  def slice(laid, i, known) when is_laid(laid) do
-    row = {bank, first} = elem(laid, 1)
-    column = shifted_by(address(laid), i)
+  def slice(laid, i, known) when is_laid(laid),
+    do: resolved({:across, elem(laid, 1), shifted_by(address(laid), i), 0}, known)
 
+  @doc """
+  I return an element read across rows as far as its bank's shape is known: the cell when
+  the bank holds scalars, the fields past `skipped` when it holds records of a known width,
+  and the element itself otherwise.
+  """
+  @spec resolved(t(), known()) :: t()
+  def resolved(element = {:across, row = {bank, first}, column, skipped}, known) do
     case Map.get(known, row, :unknown) do
-      :scalar -> at(row, column)
-      {:list, {0, width}, :scalar} -> Enum.map(0..(width - 1)//1, &at({bank, first + &1}, column))
-      _list_or_unknown -> {:across, row, column, 0}
+      :scalar when skipped == 0 ->
+        at(row, column)
+
+      {:list, {0, width}, :scalar} ->
+        Enum.map(skipped..(width - 1)//1, &at({bank, first + &1}, column))
+
+      _list_or_unknown ->
+        element
     end
   end
 
@@ -313,31 +266,53 @@ defmodule Zkfol.Phi.Place do
 
   def affine(_place), do: nil
 
-  @doc "I return an addressed place as seen from a call's column. A held list has no column address, so it is unreached."
-  @spec framed(t(), Ast.address()) :: t() | :unreached
-  def framed(place, {:at, :x, 1, 0}), do: place
-  def framed({:along, row, head}, frame), do: placed({:along, row, Ast.reframe(head, frame)})
-  def framed({:held, _row, _ref, _head}, _frame), do: :unreached
+  @doc "I return the list a head and tail were peeled from, when the tail is that list past its head; otherwise their pair."
+  @spec consed(t(), t(), known()) :: t()
+  def consed(head, tail, known) when is_laid(tail) do
+    if slice(tail, -1, known) == head,
+      do: shifted(tail, -1),
+      else: {:pair, head, tail}
+  end
 
-  def framed({:across, row, address, n}, frame),
-    do: placed({:across, row, Ast.reframe(address, frame), n})
+  def consed(head, tail, _known), do: {:pair, head, tail}
 
-  @doc "I return an addressed place as seen inside the call, or `:unreached` when the frame cannot express it."
-  @spec unframed(t(), Ast.address()) :: t() | :unreached
-  def unframed(place, {:at, :x, 1, 0}), do: place
-  def unframed({:along, row, head}, frame), do: placed({:along, row, Ast.unframe(head, frame)})
-  def unframed({:held, _row, _ref, _head}, _frame), do: :unreached
+  @doc """
+  I return the place a parameter stands at when nothing unrolls: a list, or a value the
+  clauses read as a list, is a node in the heap; a passed relation's fixed arguments take
+  the member's own cells; a constant is a count in the parameter's cell; a scalar stands
+  where it was handed.
+  """
+  @spec plain(t(), Ast.row_ref(), boolean()) :: t()
+  def plain(form, ref, list?) do
+    cond do
+      list? or is_list(form) ->
+        {:node, Ast.cell(ref)}
 
-  def unframed({:across, row, address, n}, frame),
-    do: placed({:across, row, Ast.unframe(address, frame), n})
+      is_tuple(form) and elem(form, 0) in [:node, :pair, :across, :along, :held] ->
+        {:node, Ast.cell(ref)}
 
-  # A head the frame cannot express is unreached. A head reframed onto a pointer cell
-  # becomes a held list.
-  @spec placed(tuple()) :: t() | :unreached
-  defp placed({:along, _row, nil}), do: :unreached
-  defp placed({:along, row, {:at, {:cell, ref}, m, a}}), do: {:held, row, ref, {m, a}}
-  defp placed({:across, _row, nil, _skipped}), do: :unreached
-  defp placed(place), do: place
+      match?({:rel, _, _}, form) ->
+        owned(form, ref)
+
+      is_integer(form) ->
+        {:count, form, Ast.cell(ref)}
+
+      match?({:count, _, _}, form) ->
+        {:count, elem(form, 1), Ast.cell(ref)}
+
+      form == :fresh ->
+        {:fresh, ref}
+
+      true ->
+        form
+    end
+  end
+
+  @doc "I return a passed relation with its fixed arguments in the member's own cells, one per argument."
+  @spec owned(t(), Ast.row_ref()) :: t()
+  def owned({:rel, p, fixed}, {name, {:param, sym}}) do
+    {:rel, p, for(k <- 1..length(fixed)//1, do: Ast.cell({name, {:own, {:"#{sym}.#{k}", []}}}))}
+  end
 
   @doc "I return the node realizing a place: itself when it is one, the empty list's, or a row named by it."
   @spec node_of(t() | term()) :: {:node, Ast.term_t()}
