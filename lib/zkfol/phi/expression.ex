@@ -60,7 +60,7 @@ defmodule Zkfol.Phi.Expression do
         case op do
           :add -> Ast.add(Value.scalar(a), Value.scalar(b))
           :mul -> Ast.mul(Value.scalar(a), Value.scalar(b))
-          :cons -> Unrolling.consed(a, b, walk.shapes)
+          :cons -> Unrolling.consed(a, b, walk.shapes, walk.unrolling)
         end
 
       {:ok, value}

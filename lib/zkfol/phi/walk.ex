@@ -87,6 +87,7 @@ defmodule Zkfol.Phi.Walk do
     field(:sites, [{non_neg_integer(), Site.t()}], default: [])
     field(:slots, [Slot.t()], default: [])
     field(:clauses, [Clause.t()], default: [])
+    field(:unrolling, boolean(), default: true)
   end
 
   @doc "I merge a parameter declaration into a walk; the declaration's entries take precedence."
@@ -159,6 +160,7 @@ defmodule Zkfol.Phi.Walk do
   """
   @spec bind(t(), Ast.row_ref(), Value.t()) :: t()
   def bind(walk, _ref, :fresh), do: walk
+  def bind(walk, _ref, {:fresh, _unplaced}), do: walk
 
   def bind(walk, ref, {:count, q, _cell}),
     do: bind(walk, ref, {:count, q, Ast.cell(ref)}, {:cell, ref})

@@ -25,10 +25,12 @@ defmodule Zkfol.Alloc do
       {:bank, name, address}   a sequence in the named bank, its head at the address
       {:column, origin}        the column itself, X + origin; no row
       {:node, ref}             a term identity on a row at my member’s column
-      :none                    no row of the trace: a relation, or a value standing elsewhere
+      {:rel, name, rows}       a relation passed by name, its fixed arguments on these rows
+      :none                    no row of the trace: a value standing elsewhere
   """
   @type allocation ::
           {:cell, Ast.row_ref()}
+          | {:rel, atom(), [Ast.row_ref()]}
           | {:bank, atom(), Ast.address()}
           | {:column, integer()}
           | {:node, Ast.row_ref()}
@@ -134,7 +136,8 @@ defmodule Zkfol.Alloc do
                 %Site{address: {:at, {:cell, ref}, _m, _a}} <- calls,
                 do: ref
 
-          nodes ++ pointers
+          held = for %Slot{allocation: {:bank, _, {:at, {:cell, ref}, _, _}}} <- slots, do: ref
+          nodes ++ pointers ++ held
 
         %Zkfol.Nodes{refs: refs} ->
           for {Zkfol.Nodes, field} = ref <- refs, field not in [:tag, :value], do: ref
@@ -238,9 +241,12 @@ defmodule Zkfol.Alloc do
     Bank.rows(name, depth)
   end
 
+  # A bank held behind a pointer spends the parameter's own row for the pointer.
   defp spent(%Member{slots: slots}) do
     Enum.flat_map(slots, fn
       %Slot{allocation: {kind, ref}} when kind in [:cell, :node] -> [ref]
+      %Slot{allocation: {:rel, _name, rows}} -> rows
+      %Slot{allocation: {:bank, _name, {:at, {:cell, ref}, _m, _a}}} -> [ref]
       _slot -> []
     end)
   end

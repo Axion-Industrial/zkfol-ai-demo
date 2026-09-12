@@ -1,24 +1,31 @@
 defmodule Zkfol.Unrolling do
   @moduledoc """
-  I unroll lists into the trace so that no pointer names them.
+  I decide where each list stands so that the predicate reads it without a pointer.
 
-  I am a pass the backend's prices make necessary: a pointer read is what Zinc+ charges
-  for, so wherever a list's head can be a column affine in X I lay the list along the
-  trace instead, the cons unrolled into cells one column apart, a recursion into a member
-  continuing one column back, a call over a source literal into its clauses. The
-  compiler is correct without me, every list held behind a pointer and every cons a
-  node; the `along` place stays either way. When pricing moves to egglog, or a backend
-  makes pointers cheap, I am what moves or goes.
+  Zinc+ charges for pointer reads. A list laid along the trace, one element per column
+  with its head at a column affine in X, is read by plain shifts instead. I choose that
+  layout wherever the relation's clauses allow it: a cons becomes cells one column apart,
+  a recursive call becomes the same member one column back, and a call over a source
+  literal is replaced by its clauses. This is an optimization. With `unrolling: false` on
+  the `Zkfol.Phi` pass, every list stays behind a pointer and every cons on the heap, and
+  every program still compiles and proves at a higher cost. The `along` place exists in
+  both modes. If pricing moves to egglog, or a backend makes pointer reads cheap, this
+  module is what changes.
 
-  What I decide, per member, before any clause is matched: the stepping call, the first
-  recursive call that moves a parameter; the column counter, the parameter it moves or
-  else the first list, whose count the column itself holds; every other list's extent
-  against that counter; and from those a place per parameter, by the table in `place/6`.
+  Per member, before any clause is matched, I compute the stepping call, which is the
+  first recursive call that moves a parameter; the column counter, which is the parameter
+  that call moves or else the first list, whose count is read from the column; the extent
+  of every other list relative to that counter; and a place for each parameter, by the
+  table in `place/7`.
 
-  And per call: whether it unrolls into its clauses or is walked as a member, by
-  `strategy/5`; whether it continues the member being laid, by `continues?/2`; the frame
-  it stands at, by `frame/2`; what it may be handed, by `liftable/1`. A head put back
-  before the list it was peeled from is that list again, by `consed/3`.
+  Per call, I decide whether it is unrolled into its clauses or compiled as a member
+  (`strategy/6`), whether it continues the member being compiled (`continues?/2`), the
+  frame it stands at (`frame/3`), and which values it may be handed (`liftable/1`).
+  `consed/4` rebuilds a list from a head and the tail it was peeled from.
+
+  Every decision takes the option as its last argument, `on`. With `on` false, no
+  parameter counts the column, a list a member owns is a bank behind the member's own
+  cell, every call stands at a pointer, and every cons is a pair.
 
   ### Public API
 
@@ -58,15 +65,25 @@ defmodule Zkfol.Unrolling do
            handed: [Place.t()],
            known: Place.known(),
            scope: %{atom() => Rel.t()},
-           seen: [atom()]
+           seen: [atom()],
+           on: boolean()
          }
 
   @doc "I return the stepping call, the column counter, and a shape per parameter."
-  @spec shapes(Rel.t(), [Place.t()], Place.known(), %{atom() => Rel.t()}) ::
+  @spec shapes(Rel.t(), [Place.t()], Place.known(), %{atom() => Rel.t()}, boolean()) ::
           {steps(), [Shape.t()]}
-  def shapes(rel = %Rel{clauses: clauses, arity: arity}, handed, known, scope) do
-    {step, counter} = column_counter(clauses, handed, known)
-    solve = %{step: step, counter: counter, handed: handed, known: known, scope: scope, seen: []}
+  def shapes(rel = %Rel{clauses: clauses, arity: arity}, handed, known, scope, on) do
+    {step, counter} = column_counter(clauses, handed, known, on)
+
+    solve = %{
+      step: step,
+      counter: counter,
+      handed: handed,
+      known: known,
+      scope: scope,
+      seen: [],
+      on: on
+    }
 
     shapes =
       for k <- 0..(arity - 1)//1 do
@@ -80,10 +97,11 @@ defmodule Zkfol.Unrolling do
   end
 
   @doc "I return a place per parameter."
-  @spec places(Rel.t(), [Ast.row_ref()], [Place.t()], [Shape.t()], steps()) :: [Place.t()]
-  def places(%Rel{clauses: clauses}, refs, handed, shapes, steps) do
+  @spec places(Rel.t(), [Ast.row_ref()], [Place.t()], [Shape.t()], steps(), boolean()) ::
+          [Place.t()]
+  def places(%Rel{clauses: clauses}, refs, handed, shapes, steps, on) do
     for {{ref, form, shape}, k} <- Enum.with_index(Enum.zip([refs, handed, shapes])) do
-      place(clauses, k, ref, form, shape, steps)
+      place(clauses, k, ref, form, shape, steps, on)
     end
   end
 
@@ -91,8 +109,9 @@ defmodule Zkfol.Unrolling do
   # handed for are nodes; no bank can hold them. A scalar is a cell, except the column
   # counter, which reads the column itself. A list that already stands somewhere is read
   # where it is. Every other list takes a bank.
-  @spec place(clauses(), integer(), Ast.row_ref(), Place.t(), Shape.t(), steps()) :: Place.t()
-  defp place(clauses, k, ref, form, shape, {step, counter}) do
+  @spec place(clauses(), integer(), Ast.row_ref(), Place.t(), Shape.t(), steps(), boolean()) ::
+          Place.t()
+  defp place(clauses, k, ref, form, shape, {step, counter}, on) do
     {j, o} = counter || {nil, 0}
 
     cond do
@@ -109,13 +128,16 @@ defmodule Zkfol.Unrolling do
         Ast.add(:x, o)
 
       shape == :scalar ->
-        scalar_place(form, ref)
+        scalar_place(form, ref, on)
 
       match?({:across, _, _, _}, form) or Place.is_laid(form) or match?({:pair, _, _}, form) ->
         form
 
-      true ->
+      on ->
         {:along, {Bank.of(ref), 1}, Place.head(shape)}
+
+      true ->
+        {:held, {Bank.of(ref), 1}, ref, {1, 0}}
     end
   end
 
@@ -123,11 +145,13 @@ defmodule Zkfol.Unrolling do
   defp open?({:list, {:at_least, _}, _}), do: true
   defp open?(_shape), do: false
 
-  @spec scalar_place(Place.t(), Ast.row_ref()) :: Place.t()
-  defp scalar_place(q, ref) when is_integer(q), do: Ast.cell(ref)
-  defp scalar_place({:count, _q, _cell}, ref), do: Ast.cell(ref)
-  defp scalar_place(:fresh, ref), do: {:fresh, ref}
-  defp scalar_place(form, _ref), do: form
+  # With unrolling on, a handed constant is inlined into the member; off, it stands in a cell.
+  @spec scalar_place(Place.t(), Ast.row_ref(), boolean()) :: Place.t()
+  defp scalar_place(q, _ref, true) when is_integer(q), do: q
+  defp scalar_place(q, ref, false) when is_integer(q), do: Ast.cell(ref)
+  defp scalar_place({:count, _q, _cell}, ref, _on), do: Ast.cell(ref)
+  defp scalar_place(:fresh, ref, _on), do: {:fresh, ref}
+  defp scalar_place(form, _ref, _on), do: form
 
   ############################################################
   #                       The counter                        #
@@ -137,13 +161,13 @@ defmodule Zkfol.Unrolling do
   I return the stepping call and the column counter: the parameter the stepping call
   displaces, or else the first list, unless the clauses make it a term or it cannot be walked.
   """
-  @spec column_counter(clauses(), [Place.t()], Place.known()) :: steps()
-  def column_counter(clauses, handed, known) do
+  @spec column_counter(clauses(), [Place.t()], Place.known(), boolean()) :: steps()
+  def column_counter(clauses, handed, known, on) do
     step = displaced_call(clauses)
     j = (step && elem(step, 0)) || Enum.find_index(handed, &counted?(&1, known))
 
     counter =
-      if j && not term?(clauses, j) && walkable?(Enum.at(handed, j)),
+      if on && j && not term?(clauses, j) && walkable?(Enum.at(handed, j)),
         do: {j, origin(clauses, j, handed, known)}
 
     {step, counter}
@@ -308,7 +332,8 @@ defmodule Zkfol.Unrolling do
     fresh = List.duplicate(:fresh, arity)
 
     with false <- q in solve.seen,
-         {step, counter = {_jc, oc}} <- column_counter(callee.clauses, fresh, solve.known),
+         {step, counter = {_jc, oc}} <-
+           column_counter(callee.clauses, fresh, solve.known, solve.on),
          false <- term?(callee.clauses, p),
          inner = %{solve | step: step, counter: counter, handed: fresh, seen: [q | solve.seen]},
          extent = {_m, _a} <- extent(callee, p, inner) do
@@ -359,9 +384,9 @@ defmodule Zkfol.Unrolling do
   and one shrinks, which bounds the unrolling. A call over a counted list prefers a
   member. I also return the updated sizes for the path.
   """
-  @spec strategy(Rel.t(), [Value.t()], Place.known(), inlining(), MapSet.t()) ::
+  @spec strategy(Rel.t(), [Value.t()], Place.known(), inlining(), MapSet.t(), boolean()) ::
           {:inline | :prefer_call | :residual, inlining()}
-  def strategy(%Rel{name: name}, values, known, inlining, recursive) do
+  def strategy(%Rel{name: name}, values, known, inlining, recursive, on) do
     key = specialization(name, values)
     sizes = Enum.map(values, &size(&1, known))
     around = Map.get(inlining, key)
@@ -378,7 +403,7 @@ defmodule Zkfol.Unrolling do
         name not in recursive ->
           :inline
 
-        not decreases ->
+        not on or not decreases ->
           :residual
 
         not constructed and Enum.any?(values, &(Place.count(&1) != nil)) ->
@@ -424,6 +449,10 @@ defmodule Zkfol.Unrolling do
       {_value, {:node, _id}} ->
         true
 
+      # A member specialized on a constant continues only with that constant.
+      {value, bind} when is_integer(bind) ->
+        value == bind
+
       {cells, _bind} when is_list(cells) ->
         false
 
@@ -460,10 +489,11 @@ defmodule Zkfol.Unrolling do
   def liftable(form), do: if(Place.affine(form) != nil, do: form, else: :fresh)
 
   @doc "I return the caller's column where the callee's count stands, or `:ptr` when no count is known."
-  @spec frame([Value.t()], counter() | nil) :: Ast.address() | :ptr
-  def frame(_values, nil), do: :ptr
+  @spec frame([Value.t()], counter() | nil, boolean()) :: Ast.address() | :ptr
+  def frame(_values, nil, _on), do: :ptr
+  def frame(_values, _counter, false), do: :ptr
 
-  def frame(values, {j, o}) do
+  def frame(values, {j, o}, true) do
     count =
       case Enum.at(values, j) do
         laid when Place.is_laid(laid) -> Place.extent(laid)
@@ -484,12 +514,12 @@ defmodule Zkfol.Unrolling do
   def data_list?(_form), do: false
 
   @doc "I return the list a head and tail were peeled from, when the tail is that list past its head; otherwise their pair."
-  @spec consed(Value.t(), Value.t(), Place.known()) :: Value.t()
-  def consed(head, tail, known) when Place.is_laid(tail) do
+  @spec consed(Value.t(), Value.t(), Place.known(), boolean()) :: Value.t()
+  def consed(head, tail, known, true) when Place.is_laid(tail) do
     if Place.slice(tail, -1, known) == head,
       do: Place.shifted(tail, -1),
       else: {:pair, head, tail}
   end
 
-  def consed(head, tail, _known), do: {:pair, head, tail}
+  def consed(head, tail, _known, _on), do: {:pair, head, tail}
 end

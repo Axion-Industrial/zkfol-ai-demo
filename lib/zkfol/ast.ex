@@ -172,7 +172,7 @@ defmodule Zkfol.Ast do
     if n == length(cells), do: permutes(cells, Enum.to_list(1..n//1)), else: eq(0, 1)
   end
 
-  def permutation(n, cells), do: throw({:refused, {:unliftable_term, %{term: {n, cells}}}})
+  def permutation(_n, cells), do: throw({:refused, {:unliftable_term, %{term: cells}}})
 
   @doc "I am permuted(cells, copy): the two hold one multiset, whatever it is."
   @spec permuted([term_t()], [term_t()]) :: pred()

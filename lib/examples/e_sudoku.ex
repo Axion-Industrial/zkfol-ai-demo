@@ -100,7 +100,7 @@ defmodule Examples.ESudoku do
   end
 
 
-  @doc "The columns and boxes are a selection each, the rows a selection a column."
+  @doc "The rows, columns and boxes are a selection each: twenty-seven, on one table."
   @spec pattern_selected() :: Statement.t()
   example pattern_selected do
     {:ok, statement, _trace} =
@@ -111,31 +111,8 @@ defmodule Examples.ESudoku do
     assert uair.word_lookups == []
     [%{values: values, selections: selections}] = uair.selected_lookups
     assert values == Enum.to_list(1..9)
-    assert length(selections) == 18 + uair.len
+    assert length(selections) == 27
     statement
-  end
-
-  @doc "The rows' selection stands at every column: a digit repeated in the padding is refused."
-  @spec a_repeated_padding_is_no_proof() :: Refusal.t()
-  example a_repeated_padding_is_no_proof do
-    statement = pattern_selected()
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-    [%{columns: columns, selections: selections}] = uair.selected_lookups
-    padded = Enum.find(selections, &Enum.all?(&1, fn {_slot, at} -> at == uair.len - 1 end))
-    cells = for {slot, at} <- padded, do: {Enum.at(columns, slot), at}
-
-    assert for({col, at} <- cells, do: uair.columns |> Enum.at(col) |> Enum.at(at)) ==
-             Enum.to_list(1..9)
-
-    repeated =
-      Enum.reduce(cells, uair.columns, fn {col, at}, acc ->
-        List.update_at(acc, col, &List.replace_at(&1, at, 1))
-      end)
-
-    assert {:error, {:verifier_rejected, _said} = refused} =
-             Prover.prove_uair(%{uair | columns: repeated}, name: :repeated_padding)
-
-    refused
   end
 
   @doc "Two cells opened say their eighteen values and nothing else of the answer."

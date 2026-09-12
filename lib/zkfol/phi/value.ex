@@ -41,7 +41,7 @@ defmodule Zkfol.Phi.Value do
   def frame({:pair, h, t}, frame), do: {:pair, frame(h, frame), frame(t, frame)}
   def frame([h | t], frame), do: [frame(h, frame) | frame(t, frame)]
   def frame({:count, _q, form}, frame), do: frame(form, frame)
-  def frame({:rel, _p, _f} = passed, _frame), do: passed
+  def frame({:rel, p, fixed}, frame), do: {:rel, p, Enum.map(fixed, &frame(&1, frame))}
   def frame(form, _frame) when is_integer(form) or form in [:fresh, []], do: form
 
   def frame(place, frame) when elem(place, 0) in [:along, :held, :across] do

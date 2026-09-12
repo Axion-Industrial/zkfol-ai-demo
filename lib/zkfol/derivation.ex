@@ -128,8 +128,10 @@ defmodule Zkfol.Derivation do
       else: reach(consumed(t, fact) ++ rest, t, MapSet.put(seen, fact))
   end
 
-  @doc "I fill a cell unification left free: a variable reads zero."
+  @doc "I replace every variable left free by unification with zero, at any depth of the value."
   @spec free_to_zero(term()) :: term()
+  def free_to_zero(list) when is_list(list), do: Enum.map(list, &free_to_zero/1)
+  def free_to_zero({:node, term}), do: {:node, free_to_zero(term)}
   def free_to_zero(cell), do: if(AL.Var.var?(cell), do: 0, else: cell)
 end
 
