@@ -9,7 +9,6 @@ defmodule Zkfol.Phi.Value do
   - `scalar/1`: the arithmetic reading of a value.
   - `elements/2`: its elements for a primitive operation.
   - `frame/2`, `unframe/2`: express values across a call's column frame.
-  - `consed/3`: a pair, or the list a peeled head is put back before.
   """
 
   alias Zkfol.Ast
@@ -141,16 +140,6 @@ defmodule Zkfol.Phi.Value do
     do: value |> Tuple.to_list() |> Enum.map(&shaped(&1, known)) |> List.to_tuple()
 
   def shaped(value, _known), do: value
-
-  @doc "I return the pair of a head and a tail; a head put back before the list it was peeled from is that list."
-  @spec consed(t(), t(), Place.known()) :: t()
-  def consed(head, tail, known) when Place.is_laid(tail) do
-    if Place.slice(tail, -1, known) == head,
-      do: Place.shifted(tail, -1),
-      else: {:pair, head, tail}
-  end
-
-  def consed(head, tail, _known), do: {:pair, head, tail}
 
   @doc "I read a scalar value, refusing structure where arithmetic requires a number."
   @spec scalar(t()) :: scalar()
