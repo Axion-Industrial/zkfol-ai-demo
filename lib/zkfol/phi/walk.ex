@@ -33,6 +33,8 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Ast
   alias Zkfol.Phi.{Place, Shape, Value}
 
+  require Place
+
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
     use TypedStruct
@@ -190,7 +192,7 @@ defmodule Zkfol.Phi.Walk do
       match?({:node, _id}, value) ->
         bind(walk, ref, {:node, cell}, {:node, ref})
 
-      is_list(value) or match?({:along, _, _}, value) or match?({:pair, _, _}, value) or
+      is_list(value) or Place.is_laid(value) or match?({:pair, _, _}, value) or
         match?({:across, _, _, _}, value) or match?({:rel, _, _}, value) ->
         bind(walk, ref, value, :none)
 
@@ -205,11 +207,12 @@ defmodule Zkfol.Phi.Walk do
     for {_ref, {:bank, name, _address}} <- parameters, do: name
   end
 
-  @doc "I give a parameter the bank it is laid along, knowing of its rows what the shape says."
+  @doc "I bind a parameter to the bank it is laid in and record the element shape of the bank's rows."
   @spec bank(t(), Ast.row_ref(), Place.t(), Shape.t()) :: t()
-  def bank(walk = %__MODULE__{}, ref, along = {:along, row = {bank, 1}, address}, shape) do
+  def bank(walk = %__MODULE__{}, ref, laid, shape) when Place.is_laid(laid) do
+    row = {bank, 1} = elem(laid, 1)
     {:list, _extent, element} = shape
-    walk = bind(walk, ref, along, {:bank, bank, address})
+    walk = bind(walk, ref, laid, {:bank, bank, Place.address(laid)})
     if element == :unknown, do: walk, else: refine(walk, %{row => element})
   end
 
@@ -228,9 +231,9 @@ defmodule Zkfol.Phi.Walk do
       [head | tail] ->
         {:ok, head, tail, walk}
 
-      along = {:along, _row, _address} ->
-        with walk = %__MODULE__{} <- presence(walk, along, 1),
-             do: {:ok, Place.slice(along, 0, walk.shapes), Place.shifted(along, 1), walk}
+      laid when Place.is_laid(laid) ->
+        with walk = %__MODULE__{} <- presence(walk, laid, 1),
+             do: {:ok, Place.slice(laid, 0, walk.shapes), Place.shifted(laid, 1), walk}
 
       {:node, id} ->
         {:ok, {:node, Place.read(:head, id)}, {:node, Place.read(:tail, id)},
@@ -249,7 +252,7 @@ defmodule Zkfol.Phi.Walk do
   def ended(walk, value) do
     case Value.shaped(value, walk.shapes) do
       [] -> walk
-      along = {:along, _row, _address} -> presence(walk, along, 0)
+      laid when Place.is_laid(laid) -> presence(walk, laid, 0)
       {:node, id} -> constrain(walk, [Ast.eq(id, 1)])
       _other -> :dead
     end

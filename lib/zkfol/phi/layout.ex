@@ -22,6 +22,8 @@ defmodule Zkfol.Phi.Layout do
   alias Zkfol.Lang.Rel
   alias Zkfol.Phi.{Place, Shape}
 
+  require Place
+
   @typedoc "The column counter: which parameter, and the count its base clause starts at."
   @type counter :: {non_neg_integer(), integer()}
 
@@ -103,9 +105,7 @@ defmodule Zkfol.Phi.Layout do
       shape == :scalar ->
         scalar_place(form, ref)
 
-      match?({:across, _, _, _}, form) or
-        match?({:along, _, _}, form) or
-          match?({:pair, _, _}, form) ->
+      match?({:across, _, _, _}, form) or Place.is_laid(form) or match?({:pair, _, _}, form) ->
         form
 
       true ->
@@ -242,7 +242,7 @@ defmodule Zkfol.Phi.Layout do
       match?({:node, _}, walked) -> {:node, Ast.cell(ref)}
       shape == :scalar -> Ast.cell(ref)
       counted -> {:along, {Bank.of(ref), 1}, Place.head(shape)}
-      true -> {:along, {Bank.of(ref), 1}, Ast.address({:cell, ref}, 1, 0)}
+      true -> {:held, {Bank.of(ref), 1}, ref, {1, 0}}
     end
   end
 
@@ -301,7 +301,7 @@ defmodule Zkfol.Phi.Layout do
   @spec walkable?(Place.t()) :: boolean()
   defp walkable?({:node, _}), do: false
   defp walkable?({:pair, _, _}), do: false
-  defp walkable?({:along, _, {:at, {:cell, _}, _, _}}), do: false
+  defp walkable?({:held, _, _, _}), do: false
   defp walkable?(_place), do: true
 
   # The first recursive call that moves a parameter.

@@ -39,6 +39,8 @@ defmodule Zkfol.Phi do
   alias Zkfol.Phi.Expression
   alias Zkfol.Phi.Layout
   alias Zkfol.Phi.Place
+
+  require Place
   alias Zkfol.Phi.Shape
   alias Zkfol.Phi.Schedule
   alias Zkfol.Phi.Walk
@@ -279,14 +281,14 @@ defmodule Zkfol.Phi do
       {_column, _form} when k == j and shape == :scalar ->
         Walk.bind(%Walk{}, ref, Ast.add(:x, o))
 
-      {{:along, _, _}, {:along, _, _}} when step != nil and counter != nil ->
+      {laid, laid} when Place.is_laid(laid) and step != nil and counter != nil ->
         Walk.bind(%Walk{}, ref, Place.stepped(form, shape))
 
-      {{:along, _, _}, {:along, _, _}} ->
+      {laid, laid} when Place.is_laid(laid) ->
         Walk.bind(%Walk{}, ref, form)
 
-      {along = {:along, _, _}, _handed} ->
-        Walk.bank(%Walk{}, ref, along, shape)
+      {laid, _handed} when Place.is_laid(laid) ->
+        Walk.bank(%Walk{}, ref, laid, shape)
 
       {_read_as_it_is, _form} ->
         Walk.bind(%Walk{}, ref, form)
@@ -542,7 +544,7 @@ defmodule Zkfol.Phi do
   @spec finite?(value()) :: boolean()
   defp finite?({:node, _id}), do: false
   defp finite?({:across, _, _, _}), do: false
-  defp finite?(along = {:along, _, _}), do: Place.count(along) != nil
+  defp finite?(laid) when Place.is_laid(laid), do: Place.count(laid) != nil
   defp finite?({:pair, h, t}), do: finite?(h) and finite?(t)
   defp finite?([h | t]), do: finite?(h) and finite?(t)
   defp finite?(:x), do: false
@@ -552,7 +554,7 @@ defmodule Zkfol.Phi do
   # The cells a value holds; a handed integer counts as that many.
   @spec size(value(), Place.known()) :: integer() | nil
   defp size(q, _known) when is_integer(q), do: q
-  defp size(along = {:along, _, _}, known), do: Place.size(along, known)
+  defp size(laid, known) when Place.is_laid(laid), do: Place.size(laid, known)
   defp size([], _known), do: 0
 
   defp size({:pair, h, t}, known),
@@ -674,13 +676,26 @@ defmodule Zkfol.Phi do
            Enum.find(ctx.ancestors, fn {member, _binds} -> member.relation == callee.name end),
          true <-
            Enum.all?(Enum.zip(values, binds), fn
-             {_value, {:node, _id}} -> true
-             {cells, _bind} when is_list(cells) -> false
-             {{:pair, _, _}, _bind} -> false
-             {:fresh, along = {:along, _, _}} -> match?({m, _a} when m != 0, Place.extent(along))
-             {{:node, _id}, _bind} -> false
-             {{:rel, _p, _fixed} = passed, bind} -> bind == passed
-             _form -> true
+             {_value, {:node, _id}} ->
+               true
+
+             {cells, _bind} when is_list(cells) ->
+               false
+
+             {{:pair, _, _}, _bind} ->
+               false
+
+             {:fresh, laid} when Place.is_laid(laid) ->
+               match?({m, _a} when m != 0, Place.extent(laid))
+
+             {{:node, _id}, _bind} ->
+               false
+
+             {{:rel, _p, _fixed} = passed, bind} ->
+               bind == passed
+
+             _form ->
+               true
            end) do
       frame = framed_at(frame_of(values, steps), ancestor, ctx)
       {ancestor, binds, frame, %Walk{}}
@@ -708,8 +723,8 @@ defmodule Zkfol.Phi do
     bounded =
       for {cells, bind} <- Enum.zip(lifted, binds),
           data_list?(cells),
-          along = {:along, _, _} <- [Value.frame(bind, frame)],
-          eq <- Place.bounded(along, length(cells)),
+          laid when Place.is_laid(laid) <- [Value.frame(bind, frame)],
+          eq <- Place.bounded(laid, length(cells)),
           do: eq
 
     {name, binds, frame, %{walk | eqs: bounded}}
@@ -727,7 +742,7 @@ defmodule Zkfol.Phi do
   # or term placed elsewhere becomes a node the callee equates with.
   @spec liftable(value()) :: value()
   defp liftable(node = {:node, _id}), do: node
-  defp liftable(along = {:along, _, {:at, base, _, _}}) when base != :x, do: Place.node_of(along)
+  defp liftable(held = {:held, _, _, _}), do: Place.node_of(held)
   defp liftable(element = {:across, _, _, _}), do: element
   defp liftable(along = {:along, _, _}), do: along
   defp liftable(pair = {:pair, _, _}), do: Place.node_of(pair)
@@ -742,7 +757,7 @@ defmodule Zkfol.Phi do
   defp frame_of(values, {j, o}) do
     count =
       case Enum.at(values, j) do
-        along = {:along, _, _} -> Place.extent(along)
+        laid when Place.is_laid(laid) -> Place.extent(laid)
         cells when is_list(cells) -> if data_list?(cells), do: {0, length(cells)}
         form -> Place.affine(form)
       end
@@ -861,8 +876,8 @@ defmodule Zkfol.Phi do
   defp unify({:node, a}, {:node, b}, walk), do: Walk.constrain(walk, [Ast.eq(a, b)])
   defp unify(node = {:node, _id}, other, walk), do: unify(other, node, walk)
 
-  defp unify(along = {:along, _, _}, {:node, id}, walk),
-    do: Walk.constrain(walk, [Ast.eq(elem(Place.node_of(along), 1), id)])
+  defp unify(laid, {:node, id}, walk) when Place.is_laid(laid),
+    do: Walk.constrain(walk, [Ast.eq(elem(Place.node_of(laid), 1), id)])
 
   defp unify(q, {:node, id}, walk) when is_integer(q),
     do: Walk.constrain(walk, [Ast.eq(Place.read(:value, id), q)])
@@ -908,8 +923,8 @@ defmodule Zkfol.Phi do
   defp unify(pattern = {:papply, _p, _fixed}, value, walk),
     do: unify(Expression.resolve!(pattern, walk), value, walk)
 
-  # Two lists along the trace: the same one, or one counted against the other's elements.
-  defp unify(a = {:along, _, _}, b = {:along, _, _}, walk) do
+  # Two lists in banks: the same one, or one counted against the other's elements.
+  defp unify(a, b, walk) when Place.is_laid(a) and Place.is_laid(b) do
     known = walk.shapes
 
     cond do
@@ -920,9 +935,9 @@ defmodule Zkfol.Phi do
     end
   end
 
-  defp unify(a = {:along, _, _}, value, walk) when is_list(value), do: unify(value, a, walk)
-  defp unify(a = {:along, _, _}, value = {:pair, _, _}, walk), do: unify(value, a, walk)
-  defp unify({:along, _, _}, _value, _walk), do: :dead
+  defp unify(a, value, walk) when Place.is_laid(a) and is_list(value), do: unify(value, a, walk)
+  defp unify(a, value = {:pair, _, _}, walk) when Place.is_laid(a), do: unify(value, a, walk)
+  defp unify(a, _value, _walk) when Place.is_laid(a), do: :dead
   defp unify({:rel, _p, _f}, _value, _walk), do: :dead
 
   defp unify(element = {:across, _, _, _}, value, walk)
@@ -953,7 +968,7 @@ defmodule Zkfol.Phi do
       is_integer(b) ->
         unify(b, a, walk)
 
-      is_list(b) or match?({:pair, _, _}, b) or match?({:along, _, _}, b) or
+      is_list(b) or match?({:pair, _, _}, b) or Place.is_laid(b) or
           match?({:rel, _p, _f}, b) ->
         :dead
 
@@ -962,10 +977,10 @@ defmodule Zkfol.Phi do
     end
   end
 
-  # A counted list along the trace as the list of its elements.
+  # A counted list in a bank as the list of its elements.
   @spec elements(value(), Place.known()) :: [value()]
-  defp elements(along, known),
-    do: for(i <- 0..(Place.count(along) - 1)//1, do: Place.slice(along, i, known))
+  defp elements(laid, known),
+    do: for(i <- 0..(Place.count(laid) - 1)//1, do: Place.slice(laid, i, known))
 
   # An integer against the column pins the column; against anything else, that cell.
   @spec pinned(Ast.term_t(), integer()) :: [Ast.pred()]

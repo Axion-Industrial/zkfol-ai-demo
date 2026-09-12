@@ -15,6 +15,8 @@ defmodule Zkfol.Phi.Value do
   alias Zkfol.Ast
   alias Zkfol.Phi.Place
 
+  require Place
+
   @typedoc "A scalar expression can name an element whose shape its constraint will resolve."
   @type scalar :: Ast.poly(Ast.ep_leaf() | {:reify, Ast.pred()} | Place.t())
 
@@ -26,7 +28,7 @@ defmodule Zkfol.Phi.Value do
 
   @doc "I expose a finite list as the values a primitive consumes."
   @spec elements(t(), Place.known()) :: t()
-  def elements(along = {:along, _row, _address}, known), do: Place.cells(along, known)
+  def elements(laid, known) when Place.is_laid(laid), do: Place.cells(laid, known)
   def elements({:pair, h, t}, known), do: [elements(h, known) | elements(t, known)]
   def elements([h | t], known), do: [elements(h, known) | elements(t, known)]
   def elements({:count, _q, form}, _known), do: form
@@ -43,7 +45,7 @@ defmodule Zkfol.Phi.Value do
   def frame({:rel, _p, _f} = passed, _frame), do: passed
   def frame(form, _frame) when is_integer(form) or form in [:fresh, []], do: form
 
-  def frame(place, frame) when elem(place, 0) in [:along, :across] do
+  def frame(place, frame) when elem(place, 0) in [:along, :held, :across] do
     case Place.framed(place, frame) do
       :unreached -> throw({:refused, {:unliftable_term, %{term: place}}})
       reached -> reached
@@ -87,9 +89,9 @@ defmodule Zkfol.Phi.Value do
 
   def unframe(node = {:node, _id}, _frame), do: node
 
-  def unframe(along = {:along, _row, _address}, frame) do
-    case Place.unframed(along, frame) do
-      :unreached -> along
+  def unframe(laid, frame) when Place.is_laid(laid) do
+    case Place.unframed(laid, frame) do
+      :unreached -> laid
       unframed -> unframed
     end
   end
@@ -133,7 +135,7 @@ defmodule Zkfol.Phi.Value do
   def shaped({:pair, h, t}, known), do: {:pair, shaped(h, known), shaped(t, known)}
   def shaped([h | t], known), do: [shaped(h, known) | shaped(t, known)]
   def shaped({:node, id}, known), do: {:node, shaped(id, known)}
-  def shaped(along = {:along, _row, _address}, _known), do: along
+  def shaped(laid, _known) when Place.is_laid(laid), do: laid
 
   def shaped(value, known) when is_tuple(value),
     do: value |> Tuple.to_list() |> Enum.map(&shaped(&1, known)) |> List.to_tuple()
@@ -142,7 +144,7 @@ defmodule Zkfol.Phi.Value do
 
   @doc "I return the pair of a head and a tail; a head put back before the list it was peeled from is that list."
   @spec consed(t(), t(), Place.known()) :: t()
-  def consed(head, tail = {:along, _row, _address}, known) do
+  def consed(head, tail, known) when Place.is_laid(tail) do
     if Place.slice(tail, -1, known) == head,
       do: Place.shifted(tail, -1),
       else: {:pair, head, tail}
