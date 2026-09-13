@@ -70,6 +70,10 @@ defmodule Examples.EFol do
 
   @spec ranged() :: Statement.t()
   example ranged do
+    assert Enum.to_list(Zkfol.stream(counted(), [[3, 1, 2]])) == [[[3, 1, 2]]]
+    assert Enum.to_list(Zkfol.stream(counted(), [[0, 1, 2]])) == []
+    assert Enum.to_list(Zkfol.stream(counted(), [[4, 1, 2]])) == []
+
     {:ok, statement, _trace} =
       Pipeline.run(EUser.plain(), %Statement{rels: [counted()], args: [[3, 1, 2]]})
 

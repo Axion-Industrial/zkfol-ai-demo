@@ -39,6 +39,11 @@ defmodule Zkfol.FOL do
     n = m + 1
   end
 
+  @al {:definition,
+       quote do
+         x >= lo
+         x <= hi
+       end}
   defrel between(lo, hi, x) do
     x >= lo
     x <= hi

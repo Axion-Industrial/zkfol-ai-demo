@@ -10,6 +10,7 @@ defmodule Examples.ESudoku do
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Query
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
@@ -99,12 +100,25 @@ defmodule Examples.ESudoku do
     each(xs, label)
   end
 
+  @doc "I solve the clues with a free puzzle and return the answer as a statement."
+  @spec answer() :: Statement.t()
+  example answer do
+    query = Zkfol.eval!(solved(), [:_], heap: 32_000_000)
+
+    try do
+      statement = Query.statement(query)
+      assert statement.args == act()
+      statement
+    after
+      Query.close(query)
+    end
+  end
 
   @doc "The rows, columns and boxes are a selection each: twenty-seven, on one table."
   @spec pattern_selected() :: Statement.t()
   example pattern_selected do
     {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [solved()], args: act()})
+      Pipeline.run(EUser.plain(), answer())
 
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
 
@@ -134,7 +148,6 @@ defmodule Examples.ESudoku do
     {:ok, report, _id} = Prover.prove_uair(uair, name: :opened_cells)
     report
   end
-
 
   @doc "I am the columns of a grid, the bank `column` unifies against it."
   @spec columns([[pos_integer()]]) :: [[pos_integer()]]

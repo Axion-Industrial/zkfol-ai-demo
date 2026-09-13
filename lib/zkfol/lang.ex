@@ -110,9 +110,10 @@ defmodule Zkfol.Lang do
       field(:arity, non_neg_integer())
       field(:clauses, [{[term()], [term()]}])
       field(:home, module() | nil, default: nil, enforce: false)
-      # `phi` specializes a call's lowering; `al` is the goal AL posts beyond these clauses.
+      # `phi` specializes lowering. `al` posts an additional constraint; a `:definition`
+      # can also replace the clauses when asking for answers without a source derivation.
       field(:phi, {module(), atom()} | nil, default: nil, enforce: false)
-      field(:al, Macro.t() | nil, default: nil, enforce: false)
+      field(:al, Macro.t() | {:definition, Macro.t()} | nil, default: nil, enforce: false)
     end
 
     @doc "I am the callees my clauses name; a head-bound name is a passed relation, not a callee."

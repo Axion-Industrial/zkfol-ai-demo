@@ -1,8 +1,8 @@
 defmodule Zkfol.Al do
   @moduledoc """
   I am the AL backend: a statement becomes clauses and runs as written,
-  so the derivation is the witness. Each generated method carries its source bindings
-  in one final internal argument; public arguments and fact identities exclude it.
+  so the derivation is the witness. For derivation, each generated method carries its
+  source bindings in one final internal argument; questions leave that argument empty.
   """
 
   alias Zkfol.Al.Ask
@@ -32,7 +32,7 @@ defmodule Zkfol.Al do
   @spec derived(Statement.t() | Rel.t() | [Rel.t()], [Statement.datum() | :_], keyword()) ::
           {:ok, Derivation.t()} | {:error, Refusal.t()}
   def derived(target, arguments, opts \\ []) do
-    with {:ok, ask} <- open(target, arguments, opts) do
+    with {:ok, ask} <- open(target, arguments, opts, :derivation) do
       name = Keyword.get(opts, :name, hd(ask.rels).name)
 
       case capped_eval(ask) do
@@ -58,12 +58,20 @@ defmodule Zkfol.Al do
   """
   @spec open(Statement.t() | Rel.t() | [Rel.t()], [Statement.datum() | :_], keyword()) ::
           {:ok, Ask.t()} | {:error, Refusal.t()}
-  def open(target, arguments, opts) do
+  def open(target, arguments, opts), do: open(target, arguments, opts, :question)
+
+  @spec open(
+          Statement.t() | Rel.t() | [Rel.t()],
+          [Statement.datum() | :_],
+          keyword(),
+          :question | :derivation
+        ) :: {:ok, Ask.t()} | {:error, Refusal.t()}
+  defp open(target, arguments, opts, mode) do
     with {:ok, rels} <- rels(target),
          arguments = padded(arguments, hd(rels).arity),
          branch = %AL.Branch{id: landing(Keyword.get(opts, :branch))},
          {:atomic, class} = :mnesia.transaction(fn -> AL.Command.fresh_id(branch) end),
-         {:ok, prep} <- prepared(rels, arguments, class),
+         {:ok, prep} <- prepared(rels, arguments, class, mode),
          heap = Keyword.get(opts, :heap) || @heap,
          :ok <- install(prep.program, branch, heap) do
       {:ok,
@@ -129,16 +137,25 @@ defmodule Zkfol.Al do
   defp rels([root = %Rel{} | _rest] = list), do: Lang.reached(root, list)
   defp rels(_none), do: {:error, {:no_relations, %{}}}
 
-  @spec prepared([Rel.t()], [Statement.datum() | :_], atom()) ::
+  @spec prepared([Rel.t()], [Statement.datum() | :_], atom(), :question | :derivation) ::
           {:ok, prep()} | {:error, Refusal.t()}
-  defp prepared([root | _rest] = rels, args, class) do
+  defp prepared([root | _rest] = rels, args, class, mode) do
     len? = Enum.any?(rels, &mentions_len?(&1.clauses))
 
-    with {:ok, program} <- question_program(rels, len?, class),
+    with {:ok, program} <-
+           question_program(Enum.map(rels, &implementation(&1, mode)), len?, class, mode),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity//1), args),
          :ok <- len_bound(len?, bind),
          do: {:ok, %{root: root, program: program, bind: bind, len?: len?}}
   end
+
+  # A question can use a native definition; a derivation needs the source calls as well.
+  @spec implementation(Rel.t(), :question | :derivation) :: Rel.t()
+  defp implementation(rel = %Rel{al: {:definition, al}}, :question),
+    do: %{rel | al: al, clauses: for({head, _body} <- rel.clauses, do: {head, []})}
+
+  defp implementation(rel = %Rel{al: {:definition, al}}, :derivation), do: %{rel | al: al}
+  defp implementation(rel, _mode), do: rel
 
   # len names the trace, which only a bound count sizes ahead of time.
   @spec len_bound(boolean(), bind()) :: :ok | {:error, Refusal.t()}
@@ -223,9 +240,9 @@ defmodule Zkfol.Al do
   defp bind(rows, args),
     do: {:ok, rows |> Enum.zip(args) |> Enum.reject(fn {_row, a} -> is_atom(a) end) |> Map.new()}
 
-  @spec question_program([Rel.t()], boolean(), atom()) ::
+  @spec question_program([Rel.t()], boolean(), atom(), :question | :derivation) ::
           {:ok, program()} | {:error, Refusal.t()}
-  defp question_program(rels, len?, class) do
+  defp question_program(rels, len?, class, mode) do
     hints =
       Map.new(
         for %Rel{al: al, clauses: [{head, _body} | _rest]} = rel <- rels,
@@ -246,7 +263,7 @@ defmodule Zkfol.Al do
     |> Enum.flat_map(fn rel -> Enum.map(rel.clauses, &{rel.name, rel.al, &1}) end)
     |> Enum.with_index()
     |> Refusal.map(fn {{rname, al, clause}, i} ->
-      question_clause(rname, al, clause, i, len?, hints, said, class)
+      question_clause(rname, al, clause, i, len?, hints, said, class, mode)
     end)
     |> case do
       {:ok, clauses} -> {:ok, installed(clauses, class)}
@@ -262,16 +279,17 @@ defmodule Zkfol.Al do
           boolean(),
           %{atom() => {[term()], Macro.t()}},
           MapSet.t(),
-          atom()
+          atom(),
+          :question | :derivation
         ) :: {:ok, Macro.t()} | {:error, Refusal.t()}
-  defp question_clause(rname, al, {head, body}, i, len?, hints, said, class) do
+  defp question_clause(rname, al, {head, body}, i, len?, hints, said, class, mode) do
     case Enum.find(head, &(not Term.seatable?(&1))) do
       nil ->
         lenp = if len?, do: [v(:len)], else: []
-        reading = if al, do: [saying(al, %{})], else: []
+        reading = if al, do: saying(al, %{}), else: []
         # Bind the bundle in the head so it follows this clause through backtracking.
-        bindings =
-          {:%{}, [], for(name <- Enum.uniq(Term.names(head ++ body)), do: {name, v(name)})}
+        names = if mode == :derivation, do: Enum.uniq(Term.names(head ++ body)), else: []
+        bindings = {:%{}, [], Enum.map(names, &{&1, v(&1)})}
 
         {entry, written} =
           body |> Enum.reject(&saying?(&1, said)) |> numbered() |> Enum.split_with(&postable?/1)
@@ -305,14 +323,13 @@ defmodule Zkfol.Al do
 
     with {:ok, lowered} <- Refusal.map(args, &arith/1),
          do:
-           {:ok,
-            [saying(al, Map.new(Enum.zip(params, lowered), fn {{:var, p}, t} -> {p, t} end))]}
+           {:ok, saying(al, Map.new(Enum.zip(params, lowered), fn {{:var, p}, t} -> {p, t} end))}
   end
 
   defp hinted(_goal, _hints), do: {:ok, []}
 
   # Substituted once, so a caller's name of its own cannot be taken for the callee's.
-  @spec saying(Macro.t(), %{atom() => Macro.t()}) :: Macro.t()
+  @spec saying(Macro.t(), %{atom() => Macro.t()}) :: [Macro.t()]
   defp saying(al, by) do
     filled = Map.new(by, fn {name, term} -> {{:hole, name}, term} end)
 
@@ -325,6 +342,10 @@ defmodule Zkfol.Al do
         node
     end)
     |> Macro.prewalk(&Map.get(filled, &1, &1))
+    |> case do
+      {:__block__, _, goals} -> goals
+      goal -> [goal]
+    end
   end
 
   # A call's place among the calls is what tells its fresh argument names from another's.
