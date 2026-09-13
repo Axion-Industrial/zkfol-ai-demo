@@ -70,12 +70,6 @@ ZkfolJudgementPane >> formulaLineFor: aNode [
 ]
 
 { #category : 'views' }
-ZkfolJudgementPane >> shown: aValue [
-	"A value as the view says it: the undefined cell is ⊥."
-	^ aValue = #error ifTrue: [ '⊥' ] ifFalse: [ aValue printString ]
-]
-
-{ #category : 'views' }
 ZkfolJudgementPane >> formulaListOn: aView title: aTitle items: aBlock [
 	"The formulas inline, one readable line each, hopping as the tree does."
 	^ aView columnedList
@@ -95,4 +89,10 @@ ZkfolJudgementPane >> hopFrom: aNode [
 		ifTrue: [ ZkfolJudgementColumn new
 			setJudgement: judgement column: (aNode at: #at); yourself ]
 		ifFalse: [ aNode ]
+]
+
+{ #category : 'views' }
+ZkfolJudgementPane >> shown: aValue [
+	"A value as the view says it: the undefined cell is ⊥."
+	^ aValue = #error ifTrue: [ '⊥' ] ifFalse: [ aValue printString ]
 ]

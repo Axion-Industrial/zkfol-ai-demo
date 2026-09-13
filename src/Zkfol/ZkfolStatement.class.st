@@ -20,71 +20,11 @@ ZkfolStatement >> alloc [
 	^ self evaluateOrNil: 'Zkfol.Statement.alloc(' , self resolve , ')'
 ]
 
-{ #category : 'views' }
-ZkfolStatement >> gtLayFor: aView [
-	"The lay owns its grid; I only forward to the value, and a stage
-	 that carries none hides the tab here."
-	<gtView>
-	<gtBeamView>
-	(true = (self evaluateOrNil: 'is_nil(Zkfol.Statement.lay(' , self resolve , '))'))
-		ifTrue: [ ^ aView empty ].
-	^ aView forward
-		title: 'Lay';
-		priority: 10;
-		object: [ self lay ];
-		view: #gtGridFor:
-]
-
 { #category : 'accessing' }
 ZkfolStatement >> derivation [
 	"My stage's derivation as the bridged struct; nil while nothing is
 	 solved."
 	^ self evaluateOrNil: 'Zkfol.Statement.derivation(' , self resolve , ')'
-]
-
-{ #category : 'accessing' }
-ZkfolStatement >> lay [
-	"My stage's lay as the bridged struct, wearing its own views; a
-	 refusal while nothing is solved, so a forward degrades to hidden."
-	| lay |
-	lay := self evaluateOrNil: 'Zkfol.Statement.lay(' , self resolve , ')'.
-	^ (lay isKindOf: ZkfolLay)
-		ifTrue: [ lay ]
-		ifFalse: [ ZkfolRefusal because: 'no lay: nothing is solved' ]
-]
-
-{ #category : 'accessing' }
-ZkfolStatement >> underAt: aOneBasedIndex [
-	"The statement beneath the derivation's k-th fact: its
-	 subderivation re-laid through my allocation, the bridged struct
-	 wearing every view; nil when there is no such fact."
-	^ self evaluateOrNil:
-		'Zkfol.Statement.under(' , self resolve , ', ' , aOneBasedIndex printString , ')'
-]
-
-{ #category : 'views' }
-ZkfolStatement >> gtObjectsFor: aView [
-	"My interesting objects, one send each: a launcher, not a view."
-	<gtView>
-	<gtBeamView>
-	^ aView columnedList
-		title: 'Objects';
-		priority: 12;
-		items: [ self interestingObjects ];
-		column: 'Object' text: [ :each | each key ];
-		send: [ :each | each value value ]
-]
-
-{ #category : 'accessing' }
-ZkfolStatement >> interestingObjects [
-	"My conjurable structures, each name beside the block answering it:
-	 the one list my own Objects view shows and the receipt reads off
-	 its final stage, so neither maintains the other's."
-	^ {
-		'lowering' -> [ self evaluateOrNil: 'Zkfol.Statement.lowering(' , self resolve , ')' ].
-		'lay' -> [ self lay ].
-		'allocation' -> [ self alloc ].
-		'derivation' -> [ self derivation ] }
 ]
 
 { #category : 'views' }
@@ -142,4 +82,64 @@ ZkfolStatement >> gtJudgementFor: aView [
 					box addChild: (ZkfolElements safely: [ lay asElement ] as: #zkfolStencilError).
 					box ];
 				with: { feed } ]
+]
+
+{ #category : 'views' }
+ZkfolStatement >> gtLayFor: aView [
+	"The lay owns its grid; I only forward to the value, and a stage
+	 that carries none hides the tab here."
+	<gtView>
+	<gtBeamView>
+	(true = (self evaluateOrNil: 'is_nil(Zkfol.Statement.lay(' , self resolve , '))'))
+		ifTrue: [ ^ aView empty ].
+	^ aView forward
+		title: 'Lay';
+		priority: 10;
+		object: [ self lay ];
+		view: #gtGridFor:
+]
+
+{ #category : 'views' }
+ZkfolStatement >> gtObjectsFor: aView [
+	"My interesting objects, one send each: a launcher, not a view."
+	<gtView>
+	<gtBeamView>
+	^ aView columnedList
+		title: 'Objects';
+		priority: 12;
+		items: [ self interestingObjects ];
+		column: 'Object' text: [ :each | each key ];
+		send: [ :each | each value value ]
+]
+
+{ #category : 'accessing' }
+ZkfolStatement >> interestingObjects [
+	"My conjurable structures, each name beside the block answering it:
+	 the one list my own Objects view shows and the receipt reads off
+	 its final stage, so neither maintains the other's."
+	^ {
+		'lowering' -> [ self evaluateOrNil: 'Zkfol.Statement.lowering(' , self resolve , ')' ].
+		'lay' -> [ self lay ].
+		'allocation' -> [ self alloc ].
+		'derivation' -> [ self derivation ] }
+]
+
+{ #category : 'accessing' }
+ZkfolStatement >> lay [
+	"My stage's lay as the bridged struct, wearing its own views; a
+	 refusal while nothing is solved, so a forward degrades to hidden."
+	| lay |
+	lay := self evaluateOrNil: 'Zkfol.Statement.lay(' , self resolve , ')'.
+	^ (lay isKindOf: ZkfolLay)
+		ifTrue: [ lay ]
+		ifFalse: [ ZkfolRefusal because: 'no lay: nothing is solved' ]
+]
+
+{ #category : 'accessing' }
+ZkfolStatement >> underAt: aOneBasedIndex [
+	"The statement beneath the derivation's k-th fact: its
+	 subderivation re-laid through my allocation, the bridged struct
+	 wearing every view; nil when there is no such fact."
+	^ self evaluateOrNil:
+		'Zkfol.Statement.under(' , self resolve , ', ' , aOneBasedIndex printString , ')'
 ]

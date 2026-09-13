@@ -12,7 +12,7 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 	<gtElixirModuleView>
 	| fetch feed |
 	fetch := [ :source | BeamProxyObject plainFetch: source through: self application ].
-	feed := fetch value: 'Zkfol.Face.pass(Zkfol.Log.snapshot(), ' , self moduleName , ')'.
+	feed := fetch value: 'Zkfol.Face.pass(' , self moduleName , ')'.
 	((feed isKindOf: Dictionary) and: [ (feed at: #implements) == true ])
 		ifFalse: [ ^ aView empty ].
 	^ aView columnedList
@@ -26,11 +26,11 @@ ElixirModuleCoder >> gtPassViewFor: aView context: aContext [
 				ifNil: [ (a at: #settled) asString ]
 				ifNotNil: [ :verdict | verdict asString , ' · ' , (a at: #settled) asString ] ];
 		send: [ :a |
-			| id act |
-			id := (a at: #defined) printString.
-			act := fetch value: 'Zkfol.Face.act_at(Zkfol.Log.snapshot(), ' , id , ')'.
+			| id2 act |
+			id2 := (a at: #defined) printString.
+			act := fetch value: 'Zkfol.Log.Ran.story(' , id2 , ')'.
 			(ZkfolPipelineModel onAct: ((act isKindOf: Dictionary) ifTrue: [ act ] ifFalse: [ nil ]))
 				replaySpawner: [ self application evaluateAndWait:
-					'Zkfol.Log.Ran.replay(Zkfol.Log.Ran.at(Zkfol.Log.snapshot(), ' , id , '))' ];
+					'Zkfol.Log.Ran.replay(Zkfol.Log.Ran.at(Zkfol.Log.snapshot(), ' , id2 , '))' ];
 				yourself ]
 ]

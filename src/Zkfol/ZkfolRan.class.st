@@ -13,6 +13,15 @@ ZkfolRan class >> elixirClass [
 ]
 
 { #category : 'accessing' }
+ZkfolRan >> emitted [
+	"The final stage's statement emitted as its UAIR through the face:
+	 the registered %Zkfol.Uair{} dispatches to ZkfolUair by exclass
+	 and arrives already wearing the pointer grid; a refusal arrives
+	 as its prose."
+	^ self evaluateOrNil: 'Zkfol.Face.emitted(' , self resolve , ')'
+]
+
+{ #category : 'accessing' }
 ZkfolRan >> finalStage [
 	"The act's final statement, the bridged struct wearing its own
 	 views; a run some pass refused answers a refusal that says so and
@@ -24,22 +33,32 @@ ZkfolRan >> finalStage [
 		ifFalse: [ ZkfolRefusal because: 'no final stage: a pass refused' ]
 ]
 
-{ #category : 'accessing' }
-ZkfolRan >> emitted [
-	"The final stage's statement emitted as its UAIR through the face:
-	 the registered %Zkfol.Uair{} dispatches to ZkfolUair by exclass
-	 and arrives already wearing the pointer grid; a refusal arrives
-	 as its prose."
-	^ self evaluateOrNil: 'Zkfol.Face.emitted(' , self resolve , ')'
+{ #category : 'views' }
+ZkfolRan >> gtDerivationFor: aView [
+	"The final stage owns its derivation; I only forward to it, and a
+	 stage that carries none hides the tab here."
+	<gtView>
+	<gtBeamView>
+	(self stageCarries: 'derivation') ifFalse: [ ^ aView empty ].
+	^ aView forward
+		title: 'Derivation';
+		priority: 11;
+		object: [ self finalStage ];
+		view: #gtDerivationGraphFor:
 ]
 
-{ #category : 'accessing' }
-ZkfolRan >> stageCarries: aReaderString [
-	"Whether the act's final stage answers the reader, which says if a
-	 forwarded tab can feed."
-	^ true = (self evaluateOrNil: 'case Zkfol.Log.Ran.final_stage(' , self resolve
-		, ') do %Zkfol.Statement{} = s -> not is_nil(Zkfol.Statement.'
-		, aReaderString , '(s)); _ -> false end')
+{ #category : 'views' }
+ZkfolRan >> gtJudgementFor: aView [
+	"The final stage owns the judgement; I only forward to it, and a
+	 stage that carries no lay hides the tab here."
+	<gtView>
+	<gtBeamView>
+	(self stageCarries: 'lay') ifFalse: [ ^ aView empty ].
+	^ aView forward
+		title: 'Judgement';
+		priority: 9;
+		object: [ self finalStage ];
+		view: #gtJudgementFor:
 ]
 
 { #category : 'views' }
@@ -75,34 +94,6 @@ ZkfolRan >> gtObjectsFor: aView [
 					'proved report' -> [ self provedReport ] } ];
 		column: 'Object' text: [ :each | each key ];
 		send: [ :each | each value value ]
-]
-
-{ #category : 'views' }
-ZkfolRan >> gtDerivationFor: aView [
-	"The final stage owns its derivation; I only forward to it, and a
-	 stage that carries none hides the tab here."
-	<gtView>
-	<gtBeamView>
-	(self stageCarries: 'derivation') ifFalse: [ ^ aView empty ].
-	^ aView forward
-		title: 'Derivation';
-		priority: 11;
-		object: [ self finalStage ];
-		view: #gtDerivationGraphFor:
-]
-
-{ #category : 'views' }
-ZkfolRan >> gtJudgementFor: aView [
-	"The final stage owns the judgement; I only forward to it, and a
-	 stage that carries no lay hides the tab here."
-	<gtView>
-	<gtBeamView>
-	(self stageCarries: 'lay') ifFalse: [ ^ aView empty ].
-	^ aView forward
-		title: 'Judgement';
-		priority: 9;
-		object: [ self finalStage ];
-		view: #gtJudgementFor:
 ]
 
 { #category : 'views' }
@@ -166,6 +157,15 @@ ZkfolRan >> stageAt: aStageIndex [
 	 own integer literal, the bridge's own splice."
 	^ self evaluateOrNil:
 		'Zkfol.Log.Ran.stage(' , self resolve , ', ' , aStageIndex printString , ') |> elem(1)'
+]
+
+{ #category : 'accessing' }
+ZkfolRan >> stageCarries: aReaderString [
+	"Whether the act's final stage answers the reader, which says if a
+	 forwarded tab can feed."
+	^ true = (self evaluateOrNil: 'case Zkfol.Log.Ran.final_stage(' , self resolve
+		, ') do %Zkfol.Statement{} = s -> not is_nil(Zkfol.Statement.'
+		, aReaderString , '(s)); _ -> false end')
 ]
 
 { #category : 'accessing' }

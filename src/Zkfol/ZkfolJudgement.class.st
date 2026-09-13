@@ -33,6 +33,45 @@ ZkfolJudgement class >> onFeed: aDictionary [
 ]
 
 { #category : 'elements' }
+ZkfolJudgement >> asElement [
+	"Branches down, trace columns across, one verdict per column, in
+	 the one grid vocabulary the Lay beneath me speaks. The heatmap
+	 alone: the laid witness is the Lay's to show, beside me.
+	 The oracle supplies the whole-predicate verdict. Green answers, white declines beside an answer, red only where nobody
+	 answers. A branch label carries its formula as a tooltip; a cell
+	 unfolds its equations; a header or verdict judges its column."
+	| numCols rows header footer |
+	numCols := evals first size.
+	header := ZkfolElements gridRow.
+	header addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
+	1 to: numCols do: [ :x |
+		header addChild: (ZkfolElements
+			make: (ZkfolElements headerBox: x)
+			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
+	rows := ZkfolElements gridContainer: #zkfolJudgement.
+	rows addChild: header.
+	labels doWithIndex: [ :aLabel :b |
+		| line labelCell |
+		labelCell := self labelCellOn: aLabel.
+		(terms notNil and: [ (terms at: b) notEmpty ]) ifTrue: [
+			labelCell aptitude: (BrWithExplicitTooltipAptitude
+				text: (' and ' join: (terms at: b))) ].
+		line := ZkfolElements gridRow.
+		line addChild: labelCell.
+		(evals at: b) doWithIndex: [ :aValue :x |
+			line addChild: (self cellFor: aValue satisfied: (holds at: x) branch: b column: x) ].
+		rows addChild: line ].
+	footer := ZkfolElements gridRow.
+	footer addChild: (self labelCellOn: 'column holds').
+	holds doWithIndex: [ :columnHolds :x |
+		footer addChild: (ZkfolElements
+			make: (self verdictCellOn: columnHolds)
+			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
+	rows addChild: footer.
+	^ rows
+]
+
+{ #category : 'elements' }
 ZkfolJudgement >> cellFor: aValue satisfied: columnHolds branch: b column: x [
 	"One grid square in the shared vocabulary. Green answers, white
 	 declines beside an answer, ⊥ a read beyond the matrix, red only
@@ -112,45 +151,6 @@ ZkfolJudgement >> gtHeatmapFor: aView [
 	<gtView>
 	evals ifNil: [ ^ aView empty ].
 	^ ZkfolElements canvasOn: aView title: 'Judgement' priority: 1 node: self
-]
-
-{ #category : 'elements' }
-ZkfolJudgement >> asElement [
-	"Branches down, trace columns across, one verdict per column, in
-	 the one grid vocabulary the Lay beneath me speaks. The heatmap
-	 alone: the laid witness is the Lay's to show, beside me.
-	 The oracle supplies the whole-predicate verdict. Green answers, white declines beside an answer, red only where nobody
-	 answers. A branch label carries its formula as a tooltip; a cell
-	 unfolds its equations; a header or verdict judges its column."
-	| numCols rows header footer |
-	numCols := evals first size.
-	header := ZkfolElements gridRow.
-	header addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
-	1 to: numCols do: [ :x |
-		header addChild: (ZkfolElements
-			make: (ZkfolElements headerBox: x)
-			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
-	rows := ZkfolElements gridContainer: #zkfolJudgement.
-	rows addChild: header.
-	labels doWithIndex: [ :aLabel :b |
-		| line labelCell |
-		labelCell := self labelCellOn: aLabel.
-		(terms notNil and: [ (terms at: b) notEmpty ]) ifTrue: [
-			labelCell aptitude: (BrWithExplicitTooltipAptitude
-				text: (' and ' join: (terms at: b))) ].
-		line := ZkfolElements gridRow.
-		line addChild: labelCell.
-		(evals at: b) doWithIndex: [ :aValue :x |
-			line addChild: (self cellFor: aValue satisfied: (holds at: x) branch: b column: x) ].
-		rows addChild: line ].
-	footer := ZkfolElements gridRow.
-	footer addChild: (self labelCellOn: 'column holds').
-	holds doWithIndex: [ :columnHolds :x |
-		footer addChild: (ZkfolElements
-			make: (self verdictCellOn: columnHolds)
-			spawn: [ ZkfolJudgementColumn new setJudgement: self column: x; yourself ]) ].
-	rows addChild: footer.
-	^ rows
 ]
 
 { #category : 'elements' }

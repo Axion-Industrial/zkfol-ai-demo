@@ -72,14 +72,14 @@ ZkfolDerivationGraph >> paint: aMondrian [
 ]
 
 { #category : 'accessing' }
+ZkfolDerivationGraph >> setRows: someRows [
+	rows := someRows
+]
+
+{ #category : 'accessing' }
 ZkfolDerivationGraph >> spawner: aBlock [
 	"The block a node's click answers through, taking the fact's
 	 1-based position in the derivation; without one, clicking spawns
 	 the fact's own row."
 	spawner := aBlock
-]
-
-{ #category : 'accessing' }
-ZkfolDerivationGraph >> setRows: someRows [
-	rows := someRows
 ]

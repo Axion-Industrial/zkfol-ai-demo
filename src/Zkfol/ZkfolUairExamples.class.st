@@ -226,30 +226,6 @@ ZkfolUairExamples >> emittedFibonacciRenders [
 ]
 
 { #category : 'examples' }
-ZkfolUairExamples >> failuresBeyondThePicture [
-	"The drawing cap never limits the verdict or the target of a read."
-	<gtExample>
-	<return: #ZkfolUairGrid>
-	| grid values results feed |
-	values := Array new: 1024 withAll: 3.
-	results := values copy at: 700 put: 4; yourself.
-	feed := {
-		#num_public -> 0.
-		#num_vars -> 10.
-		#len -> 1024.
-		#kinds -> #(#plain #bit #result).
-		#columns -> { values. Array new: 1024 withAll: 0. results }.
-		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(1). #result_row -> 2 } asDictionary }
-	} asDictionary.
-	grid := ZkfolUairGrid onUair: feed.
-	self assert: grid displayedPositions < 700.
-	self assert: grid failingChains size equals: 1.
-	self assert: grid failingChains first position equals: 700.
-	self assert: (grid gtFailuresFor: GtPhlowView empty) class equals: GtPhlowColumnedListView.
-	^ grid
-]
-
-{ #category : 'examples' }
 ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 	"I assert the failure list says nothing when nothing is wrong. Every
 	 sound fixture lists no failure and offers no tab at all; the broken
@@ -282,6 +258,30 @@ ZkfolUairExamples >> failuresAreSilentUntilTheTraceContradictsItself [
 		assert: (broken hoverPairsOf: 1 position: 1 value: 3) first key
 		equals: ZkfolPalette failureColor.
 	^ broken
+]
+
+{ #category : 'examples' }
+ZkfolUairExamples >> failuresBeyondThePicture [
+	"The drawing cap never limits the verdict or the target of a read."
+	<gtExample>
+	<return: #ZkfolUairGrid>
+	| grid values results feed |
+	values := Array new: 1024 withAll: 3.
+	results := values copy at: 700 put: 4; yourself.
+	feed := {
+		#num_public -> 0.
+		#num_vars -> 10.
+		#len -> 1024.
+		#kinds -> #(#plain #bit #result).
+		#columns -> { values. Array new: 1024 withAll: 0. results }.
+		#reads -> { { #row -> 1. #value_row -> 0. #bit_rows -> #(1). #result_row -> 2 } asDictionary }
+	} asDictionary.
+	grid := ZkfolUairGrid onUair: feed.
+	self assert: grid displayedPositions < 700.
+	self assert: grid failingChains size equals: 1.
+	self assert: grid failingChains first position equals: 700.
+	self assert: (grid gtFailuresFor: GtPhlowView empty) class equals: GtPhlowColumnedListView.
+	^ grid
 ]
 
 { #category : 'examples' }
