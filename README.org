@@ -1,0 +1,175 @@
+* ZKfol
+
+This is an implementation of the FOL language as laid out by
+=zk-SNARKs For First Order Logic= (Gabbay-Mendelsohn).
+
+* Dependencies
+- Elixir 1.18 on OTP 27+ :: consult the installation instructions:
+  [[https://elixir-lang.org/install.html][here]]. Note you may have to follow the asdf instructions on the page.
+- Rust :: consult the installation instructions [[https://www.rust-lang.org/tools/install][here]].
+- Glamorous Toolkit :: This is an optional dependency that lets you
+  visualize your code and cost performances. Installation instructions
+  [[https://gtoolkit.com/start/][here]].
+
+* Known Issues
+
+- If IEX and test refuse to work, it's likely the Mnesia store needs
+  to be reset ~rm -rf ./.mnesiastore-<node>/~ (~.mnesiastore-test/~
+  for the tests).
+
+* Benchmarks
+
+- You can see the current speed of ZKfol in comparison to other
+  systems: [[https://github.com/mariari/zkvm-fib-bench/blob/main/RESULTS.md][here]].
+
+  To run the benchmark please run the following in IEX (note this may take a
+  minute)
+
+  #+begin_src elixir
+    Examples.EBench.report()
+  #+end_src
+
+* Getting Up and Running
+
+This codebase is an interactive one. Meaning that the best way to
+experience your programs is interactively!
+
+** Using IEX
+
+IEX is probably the easiest way to get started.
+
+#+begin_src sh
+  iex --sname fol -S mix
+#+end_src
+
+This will spawn an interactive shell, where we can do fun things like
+
+#+begin_src elixir
+  Zkfol.eval!(Examples.ESudoku.solved(), [:_], []) |> Zkfol.Query.statement() |> Zkfol.compile() |> Zkfol.Log.report()
+#+end_src
+
+Here we just solved, proved, and verified a sudoku puzzle. solved
+gives the ~sudoku~ predicate a puzzle with 17 clues, for it to figure
+out the rest.
+
+For problems that have multiple solutions you can run something like
+this
+
+#+begin_src elixir
+  ran = Zkfol.compile(Examples.EUser.fib(), args: [8])
+  query = Zkfol.eval!(Examples.EUser.fib(), [:_, :_])
+  Zkfol.Query.taken(query)           # [[1, 1]]
+  Zkfol.Query.next(query)            # {:ok, [2, 1]}
+
+  # no number on statement takes the latest answer
+  Zkfol.Query.statement(query) |> Zkfol.compile() |> Zkfol.Log.report()
+  # Take the 5th answer
+  Zkfol.Query.statement(query, 5) |> Zkfol.compile() |> Zkfol.Log.report()
+  Zkfol.Query.next(query) # {:ok, [6, 8]}
+
+  # To close the query
+  Zkfol.Query.close(query)
+#+end_src
+
+
+Functions in the ~Zkfol~ module are user facing, and the ~Example~
+modules are a good way to get some bearing on the codebase.
+
+A user guide should be coming soon that better explains how it works.
+
+** Using Glamorous Toolkit (GT)
+
+GT is the main way the codebase is developed and offers a lot of
+visual guis to everything. However it takes a bit more setup, and
+requires you have GT installed.
+
+This section is a WIP, the instructions should be enough for those
+willing to try, but a better user guide will come in the future.
+
+To grab the package into GT.
+#+begin_src st
+  Metacello new
+  	repository: 'github://zkFOL/zkfol:base/src';
+  	baseline: #Zkfol;
+  	load.
+#+end_src
+- If you are doing active development on the Bridge or AL I suggest
+  running the following instead
+
+  #+begin_src st
+    Metacello new
+      repository: 'github://zkFOL/zkfol:base/src';
+      baseline: #Zkfol;
+      load: #dev.
+  #+end_src
+
+
+From the shell
+#+begin_src sh
+  ~/ZKFOL % iex --sname fol -S mix
+  iex(fol@YU-NO)7> GtBridge.start_listener(1212)
+
+  14:55:21.253 [debug] starting tcp listener with [host: {0, 0, 0, 0}, port: 1212]
+  {:ok, #PID<0.520.0>}
+
+  14:55:21.253 [debug] tcp server on port 1212
+#+end_src
+
+Now from GT side evaluate
+
+#+begin_src smalltalk
+  BeamLinkApplication stop.
+  BeamLinkApplication connectwithServerPort: 1212
+#+end_src
+
+Now you are connected.
+
+
+The above example in IEX can be done more simply now and interactively
+
+#+begin_src elixir
+  Zkfol.eval!(Examples.ESudoku.solved(), Examples.ESudoku.act(), [])
+  |> Zkfol.Query.statement()
+  |> Zkfol.compile()
+#+end_src
+
+For example evaluating any of these leads you to a gui that lets you
+find more answers
+
+#+begin_src elixir
+  # Solve for the second argument
+  Zkfol.eval!(Examples.EUser.fib(), [8, :_], [])
+  # Solve for the first argument
+  Zkfol.eval!(Examples.EUser.fib(), [:_, 21], [])
+  # Solve for both arguments!
+  Zkfol.eval!(Examples.EUser.fib(), [:_, :_], [])
+#+end_src
+
+and then evaluate based on these answers, there are many benefits to
+using the GT interface.
+
+* Getting ZKfol in your project
+
+If you want to include ZKfol in your elixir project it's quite simple,
+just add
+
+#+begin_src elixir
+  {:zkfol, git: "https://github.com/zkFOL/zkfol.git"},
+#+end_src
+
+to the dependency of your Elixir project.
+
+* Git
+
+This codebase follows a git style similar to [[https://git-scm.com/][git]] or [[https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git][Linux]].
+
+New code should be based on ~base~, and no attempt to keep it up to
+sync with ~master~ should be had. When one's topic is ready, just submit
+a PR on github and a maintainer will handle any merge conflicts.
+
+Releases happen every so often, however patches may be slated for a
+specific release, so do not be afraid if a maintainer says the PR is
+merged but it's still open, this just means that it's merged into
+~next~ or ~master~ and will be included in the next scheduled release.
+
+Happy hacking, and don't be afraid to submit patches.
