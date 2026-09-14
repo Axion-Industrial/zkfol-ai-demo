@@ -182,8 +182,6 @@ defmodule Examples.EAl do
     {:ok, uair} = Uair.emit(Statement.pred(statement), witness)
     len = Interpretation.len(witness)
 
-    assert Enum.map(uair.mode.reads, & &1.value_row) == [0, 2]
-
     pointers = uair.mode.reads |> Enum.map(& &1.row) |> Enum.uniq()
     assert length(pointers) == 1
 

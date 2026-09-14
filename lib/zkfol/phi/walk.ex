@@ -136,7 +136,7 @@ defmodule Zkfol.Phi.Walk do
     eqs = Enum.map(eqs, &Value.shaped(&1, walk.shapes))
 
     # A record read as a number has no number: its fields came back as a list.
-    for eq <- eqs, Ast.reduce(eq, false, &(&2 or (is_list(&1) and &1 != []))) do
+    for eq <- eqs, Ast.reduce(eq, false, &(&2 or is_list(&1))) do
       throw({:refused, {:unliftable_term, %{term: eq}}})
     end
 

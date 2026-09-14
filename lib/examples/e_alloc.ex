@@ -24,6 +24,10 @@ defmodule Examples.EAlloc do
     held(n, value)
   end
 
+  defrel shifted(n, value) do
+    held(n + 1, value)
+  end
+
   defrel choose(0) do
     nth(1, [1], 2)
   end
@@ -66,17 +70,23 @@ defmodule Examples.EAlloc do
   example scalar_parameters_share_one_predicate do
     reports =
       Enum.flat_map(
-        [{sum(), [[3, 4, 7], [8, 5, 13]]}, {delegated(), [[8, 36], [9, 45]]}],
+        [
+          {sum(), [[3, 4, 7], [8, 5, 13]]},
+          {delegated(), [[8, 36], [9, 45]]},
+          {shifted(), [[0, 1], [1, 3], [2, 6]]}
+        ],
         fn {rel, answers} ->
           {:ok, pred, alloc} = Phi.compile(rel)
 
           for args <- answers do
             assert {:ok, ^pred, ^alloc} = Phi.compile(rel, nil, args)
             {:ok, derivation} = Al.derived(rel, args)
-            witness = derivation |> Lay.of(alloc) |> Lay.witness()
+            lay = Lay.of(derivation, alloc)
+            witness = Lay.witness(lay)
+            {:ok, claims} = Lay.claims(lay, [1])
 
             assert {:ok, report = %Prover.Report{}, _id} =
-                     Prover.prove(Alloc.link(pred, alloc), witness)
+                     Prover.prove(Alloc.link(pred, alloc), witness, claims: claims)
 
             report
           end

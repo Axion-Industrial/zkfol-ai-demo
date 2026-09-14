@@ -778,8 +778,8 @@ defmodule Zkfol.Phi do
 
   defp framed_at(frame, _target, _ctx), do: frame
 
-  # A primitive with a known index picks the cell; otherwise its meaning is applied to
-  # the prepared arguments.
+  # A known index selects an element by matching. A private index selects scalar cells
+  # by constraints; structured elements use the relation's clauses.
   @spec phi_goal(Rel.t(), [term()], Walk.t(), ctx()) :: Walk.t() | :dead
   defp phi_goal(callee, args, walk, ctx) do
     {module, op} = callee.phi
@@ -787,6 +787,9 @@ defmodule Zkfol.Phi do
     case pick(callee.phi, args, walk) do
       {v, selected} ->
         unify(v, selected, walk)
+
+      :clauses ->
+        compile_call(callee, args, walk, ctx)
 
       nil ->
         {resolved, walk} = prepare(args, walk, ctx)
@@ -836,13 +839,21 @@ defmodule Zkfol.Phi do
     end)
   end
 
-  @spec pick({module(), atom()}, [term()], Walk.t()) :: {term(), value()} | nil
+  @spec pick({module(), atom()}, [term()], Walk.t()) :: {term(), value()} | :clauses | nil
   defp pick({Ast, :nth}, [i, xs, v], walk) do
-    with q when is_integer(q) <- Expression.argument(i, walk),
-         cells when is_list(cells) <- Value.elements(Expression.argument(xs, walk), walk.shapes),
-         true <- q >= 1 and q <= length(cells),
-         do: {v, Enum.at(cells, q - 1)},
-         else: (_unpicked -> nil)
+    index = Expression.argument(i, walk)
+    cells = Value.elements(Expression.argument(xs, walk), walk.shapes)
+
+    cond do
+      is_integer(index) and is_list(cells) and index >= 1 and index <= length(cells) ->
+        {v, Enum.at(cells, index - 1)}
+
+      is_list(cells) and Enum.any?(cells, &(Place.shape(&1, walk.shapes) != :scalar)) ->
+        :clauses
+
+      true ->
+        nil
+    end
   end
 
   defp pick(_phi, _args, _env), do: nil
@@ -974,8 +985,8 @@ defmodule Zkfol.Phi do
 
     cond do
       a == b -> walk
-      Place.count(b) -> unify(a, elements(b, known), walk)
-      Place.count(a) -> unify(b, elements(a, known), walk)
+      Place.count(b) -> unify(a, Place.elements(b, known), walk)
+      Place.count(a) -> unify(b, Place.elements(a, known), walk)
       true -> throw({:refused, {:unliftable_term, %{term: b}}})
     end
   end
@@ -1023,11 +1034,6 @@ defmodule Zkfol.Phi do
         Walk.constrain(walk, [Ast.eq(Value.scalar(a), Value.scalar(b))])
     end
   end
-
-  # A counted list in a bank as the list of its elements.
-  @spec elements(value(), Place.known()) :: [value()]
-  defp elements(laid, known),
-    do: for(i <- 0..(Place.count(laid) - 1)//1, do: Place.slice(laid, i, known))
 
   # An integer against the column pins the column; against anything else, that cell.
   @spec pinned(Ast.term_t(), integer()) :: [Ast.pred()]

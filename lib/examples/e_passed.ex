@@ -67,6 +67,121 @@ defmodule Examples.EPassed do
     end
   end
 
+  defrel first(xs, out) do
+    nth(1, xs, out)
+  end
+
+  @doc "A literal index selects a whole row."
+  @spec first_row() :: Statement.t()
+  example first_row do
+    rows = [[10, 20], [30, 40]]
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [first()], args: [rows, :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :first) == {:first, [rows, [10, 20]]}
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  @doc "A private index selects a row through nth's clauses."
+  @spec picked_row() :: Statement.t()
+  example picked_row do
+    rows = [[10, 20], [30, 40]]
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [pick()], args: [2, rows, :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :pick) == {:pick, [2, rows, [30, 40]]}
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel odd_last(1, [out], out)
+
+  defrel odd_last(n, [_head | tail], out) do
+    odd_last(n - 2, tail, out)
+  end
+
+  @doc "A fractional stride has no bank length, so the list stays terms."
+  @spec strided_last() :: Statement.t()
+  example strided_last do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [odd_last()], args: [5, [10, 20, 30], :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :odd_last) ==
+             {:odd_last, [5, [10, 20, 30], 30]}
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel last_call(n, [_head | tail], out) do
+    last_step(n - 1, tail, out)
+  end
+
+  defrel last_step(1, xs, out) do
+    xs = [out]
+  end
+
+  defrel last_step(n, xs, out) do
+    last_call(n, xs, out)
+  end
+
+  @doc "A callee whose extent is unknown leaves the caller's list as terms."
+  @spec mutual_last() :: Statement.t()
+  example mutual_last do
+    rels = [last_call(), last_step()]
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: rels, args: [3, [10, 20, 30], :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :last_call) ==
+             {:last_call, [3, [10, 20, 30], 30]}
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel loose_last(1, [out], out)
+  defrel loose_last(1, [_head, out], out)
+
+  defrel loose_last(n, [_head | tail], out) do
+    loose_last(n - 1, tail, out)
+  end
+
+  defrel loose_last(n, [_head | tail], out) do
+    loose_last(n - 2, tail, out)
+  end
+
+  @doc "Two bases and two strides that disagree on the length leave the list as terms."
+  @spec loosely_stepped() :: Statement.t()
+  example loosely_stepped do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [loose_last()], args: [3, [10, 20], :_]})
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel last_at(5, [out], out)
+  defrel last_at(6, [_head, out], out)
+
+  defrel last_at(n, [_head, next | tail], out) do
+    last_at(n - 1, [next | tail], out)
+    last_at(n - 2, tail, out)
+  end
+
+  @doc "Different bases and strides that agree on length(xs) = n - 4 give one extent."
+  @spec agreeing_bases() :: Statement.t()
+  example agreeing_bases do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [last_at()], args: [7, [10, 20, 30], :_]})
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
   defrel reads(xs, i, first, selected) do
     nth(1, [42], constant)
     constant = 42
