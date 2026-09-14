@@ -83,13 +83,8 @@ defmodule Examples.EQuery do
   end
 
   @spec answers?(Zkfol.Al.Ask.t()) :: boolean()
-  defp answers?(%Zkfol.Al.Ask{branch: branch, class: class}) do
-    goal = [
-      AL.ast_to_pattern({Zkfol.Al.method(:tab), [], [class, {:_x, [], nil}, {:_v, [], nil}]})
-    ]
-
-    match?({:atomic, _answer}, AL.eval(goal, nil, branch, []))
-  end
+  defp answers?(%Zkfol.Al.Ask{branch: branch, goal: goal}),
+    do: match?({:atomic, _answer}, AL.eval(goal, nil, branch, []))
 
   @doc "An answer is every asked row ground; a row left open is residue, not an answer."
   @spec an_open_row_is_residue() :: Refusal.t()

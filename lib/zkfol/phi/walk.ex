@@ -2,10 +2,17 @@ defmodule Zkfol.Phi.Walk do
   @moduledoc """
   I retain the bindings, equations and allocation decisions made while compiling a clause.
 
-  `env` binds source variables and parameter references to symbolic values.
+  `env` retains source definitions, including aliases and unfinished constructors.
+  Inlined names remain available until the member is compiled. Parameter references
+  bind physical accesses; retaining a source definition does not allocate storage.
   `parameters` records each parameter's allocation; `:none` means it shares an
   existing access. `shapes` records observations of owned or borrowed elements.
   `slots` holds local storage.
+  `mode` distinguishes a member, an inline trial and a wrapper expansion. A trial
+  records required banks and callees; a wrapper may realize its callees. Both retain
+  scalar slots supplied by source bindings. Rejecting an expansion discards its slots.
+  Either may resolve an enclosing member's parameter storage and continue looking for
+  contradictions.
   An impossible walk is `:dead`.
   A member retains its clauses; each clause's body retains the clauses of members it calls.
 
@@ -18,6 +25,7 @@ defmodule Zkfol.Phi.Walk do
   - `bind/3`, `bind/4`: bind a parameter and record its allocation.
   - `allocate/3`: choose storage for a newly resolved parameter.
   - `banks/1`: the banks owned by parameter allocations.
+  - `require/2`: record storage an inline clause would need.
   - `bank/3`, `bank/4`: give an unresolved parameter its own sequence storage.
   - `peel/2`, `ended/2`: observe a source bracket, recording its storage requirements.
   """
@@ -31,9 +39,13 @@ defmodule Zkfol.Phi.Walk do
   alias Zkfol.Alloc.Site
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
-  alias Zkfol.Phi.{Place, Shape, Value}
+  alias Zkfol.Phi.{Expression, Place, Shape, Value}
 
   require Place
+
+  @typedoc "Storage an inline clause would need beyond the enclosing member's parameters."
+  @type requirement :: {:member, atom()} | {:bank, Ast.row_ref()}
+  @type mode :: :member | {:inline | :wrapper, [requirement()]}
 
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
@@ -78,7 +90,8 @@ defmodule Zkfol.Phi.Walk do
   end
 
   typedstruct do
-    field(:env, map(), default: %{})
+    field(:mode, mode(), default: :member)
+    field(:env, %{(Expression.name() | Ast.row_ref()) => Expression.symbolic()}, default: %{})
     field(:shapes, %{Ast.row_ref() => Shape.t()}, default: %{})
     field(:parameters, %{Ast.row_ref() => Zkfol.Alloc.allocation()}, default: %{})
     field(:members, [Member.t() | Bank.t()], default: [])
@@ -88,6 +101,11 @@ defmodule Zkfol.Phi.Walk do
     field(:slots, [Slot.t()], default: [])
     field(:clauses, [Clause.t()], default: [])
   end
+
+  @doc "I record an inline clause's storage requirement and continue interpreting its goals."
+  @spec require(t(), requirement()) :: t()
+  def require(walk = %__MODULE__{mode: {kind, required}}, requirement),
+    do: %{walk | mode: {kind, [requirement | required]}}
 
   @doc "I merge a parameter declaration into a walk; the declaration's entries take precedence."
   @spec merge(t(), t()) :: t()
@@ -125,9 +143,9 @@ defmodule Zkfol.Phi.Walk do
     %{walk | eqs: Enum.reverse(eqs, walk.eqs)}
   end
 
-  @doc "I resolve the element shapes of a bound value before handing it to another walk."
-  @spec fetch(t(), term()) :: Value.t()
-  def fetch(walk, name), do: follow(walk, Map.fetch!(walk.env, name))
+  @doc "I follow a name's definitions, retaining unknown variables and resolving known element shapes."
+  @spec fetch(t(), term()) :: Expression.symbolic()
+  def fetch(walk, name), do: Expression.substitute(Map.fetch!(walk.env, name), walk)
 
   @doc "I follow parameter aliases, retaining an unresolved reference's identity."
   @spec follow(t(), Value.t()) :: Value.t()
@@ -183,9 +201,9 @@ defmodule Zkfol.Phi.Walk do
     }
 
   @doc """
-  I choose storage for a newly resolved parameter. Structure shares its existing access;
-  scalars and node references get parameter cells. Matching must constrain the chosen access
-  to equal the value: this operation records storage without adding equations.
+  I choose storage for a newly resolved parameter. A list gets a node reference in its
+  parameter cell, independent of the view selected by a clause. Already supplied accesses
+  use `bind/3`. Matching then constrains the chosen access to equal the value.
   """
   @spec allocate(t(), Ast.row_ref(), Value.t()) :: t()
   def allocate(walk, ref, value) do
@@ -195,11 +213,11 @@ defmodule Zkfol.Phi.Walk do
       is_integer(value) ->
         bind(walk, ref, {:count, value, cell}, {:cell, ref})
 
-      match?({:node, _id}, value) ->
+      is_list(value) or Place.is_laid(value) or match?({:pair, _, _}, value) or
+          match?({:node, _id}, value) ->
         bind(walk, ref, {:node, cell}, {:node, ref})
 
-      is_list(value) or Place.is_laid(value) or match?({:pair, _, _}, value) or
-        match?({:across, _, _, _}, value) or match?({:rel, _, _}, value) ->
+      match?({:across, _, _, _}, value) or match?({:rel, _, _}, value) ->
         bind(walk, ref, value, :none)
 
       true ->
@@ -223,7 +241,8 @@ defmodule Zkfol.Phi.Walk do
   end
 
   @doc "I peel an unresolved record or an existing pair; ownership does not change its meaning."
-  @spec peel(t(), Value.t()) :: {:ok, Value.t(), Value.t(), t()} | :dead
+  @spec peel(t(), Expression.symbolic()) ::
+          {:ok, Expression.symbolic(), Expression.symbolic(), t()} | :dead
   def peel(walk, {:across, row = {bank, first}, col = {:at, base, m, a}, n}) do
     walk = refine(walk, %{row => {:list, {:at_least, n + 1}, :scalar}})
     {:ok, Ast.at({bank, first + n}, base, m, a), {:across, row, col, n + 1}, walk}
@@ -231,7 +250,7 @@ defmodule Zkfol.Phi.Walk do
 
   def peel(walk, value) do
     case Value.shaped(value, walk.shapes) do
-      {:pair, head, tail} ->
+      {tag, head, tail} when tag in [:pair, :cons] ->
         {:ok, head, tail, walk}
 
       [head | tail] ->

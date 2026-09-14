@@ -5,7 +5,6 @@ defmodule Zkfol.Nodes do
 
   ### Public API
 
-  - `reads/2`: dependencies, including those inside generated expressions.
   - `lower/2`: realize demanded terms and bank bridges in the predicate and allocation.
   - `cells/4`: derive table and generated cells from the allocation’s producers.
   - `openings/4`: bind the fields of a reachable term graph.
@@ -20,10 +19,6 @@ defmodule Zkfol.Nodes do
     field(:name, atom(), default: __MODULE__)
     field(:refs, [Ast.row_ref()])
   end
-
-  @doc "I include references inside generated expressions when judging which slots are read."
-  @spec reads(Ast.pred(), Place.known()) :: [Ast.row_ref()]
-  def reads(pred, known), do: pred |> expand(MapSet.new(), known) |> references()
 
   @doc "I realize the reads a predicate demands, returning their allocation beside it."
   @spec lower(Ast.pred(), [Alloc.Member.t() | Alloc.Bank.t()]) ::

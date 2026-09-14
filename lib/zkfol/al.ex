@@ -1,7 +1,8 @@
 defmodule Zkfol.Al do
   @moduledoc """
   I am the AL backend: a statement becomes clauses and runs as written,
-  so the derivation is the witness.
+  so the derivation is the witness. Each generated method carries its source bindings
+  in one final internal argument; public arguments and fact identities exclude it.
   """
 
   alias Zkfol.Al.Ask
@@ -149,7 +150,11 @@ defmodule Zkfol.Al do
   @spec asking(prep(), [Statement.datum() | :_], atom()) :: program()
   defp asking(%{root: root, bind: bind, len?: len?}, arguments, class) do
     sized = if len?, do: [Map.fetch!(bind, 1)], else: []
-    goal = {method(root.name), [], [class | goal(root.arity, bind, arguments) ++ sized]}
+
+    goal =
+      {method(root.name), [],
+       [class | goal(root.arity, bind, arguments) ++ sized ++ [v(:"$bindings")]]}
+
     [AL.ast_to_pattern(goal)]
   end
 
@@ -264,6 +269,9 @@ defmodule Zkfol.Al do
       nil ->
         lenp = if len?, do: [v(:len)], else: []
         reading = if al, do: [saying(al, %{})], else: []
+        # Bind the bundle in the head so it follows this clause through backtracking.
+        bindings =
+          {:%{}, [], for(name <- Enum.uniq(Term.names(head ++ body)), do: {name, v(name)})}
 
         {entry, written} =
           body |> Enum.reject(&saying?(&1, said)) |> numbered() |> Enum.split_with(&postable?/1)
@@ -275,7 +283,7 @@ defmodule Zkfol.Al do
            defmethod(
              class,
              method(rname),
-             [v(:self) | params ++ lenp],
+             [v(:self) | params ++ lenp ++ [bindings]],
              {:__block__, [], reading ++ posted ++ goals}
            )}
         end
@@ -352,7 +360,8 @@ defmodule Zkfol.Al do
   defp goals({{:call, callee, args}, j}, i, lenp) do
     with {:ok, passed} <- Refusal.map(Enum.with_index(args), &argument(&1, i, j)) do
       {defs, args} = Enum.unzip(passed)
-      {:ok, Enum.concat(defs) ++ sent(callee, args ++ lenp, i, j)}
+      witness = v(:"$bindings#{i}c#{j}")
+      {:ok, Enum.concat(defs) ++ sent(callee, args ++ lenp ++ [witness], i, j)}
     end
   end
 

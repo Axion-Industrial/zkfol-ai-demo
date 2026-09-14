@@ -12,6 +12,7 @@ defmodule Examples.EForgery do
   alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
+  alias Examples.EPhi
   alias Examples.EUser
   alias Zkfol.Alloc
   alias Zkfol.Alloc.Slot
@@ -63,7 +64,15 @@ defmodule Examples.EForgery do
       forked: emitted(EAl.forked(), [2, 10]),
       parities: emitted([EAl.odd(), EAl.even()], [5, :_]),
       aimed: emitted([EAl.summed(), EAl.both()], [1, :_]),
-      factorial: emitted(EFacts.factorial(), [5])
+      factorial: emitted(EFacts.factorial(), [5]),
+      local_factor: EPhi.factored(),
+      local_calls: EPhi.factored_pair(),
+      repeated_calls: EPhi.repeated_factors(),
+      wrapped: EPhi.wrapped(),
+      divided: EPhi.divided(),
+      aliased: EPhi.aliased(),
+      construction: EPhi.construction(),
+      alternative: EPhi.selected_alternative()
     ]
   end
 

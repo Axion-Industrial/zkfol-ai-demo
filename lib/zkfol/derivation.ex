@@ -2,7 +2,8 @@ defmodule Zkfol.Derivation do
   @moduledoc """
   I am the extension a run established: the facts in callees-first order,
   the consumption between them, and the clause each fact fired. A fact is
-  its own key: nothing outside me counts my positions.
+  its own key: nothing outside me counts my positions. `bindings` retains the chosen
+  clause's source variables beside its fact, including locals absent from its arguments.
   """
 
   use TypedStruct
@@ -15,6 +16,7 @@ defmodule Zkfol.Derivation do
     # Pairs, not maps: a tuple key cannot ride the bridge.
     field(:consumed, [{fact(), [fact()]}], default: [])
     field(:clauses, [{fact(), non_neg_integer() | nil}], default: [])
+    field(:bindings, [{fact(), %{atom() => term()}}], default: [])
   end
 
   @doc """
@@ -34,8 +36,9 @@ defmodule Zkfol.Derivation do
 
     %__MODULE__{
       facts: facts,
-      consumed: for({fact, {callees, _clause}} <- ran, do: {fact, callees}),
-      clauses: for({fact, {_callees, clause}} <- ran, do: {fact, clause})
+      consumed: for({fact, {callees, _clause, _bindings}} <- ran, do: {fact, callees}),
+      clauses: for({fact, {_callees, clause, _bindings}} <- ran, do: {fact, clause}),
+      bindings: for({fact, {_callees, _clause, bindings}} <- ran, do: {fact, bindings})
     }
   end
 
@@ -59,7 +62,7 @@ defmodule Zkfol.Derivation do
   def consumption(%__MODULE__{consumed: consumed}), do: consumed
 
   @spec walk(map(), methods(), boolean(), map()) :: [
-          {fact(), {[fact()], non_neg_integer() | nil}}
+          {fact(), {[fact()], non_neg_integer() | nil, %{atom() => term()}}}
         ]
   defp walk(node = %{label: label, children: kids}, names, len?, store) do
     below = Enum.flat_map(kids, &walk(&1, names, len?, store))
@@ -68,9 +71,11 @@ defmodule Zkfol.Derivation do
       consumed =
         for %{label: kid_label} = kid <- kids,
             fact?(kid_label, names, len?),
-            do: fact_of(kid, names, len?, store)
+            do: fact_of(kid, names, store)
 
-      below ++ [{fact_of(node, names, len?, store), {consumed, node.clause}}]
+      {_self, _method, args} = label
+      bindings = args |> List.last() |> resolved(node.derived) |> AL.Var.subst(store)
+      below ++ [{fact_of(node, names, store), {consumed, node.clause, bindings}}]
     else
       below
     end
@@ -82,18 +87,21 @@ defmodule Zkfol.Derivation do
   @spec fact?(term(), methods(), boolean()) :: boolean()
   defp fact?({_self, m, args}, names, len?) do
     case Map.get(names, m) do
-      {_name, arity} -> arity == length(args) - if(len?, do: 1, else: 0)
+      {_name, arity} -> arity == length(args) - 1 - if(len?, do: 1, else: 0)
       nil -> false
     end
   end
 
   defp fact?(_label, _names, _len?), do: false
 
-  @spec fact_of(map(), methods(), boolean(), map()) :: fact()
-  defp fact_of(%{label: {_self, m, args}, derived: derived}, names, len?, store) do
-    {name, _arity} = Map.fetch!(names, m)
-    values = for arg <- args, do: arg |> resolved(derived) |> AL.Var.subst(store)
-    {name, if(len?, do: Enum.drop(values, -1), else: values)}
+  @spec fact_of(map(), methods(), map()) :: fact()
+  defp fact_of(%{label: {_self, m, args}, derived: derived}, names, store) do
+    {name, arity} = Map.fetch!(names, m)
+
+    values =
+      for arg <- Enum.take(args, arity), do: arg |> resolved(derived) |> AL.Var.subst(store)
+
+    {name, values}
   end
 
   # A sequence built one call at a time was journalled with its tail still open.
@@ -115,7 +123,8 @@ defmodule Zkfol.Derivation do
     %__MODULE__{
       facts: Enum.filter(t.facts, &MapSet.member?(kept, &1)),
       consumed: Enum.filter(t.consumed, &MapSet.member?(kept, elem(&1, 0))),
-      clauses: Enum.filter(t.clauses, &MapSet.member?(kept, elem(&1, 0)))
+      clauses: Enum.filter(t.clauses, &MapSet.member?(kept, elem(&1, 0))),
+      bindings: Enum.filter(t.bindings, &MapSet.member?(kept, elem(&1, 0)))
     }
   end
 

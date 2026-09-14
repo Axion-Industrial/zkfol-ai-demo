@@ -377,9 +377,8 @@ defmodule Examples.EUser do
 
     assert Enum.take(Zkfol.stream(topped(), [[3, 1, 2, 4]]), 1) == [[[3, 1, 2, 4]]]
 
-    assert hd(Statement.alloc(statement).members).slots == [
-             %Slot{name: :a1, allocation: {:bank, :"topped a1", {:at, :x, 0, 5}}}
-           ]
+    assert [%Slot{name: :a1, allocation: {:bank, :"topped a1", {:at, :x, 0, 5}}}] =
+             hd(Statement.alloc(statement).members).slots
 
     assert Statement.bank(statement, :"topped a1") == [[0, 4, 2, 1, 3]]
     assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))

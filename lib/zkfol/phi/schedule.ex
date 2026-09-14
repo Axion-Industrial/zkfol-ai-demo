@@ -2,6 +2,7 @@ defmodule Zkfol.Phi.Schedule do
   @moduledoc """
   I schedule clause goals, retrying an equation when a binding it needs changes.
 
+  Identical goals are scheduled once, keeping their first source position.
   Ready goals run in source order. Awakened goals run after the current ready list,
   also in source order. `blocked` records each goal's dependencies; `waiting`
   indexes those same dependencies by name so unrelated goals need no revisiting.
@@ -23,13 +24,16 @@ defmodule Zkfol.Phi.Schedule do
     field(:goals, tuple(), enforce: true)
     field(:ready, [{term(), non_neg_integer()}], default: [])
     field(:awakened, MapSet.t(non_neg_integer()), default: MapSet.new())
-    field(:blocked, %{non_neg_integer() => [atom()]}, default: %{})
-    field(:waiting, %{atom() => MapSet.t(non_neg_integer())}, default: %{})
+    field(:blocked, %{non_neg_integer() => [Expression.name()]}, default: %{})
+    field(:waiting, %{Expression.name() => MapSet.t(non_neg_integer())}, default: %{})
   end
 
-  @doc "I start with every goal ready, in source order."
+  @doc "I schedule each distinct goal at its first source position."
   @spec new([term()]) :: t()
-  def new(goals), do: %__MODULE__{goals: List.to_tuple(goals), ready: Enum.with_index(goals)}
+  def new(goals) do
+    ready = Enum.uniq_by(Enum.with_index(goals), &elem(&1, 0))
+    %__MODULE__{goals: List.to_tuple(goals), ready: ready}
+  end
 
   @doc "I run a clause with the given goal interpreter; unresolved dependencies cause a refusal."
   @spec run(t(), Walk.t(), (term(), non_neg_integer(), Walk.t() ->
@@ -50,9 +54,19 @@ defmodule Zkfol.Phi.Schedule do
           {:waiting, names} ->
             run(wait(schedule, k, names), walk, interpret)
 
+          more = %Walk{} when map_size(schedule.blocked) == 0 ->
+            run(schedule, more, interpret)
+
           more = %Walk{} ->
-            changed =
+            # A goal can bind a name behind an alias without replacing the alias itself.
+            dependencies =
               for name <- Term.names(goal),
+                  dependency <- [name | Term.names(Expression.substitute({:var, name}, walk))],
+                  uniq: true,
+                  do: dependency
+
+            changed =
+              for name <- dependencies,
                   Map.get(walk.env, name, :fresh) != Map.get(more.env, name, :fresh),
                   do: name
 
@@ -81,7 +95,7 @@ defmodule Zkfol.Phi.Schedule do
   end
 
   @doc "I suspend a goal until one of the named bindings changes."
-  @spec wait(t(), non_neg_integer(), [atom()]) :: t()
+  @spec wait(t(), non_neg_integer(), [Expression.name()]) :: t()
   def wait(schedule, k, names) do
     waiting =
       Enum.reduce(names, schedule.waiting, fn name, waiting ->
@@ -92,7 +106,7 @@ defmodule Zkfol.Phi.Schedule do
   end
 
   @doc "I awaken dependent goals and remove their old subscriptions before they run again."
-  @spec wake(t(), [atom()]) :: t()
+  @spec wake(t(), [Expression.name()]) :: t()
   def wake(schedule, names) do
     {groups, waiting} =
       Enum.map_reduce(names, schedule.waiting, &Map.pop(&2, &1, MapSet.new()))

@@ -36,13 +36,29 @@ defmodule Zkfol.Alloc do
           | {:node, Ast.row_ref()}
           | :none
 
+  defmodule Source do
+    @moduledoc """
+    I locate a witness value independently of its storage. `calls` follows source calls
+    from the member's fact; `binding` selects an argument or a clause variable. A local
+    belongs to one member clause; `nil` reads an argument in every clause.
+    """
+    use TypedStruct
+
+    typedstruct do
+      field(:calls, [{atom(), non_neg_integer()}], default: [])
+      field(:binding, {:argument, non_neg_integer()} | {:variable, atom()}, enforce: true)
+      field(:clause, non_neg_integer() | nil)
+    end
+  end
+
   defmodule Slot do
-    @moduledoc "I am a parameter's allocation: my name, and where I stand."
+    @moduledoc "I pair a value's source with its storage; address slots are filled by calls."
     use TypedStruct
 
     typedstruct enforce: true do
-      field(:name, atom())
+      field(:name, Zkfol.Phi.Expression.name())
       field(:allocation, Zkfol.Alloc.allocation())
+      field(:source, Zkfol.Alloc.Source.t() | nil, default: nil)
     end
   end
 
@@ -71,8 +87,8 @@ defmodule Zkfol.Alloc do
 
   defmodule Site do
     @moduledoc """
-    I am a source call and where its callee stands. `occurrence` counts preceding
-    calls to the same relation in the source clause, including inlined calls.
+    I am a source call and where its callee stands. `source` follows the calls through
+    inlined clauses: each relation and its occurrence among calls to that relation.
     The address is affine in the caller's column or reads a pointer cell.
     """
     use TypedStruct
@@ -80,7 +96,7 @@ defmodule Zkfol.Alloc do
     typedstruct enforce: true do
       field(:callee, atom())
       field(:address, Zkfol.Ast.address())
-      field(:occurrence, non_neg_integer())
+      field(:source, [{atom(), non_neg_integer()}])
     end
   end
 
