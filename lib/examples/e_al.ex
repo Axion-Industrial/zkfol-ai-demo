@@ -108,6 +108,35 @@ defmodule Examples.EAl do
     y = 3 * x + 1
   end
 
+  @doc "I give two names to the same value, without restricting it to a number."
+  @spec variable_alias() :: Zkfol.Lang.Rel.t()
+  example variable_alias do
+    rel :variable_alias do
+      variable_alias(x, y) do
+        y = x
+      end
+    end
+  end
+
+  @doc "I resolve the alias in either direction for scalars, empty lists and nested lists."
+  @spec aliased_values() :: Zkfol.Derivation.t()
+  example aliased_values do
+    relation = variable_alias()
+
+    derivations =
+      for value <- [7, [], [1, [2, 3]]], args <- [[value, :_], [:_, value]] do
+        {:ok, derivation} = Al.derived(relation, args)
+
+        assert Zkfol.Derivation.root(derivation, relation.name) ==
+                 {relation.name, [value, value]}
+
+        derivation
+      end
+
+    assert {:error, {:no_answer, _}} = Al.derived(relation, [[1], [2]])
+    List.last(derivations)
+  end
+
   @doc "I bind nothing, spelled two ways, so the first count answers."
   @spec no_arguments_lands_on_the_first_count() :: Interpretation.t()
   example no_arguments_lands_on_the_first_count do
