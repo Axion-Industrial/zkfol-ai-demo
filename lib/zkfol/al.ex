@@ -347,7 +347,8 @@ defmodule Zkfol.Al do
   @spec goals({term(), non_neg_integer()}, non_neg_integer(), [Macro.t()]) ::
           {:ok, [Macro.t()]} | {:error, Refusal.t()}
   defp goals({{:eq, t, u}, _j}, _i, _lenp) do
-    op = if Term.sequence?(t) or Term.sequence?(u), do: :unify, else: :eq
+    aliases = match?({{:var, _}, {:var, _}}, {t, u})
+    op = if aliases or Term.sequence?(t) or Term.sequence?(u), do: :unify, else: :eq
     with {:ok, goal} <- binary(op, t, u), do: {:ok, [goal]}
   end
 
