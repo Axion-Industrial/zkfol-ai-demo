@@ -24,7 +24,7 @@ defmodule Zkfol.Facts do
 
     with {:ok, initial} <- initials(facts),
          {:ok, step} <- the_step(steps),
-         {:ok, p, q, mod} <- coefficients(name, step),
+         {:ok, p, q, mod} <- coefficients(name, step, elem(List.last(initial), 0)),
          do: {:ok, %__MODULE__{p: p, q: q, initial: initial, mod: mod}}
   end
 
@@ -50,21 +50,29 @@ defmodule Zkfol.Facts do
   end
 
   @spec the_step([{[term()], [term()]}]) ::
-          {:ok, {atom(), [term()]}} | {:error, Refusal.t(Refusal.restructure())}
-  defp the_step([{[{:var, _index}, {:var, out}], body}]), do: {:ok, {out, body}}
+          {:ok, {atom(), atom(), [term()]}} | {:error, Refusal.t(Refusal.restructure())}
+  defp the_step([{[{:var, index}, {:var, out}], body}]), do: {:ok, {index, out, body}}
   defp the_step([{head, _body}]), do: {:error, {:step_head_not_indexed, %{head: head}}}
   defp the_step(steps), do: {:error, {:step_clauses, %{clauses: length(steps)}}}
 
-  @spec coefficients(atom(), {atom(), [term()]}) ::
+  @spec coefficients(atom(), {atom(), atom(), [term()]}, integer()) ::
           {:ok, integer(), integer(), pos_integer() | nil}
           | {:error, Refusal.t(Refusal.restructure())}
-  defp coefficients(name, {out, body}) do
-    offsets =
-      for {:call, ^name, [{:add, {:var, _index}, k}, {:var, v}]} <- body, do: {k, v}
+  defp coefficients(name, {index, out, body}, last) do
+    calls = for {:call, ^name, [{:add, {:var, ^index}, _k}, {:var, _v}]} = call <- body, do: call
+    offsets = for {:call, _, [{:add, _, k}, {:var, v}]} <- calls, do: {k, v}
+    equations = for goal <- body, definition = defines(goal, out), do: {goal, definition}
 
     with {:ok, back_one, back_two} <- history(offsets),
-         [{rhs, mod}] <- for(goal <- body, defined = defines(goal, out), do: defined),
-         {:ok, coefficients} <- linear(rhs, %{}) do
+         [{equation, {rhs, mod, locals}}] <- equations,
+         {:ok, coefficients} <- linear(rhs, %{}),
+         :ok <-
+           certified(
+             body -- [equation | calls],
+             last,
+             index,
+             [index, out, back_one, back_two] ++ locals
+           ) do
       case Map.keys(coefficients) -- [back_one, back_two] do
         [] -> {:ok, coefficients[back_one] || 0, coefficients[back_two] || 0, mod}
         vars -> {:error, {:step_beyond_history, %{extra: vars}}}
@@ -75,10 +83,25 @@ defmodule Zkfol.Facts do
     end
   end
 
-  @spec defines(term(), atom()) :: {term(), pos_integer() | nil} | nil
-  defp defines({:eq, {:var, out}, rhs}, out), do: {rhs, nil}
+  @spec certified([term()], integer(), atom(), [atom()]) :: :ok | {:error, Refusal.t()}
+  defp certified([{:call, :gt, [{:var, index}, last, {:var, slack}]}], last, index, vars),
+    do: certified([], last, index, [slack | vars])
 
-  defp defines({:call, :mod, [rhs, m, {:var, out}, _q]}, out) when is_integer(m), do: {rhs, m}
+  defp certified([], _last, _index, vars) do
+    if length(Enum.uniq(vars)) == length(vars),
+      do: :ok,
+      else: {:error, {:step_obligations, %{goals: vars}}}
+  end
+
+  defp certified(goals, _last, _index, _vars),
+    do: {:error, {:step_obligations, %{goals: goals}}}
+
+  @spec defines(term(), atom()) :: {term(), pos_integer() | nil, [atom()]} | nil
+  defp defines({:eq, {:var, out}, rhs}, out), do: {rhs, nil, []}
+
+  defp defines({:call, :mod, [rhs, m, {:var, out}, {:var, q}]}, out)
+       when is_integer(m) and m > 0,
+       do: {rhs, m, [q]}
 
   defp defines(_goal, _out), do: nil
 

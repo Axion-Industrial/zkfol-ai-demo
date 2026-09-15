@@ -53,6 +53,7 @@ defmodule Examples.ERefusal do
       {:step_beyond_history, %{extra: [:z]}},
       {:step_clauses, %{clauses: 2}},
       {:step_head_not_indexed, %{head: [1, 2, 3]}},
+      {:step_obligations, %{goals: []}},
       {:step_needs_an_equation, %{}},
       {:step_not_linear, %{term: {:mul, {:var, :a}, {:var, :b}}}},
       {:symbol_not_allocated, %{symbol: :xs}},
