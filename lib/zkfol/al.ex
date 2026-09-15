@@ -262,12 +262,15 @@ defmodule Zkfol.Al do
         lenp = if len?, do: [v(:len)], else: []
         reading = if al, do: [saying(al, %{})], else: []
 
-        {entry, written} =
-          body |> Enum.reject(&saying?(&1, said)) |> numbered() |> Enum.split_with(&postable?/1)
+        {entry, written} = body |> numbered() |> Enum.split_with(&postable?/1)
 
         with {:ok, params} <- Refusal.map(head, &arith/1),
-             {:ok, posted} <- Refusal.flat_map(body, &hinted(&1, hints)),
-             {:ok, goals} <- Refusal.flat_map(entry ++ written, &goals(&1, i, lenp)) do
+             {:ok, posted} <-
+               Refusal.flat_map(Enum.reject(body, &saying?(&1, said)), &hinted(&1, hints)),
+             {:ok, goals} <-
+               Refusal.flat_map(entry ++ written, fn {goal, j} ->
+                 if saying?(goal, said), do: hinted(goal, hints), else: goals({goal, j}, i, lenp)
+               end) do
           {:ok,
            defmethod(
              class,
