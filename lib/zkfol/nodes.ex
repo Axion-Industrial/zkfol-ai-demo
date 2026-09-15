@@ -276,10 +276,10 @@ defmodule Zkfol.Nodes do
   defp ground([h | t], x, ctx), do: ground(Cons.new(h, t), x, ctx)
   defp ground([], _x, _ctx), do: []
 
-  defp ground(%View{} = view, x, ctx) do
+  defp ground(%View{col: {base, _, _}} = view, x, ctx) do
     len =
       case View.len(view) do
-        {m, a} -> m * x + a
+        {m, a} -> eval(Ast.add(Ast.mul(base, m), a), x, ctx)
         n -> n
       end
 

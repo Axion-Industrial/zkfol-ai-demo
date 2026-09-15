@@ -227,7 +227,7 @@ defmodule Zkfol.Phi.View do
   @spec of(term()) :: t() | nil
   def of(:x), do: %__MODULE__{row: nil, col: {:x, 1, 0}}
   def of(q) when is_integer(q), do: %__MODULE__{row: nil, col: {:x, 0, q}}
-  def of({:count, q, _cell}), do: of(q)
+  def of({:count, _q, cell}), do: of(cell)
 
   def of({:add, a, b}) do
     with %__MODULE__{row: nil, col: {:x, m, k}} <- of(a),
