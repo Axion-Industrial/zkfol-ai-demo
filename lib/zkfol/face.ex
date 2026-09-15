@@ -57,13 +57,8 @@ defmodule Zkfol.Face do
     }
   end
 
-  @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
+  @doc "I am the statement as diffable text, pretty, bounded."
   @spec text(Statement.t()) :: String.t()
-  def text(statement = %Statement{stage: solved = %Solved{}}) do
-    elided = Map.merge(solved, %{lay: :"…elided…", lowering: :"…elided…"})
-    inspected(%{statement | stage: elided})
-  end
-
   def text(statement = %Statement{}), do: inspected(statement)
 
   @doc "I am the derivation shaped for its view: one row per fact, what it consumed, its fan-in."
@@ -234,17 +229,9 @@ defmodule Zkfol.Face do
   defp origin_text(:ones), do: "ones"
   defp origin_text(row), do: "C#{row}"
 
-  @doc "I am the act's story for its pipeline view, off the receipt it left."
-  @spec act(Log.t(), Log.Ran.t()) :: %{atom() => term()}
-  def act(snap, ran), do: Log.Ran.story(snap, ran)
-
-  @doc "I am the same story from the define's id alone, needing no receipt in hand."
-  @spec act_at(Log.t(), pos_integer()) :: %{atom() => term()}
-  def act_at(snap, defined), do: Log.Ran.story(snap, defined)
-
   @doc "I am the AL program the act ran, on the run's own branch; nil where none is alive."
-  @spec program(Log.t(), Log.Ran.t() | pos_integer()) :: AL.Object.t() | nil
-  def program(snap, %Log.Ran{defined: defined}), do: program(snap, defined)
+  @spec program(Log.t(), Log.Run.t() | pos_integer()) :: AL.Object.t() | nil
+  def program(snap, %Log.Run{defined: defined}), do: program(snap, defined)
 
   def program(snap, defined) do
     Enum.find_value(Log.thread(snap, defined), fn
@@ -285,23 +272,10 @@ defmodule Zkfol.Face do
     }
   end
 
-  @doc "I am a pass described by its record: every journaled run whose route carried it."
-  @spec pass(Log.t(), module()) :: %{atom() => term()}
-  def pass(snap, module) do
-    Code.ensure_loaded(module)
-
-    implements =
-      Zkfol.Pipeline in List.flatten(
-        Keyword.get_values(module.module_info(:attributes), :behaviour)
-      )
-
-    %{implements: implements, acts: Log.Ran.acts(snap, module)}
-  end
-
   @doc "I re-emit the act's final stage as its UAIR, or the refusal's prose."
-  @spec emitted(Log.Ran.t()) :: Uair.t() | {:refused, String.t()}
+  @spec emitted(Log.Run.t()) :: Uair.t() | {:refused, String.t()}
   def emitted(ran) do
-    final = Log.Ran.final_stage(ran)
+    final = Log.Run.final_stage(ran)
 
     case Uair.emit(Statement.pred(final), Statement.witness(final), Statement.claims(final)) do
       {:ok, uair} -> uair
@@ -351,9 +325,9 @@ defmodule Zkfol.Face do
     end
   end
 
-  defview(clauses_view(%Zkfol.Phi.Walk{clauses: clauses}, builder),
-    do: clause_list(clauses, "Clauses", builder)
-  )
+  defview clauses_view(%Zkfol.Phi.Walk{clauses: clauses}, builder) do
+    clause_list(clauses, "Clauses", builder)
+  end
 
   @spec clause_list([Zkfol.Phi.Walk.Clause.t()], String.t(), module()) :: ColumnedList.t()
   defp clause_list(clauses, title, builder) do

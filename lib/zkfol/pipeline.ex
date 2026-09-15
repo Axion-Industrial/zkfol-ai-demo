@@ -15,7 +15,7 @@ defmodule Zkfol.Pipeline do
   @callback run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
 
   @doc "I am the verb of my act: what a run of mine that changed the statement did."
-  @callback verb() :: verdict()
+  @callback verb() :: result()
 
   @typedoc "One member: the pass module and its options."
   @type pass :: {module(), keyword()}
@@ -27,8 +27,7 @@ defmodule Zkfol.Pipeline do
   @type outcome ::
           {:ok, Statement.t(), trace()} | {:error, module(), Refusal.t(), trace()}
 
-  @typedoc "A pass's word on a statement it ran; a pass declines a statement it is not for."
-  @type verdict :: :declines | :lowers | :rewrites | :solves | {:errors, Refusal.t()}
+  @type result :: :declines | :lowers | :rewrites | :solves | {:errors, Refusal.t()}
 
   typedstruct enforce: true do
     field(:passes, [pass()])
@@ -66,15 +65,16 @@ defmodule Zkfol.Pipeline do
 
   defp program([]), do: []
 
+  # Change the name
   @doc "I am the act's verdicts, one per pass, read off its trace."
-  @spec verdicts(t(), Statement.t(), outcome()) :: [{module(), verdict()}]
+  @spec verdicts(t(), Statement.t(), outcome()) :: [{module(), result()}]
   def verdicts(%__MODULE__{passes: passes}, statement, {:ok, _final, trace}),
     do: observed(passes, statement, trace)
 
   def verdicts(%__MODULE__{passes: passes}, statement, {:error, pass, reason, trace}),
     do: observed(passes, statement, trace) ++ [{pass, {:errors, reason}}]
 
-  @spec observed([pass()], Statement.t(), trace()) :: [{module(), verdict()}]
+  @spec observed([pass()], Statement.t(), trace()) :: [{module(), result()}]
   defp observed(passes, statement, trace) do
     stages = [statement | Enum.map(trace, &elem(&1, 1))]
 

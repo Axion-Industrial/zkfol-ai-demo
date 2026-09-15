@@ -37,7 +37,7 @@ defmodule Zkfol.Doubling do
   def run(statement, _opts), do: {:ok, statement}
 
   @impl Zkfol.Pipeline
-  @spec verb() :: Zkfol.Pipeline.verdict()
+  @spec verb() :: Zkfol.Pipeline.result()
   def verb, do: :rewrites
 
   # A reduced step commits every value as a natural, so its coefficients must be.

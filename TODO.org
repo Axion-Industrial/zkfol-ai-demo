@@ -1,0 +1,35 @@
+* Things to change
+1. Remove all the Claudecant
+   - This is most egregous in refusal.ex, messages are unintelligible
+   - Remove any mention of "the act", "stories", etc.
+     + act infects face and log
+2. Look at the User interfaces in IEX
+   - They are currently quite clunky, in GT it's masked by the GUI
+     doing real work.
+     1. Look at the ~Zkfol.Log.Run.trace/2~ wrong argument order, no
+        single variant even though the user likely wants to send the
+        current snapshot in.
+3. It seems GT Evaluation goes through
+   #+begin_src smalltalk
+     "this"
+     BeamProxyObject plainFetch: '2 + "hi"' through: (BeamLinkApplication uniqueInstance)
+
+     "not"
+     (BeamLinkApplication uniqueInstance) evaluateAndWait: '2 + "hi"'
+   #+end_src
+   - It does thit to seem to get a refusal, however so much damn
+     machinery around this. Best to fix this up by going through
+     ~evaluateAndWait:~, but adding our own small one over it
+     + It's code goes through ~plainly:~ which is it's own decode,
+       fucking wild
+
+     + Most of the extensions on BeamProxyObject need to go,
+       evaluateOrNil is also silly
+
+4. Views need to be moved out of Face.
+   - Claude in it's great effort to make the interface stable across
+     API made Face the only touch point of itself, this goes with
+     views as well. This needs to change
+     + If views need helpers then we can make a view helper module for
+       common abstractions
+* Things Ι Broke

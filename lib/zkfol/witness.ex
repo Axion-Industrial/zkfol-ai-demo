@@ -20,6 +20,6 @@ defmodule Zkfol.Witness do
   def run(statement, _opts), do: {:ok, statement}
 
   @impl Zkfol.Pipeline
-  @spec verb() :: Zkfol.Pipeline.verdict()
+  @spec verb() :: Zkfol.Pipeline.result()
   def verb, do: :solves
 end

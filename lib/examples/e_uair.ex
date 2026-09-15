@@ -94,7 +94,7 @@ defmodule Examples.EUair do
   end
 
   @doc "I take the plain route on purpose: the trace's own values need int768."
-  @spec big_values_prove(pos_integer()) :: Log.Ran.t()
+  @spec big_values_prove(pos_integer()) :: Log.Run.t()
   example big_values_prove(n \\ 98) do
     route = EUser.plain()
     ran = Zkfol.compile(%Statement{rels: [EFacts.factorial()], args: [n]}, pipeline: route)

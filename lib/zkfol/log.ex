@@ -6,24 +6,16 @@ defmodule Zkfol.Log do
 
   use TypedStruct
 
-  alias Zkfol.Log.Ran
+  alias Zkfol.Log.Run
+  alias Zkfol.Log.Event
 
   @table :zkfol_log
-
-  typedstruct module: Event, enforce: true do
-    @moduledoc "I am one immutable event: what was furnished, based on which image."
-
-    field(:id, pos_integer())
-    field(:basedon, pos_integer() | nil)
-    field(:body, term())
-  end
 
   typedstruct do
     field(:events, [Event.t()], default: [])
   end
 
   # An ordered_set so ids stay ascending for last/1.
-  @doc "I create the log's table if it is not there yet."
   @spec setup() :: :ok
   def setup do
     :ok = :mnesia.start()
@@ -39,7 +31,7 @@ defmodule Zkfol.Log do
   end
 
   @doc "I append an event based on `basedon` and return its id."
-  @spec push(term(), pos_integer() | nil) :: pos_integer()
+  @spec push(Event.body(), pos_integer() | nil) :: pos_integer()
   def push(body, basedon \\ nil) do
     {:atomic, event} =
       :mnesia.transaction(fn ->
@@ -57,7 +49,7 @@ defmodule Zkfol.Log do
     event.id
   end
 
-  @doc "I am the table as a value, newest event first."
+  @doc "I provide a snapshot of the database as of the current timestamp"
   @spec snapshot() :: t()
   def snapshot do
     {:atomic, events} =
@@ -83,48 +75,76 @@ defmodule Zkfol.Log do
     end)
   end
 
-  @doc "I am event `id` and everything transitively based on it, oldest first."
-  @spec thread(t(), pos_integer()) :: [Event.t()]
-  def thread(log, id), do: descend(log, MapSet.new([id]))
+  @doc "I grab the thread of the relevant event id sent in"
+  # Should we keep all 3 variants
+  @spec thread(t(), pos_integer() | MapSet.t() | Run.t()) :: [Event.t()]
+  def thread(log \\ snapshot(), roots)
 
-  @doc "I am the trail `ran` left: its define event and everything based on it, oldest first."
-  @spec trail(t(), Ran.t()) :: [Event.t()]
-  def trail(log, %Ran{defined: defined}), do: thread(log, defined)
+  def thread(log, event_id) when is_integer(event_id) do
+    thread(log, MapSet.new([event_id]))
+  end
 
-  @doc "I am the report settling `ran`'s intent, off its trail, or nil while none has landed."
-  @spec report(t(), Ran.t()) :: Zkfol.Prover.Report.t() | nil
-  def report(log, %Ran{defined: defined}) do
+  def thread(log, %Run{defined: defined}) do
+    thread(log, defined)
+  end
+
+  def thread(%__MODULE__{events: events}, roots) do
+    chronological = Enum.reverse(events)
+    ids = relevant_ids(chronological, roots)
+    Enum.filter(chronological, &(&1.id in ids))
+  end
+
+  @doc "I give the proved report if there are any"
+  @spec report(t(), Run.t() | pos_integer()) :: Zkfol.Prover.Report.t() | nil
+  def report(log \\ snapshot(), run) do
     log
-    |> thread(defined)
+    |> thread(run)
     |> Enum.find_value(fn
       %Event{body: {:proved, report}} -> report
       _event -> nil
     end)
   end
 
-  @doc "I am the first refusal on `ran`'s trail, nil where none stopped it."
-  @spec refusal(t(), Ran.t()) :: Zkfol.Refusal.t() | nil
-  def refusal(log, %Ran{defined: defined}),
-    do: log |> thread(defined) |> Enum.flat_map(&refusals/1) |> List.first()
+  @doc "I return the first failed compilation of a specific run"
+  @spec refusal(t(), Run.t() | pos_integer()) :: Zkfol.Refusal.t() | nil
+  def refusal(log \\ snapshot(), run) do
+    log |> thread(run) |> Stream.flat_map(&refusals/1) |> Enum.at(0)
+  end
 
+  @doc "I return the ids of the runs whose pipeline carried `module`."
+  @spec module_runs(t(), module()) :: [pos_integer()]
+  def module_runs(log \\ snapshot(), module)
+
+  def module_runs(%__MODULE__{events: events}, module) do
+    for %Event{id: id, body: {:define, _, %Zkfol.Pipeline{passes: passes}, _, _}} <- events,
+        Enum.any?(passes, &match?({^module, _}, &1)) do
+      id
+    end
+  end
+
+  @doc "I am the define body that started `run`."
+  @spec define(t(), Run.t() | pos_integer()) :: Event.define()
+  def define(log \\ snapshot(), run)
+  def define(log, %Run{defined: defined}), do: define(log, defined)
+  def define(log, defined), do: {:define, _, _, _, _} = body(log, defined)
+
+  # I grab all compilation attempts that ended in failure
   @spec refusals(Event.t()) :: [Zkfol.Refusal.t()]
-  defp refusals(%Event{body: {:piped, verdicts}}),
-    do: for({_pass, {:errors, refusal}} <- verdicts, do: refusal)
+  defp refusals(%Event{body: {:piped, verdicts}}) do
+    for {_pass, {:errors, refusal}} <- verdicts do
+      refusal
+    end
+  end
 
   defp refusals(%Event{body: {:refused, refusal}}), do: [refusal]
   defp refusals(%Event{body: {:prove_failed, refusal}}), do: [refusal]
   defp refusals(_event), do: []
 
-  @spec descend(t(), MapSet.t()) :: [Event.t()]
-  defp descend(%__MODULE__{events: events}, roots) do
-    events
-    |> Enum.reverse()
-    |> Enum.reduce({roots, []}, fn event, {ids, kept} ->
-      if MapSet.member?(ids, event.id) or MapSet.member?(ids, event.basedon),
-        do: {MapSet.put(ids, event.id), [event | kept]},
-        else: {ids, kept}
+  # events should be chronologically or else we lose
+  @spec relevant_ids([Event.t()], MapSet.t(pos_integer())) :: MapSet.t(pos_integer())
+  defp relevant_ids(events, roots) do
+    Enum.reduce(events, roots, fn %{basedon: parent, id: id}, ids ->
+      if parent in ids, do: MapSet.put(ids, id), else: ids
     end)
-    |> elem(1)
-    |> Enum.reverse()
   end
 end

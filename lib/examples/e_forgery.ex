@@ -359,5 +359,5 @@ defmodule Examples.EForgery do
   defp union(sets), do: Enum.reduce(sets, &MapSet.union/2)
 
   @spec emitted(Rel.t() | [Rel.t()], [Statement.datum() | :_]) :: Statement.t()
-  defp emitted(rels, args), do: Log.Ran.final_stage(Zkfol.emit(rels, args: args))
+  defp emitted(rels, args), do: Log.Run.final_stage(Zkfol.emit(rels, args: args))
 end

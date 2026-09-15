@@ -1,5 +1,5 @@
 Class {
-	#name : 'ZkfolRan',
+	#name : 'ZkfolRun',
 	#superclass : 'BeamProxyObject',
 	#category : 'Zkfol-Proxies',
 	#package : 'Zkfol',
@@ -7,13 +7,13 @@ Class {
 }
 
 { #category : 'accessing' }
-ZkfolRan class >> elixirClass [
+ZkfolRun class >> elixirClass [
 	"The proxy factory dispatches me for the journaled act's receipt."
-	^ 'Zkfol.Log.Ran'
+	^ 'Zkfol.Log.Run'
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> emitted [
+ZkfolRun >> emitted [
 	"The final stage's statement emitted as its UAIR through the face:
 	 the registered %Zkfol.Uair{} dispatches to ZkfolUair by exclass
 	 and arrives already wearing the pointer grid; a refusal arrives
@@ -22,19 +22,19 @@ ZkfolRan >> emitted [
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> finalStage [
+ZkfolRun >> finalStage [
 	"The act's final statement, the bridged struct wearing its own
 	 views; a run some pass refused answers a refusal that says so and
 	 hides the forwarded tabs."
 	| stage |
-	stage := self evaluateOrNil: 'Zkfol.Log.Ran.final_stage(' , self resolve , ')'.
+	stage := self evaluateOrNil: 'Zkfol.Log.Run.final_stage(' , self resolve , ')'.
 	^ (stage isKindOf: ZkfolStatement)
 		ifTrue: [ stage ]
 		ifFalse: [ ZkfolRefusal because: 'no final stage: a pass refused' ]
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtDerivationFor: aView [
+ZkfolRun >> gtDerivationFor: aView [
 	"The final stage owns its derivation; I only forward to it, and a
 	 stage that carries none hides the tab here."
 	<gtView>
@@ -48,7 +48,7 @@ ZkfolRan >> gtDerivationFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtJudgementFor: aView [
+ZkfolRun >> gtJudgementFor: aView [
 	"The final stage owns the judgement; I only forward to it, and a
 	 stage that carries no lay hides the tab here."
 	<gtView>
@@ -62,7 +62,7 @@ ZkfolRan >> gtJudgementFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtLayFor: aView [
+ZkfolRun >> gtLayFor: aView [
 	"The final stage owns its lay; I only forward to it, and a stage
 	 that carries none hides the tab here, since a forward cannot hide
 	 itself."
@@ -77,7 +77,7 @@ ZkfolRan >> gtLayFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtObjectsFor: aView [
+ZkfolRun >> gtObjectsFor: aView [
 	"The act's interesting objects, one send each: my own beside the
 	 final stage's own list, read from it rather than repeated here."
 	<gtView>
@@ -97,7 +97,7 @@ ZkfolRan >> gtObjectsFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtPipelineFor: aView [
+ZkfolRun >> gtPipelineFor: aView [
 	"I show the journaled act as its vertical pipeline, built image-side
 	 from the trail fetched over the bridge."
 	<gtView>
@@ -106,7 +106,7 @@ ZkfolRan >> gtPipelineFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtProgramFor: aView [
+ZkfolRun >> gtProgramFor: aView [
 	"The run's program where AL decompiles it; I only forward."
 	<gtView>
 	<gtBeamView>
@@ -121,65 +121,63 @@ ZkfolRan >> gtProgramFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolRan >> gtTrailFor: aView [
-	"The raw thread of events my act left on the log."
+ZkfolRun >> gtThreadFor: aView [
 	<gtView>
 	<gtBeamView>
-	^ self forward: aView title: 'Trail' priority: 8 view: #gtTrailFor:
+	^ self forward: aView title: 'Thread' priority: 8 view: #gtThreadFor:
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> program [
+ZkfolRun >> program [
 	"The AL program my run installed: the class object on the run's own
 	 branch, wearing AL's views. Nil while no run has landed."
 	^ self evaluateOrNil: 'Zkfol.Face.program(Zkfol.Log.snapshot(), ' , self resolve , ')'
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> provedReport [
+ZkfolRun >> provedReport [
 	"The report that settled my intent, fetched as the real struct so
 	 exclass can dress it. The log owns the trail walk."
 	^ self evaluateOrNil: 'Zkfol.Log.report(Zkfol.Log.snapshot(), ' , self resolve , ')'
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> replay [
+ZkfolRun >> replay [
 	"The act run again from the arguments its define carries: a fresh
 	 receipt, arriving as its own proxy."
-	^ self evaluateAndWait: 'Zkfol.Log.Ran.replay(' , self resolve , ')'
+	^ self evaluateAndWait: 'Zkfol.Log.Run.replay(' , self resolve , ')'
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> stageAt: aStageIndex [
+ZkfolRun >> stageAt: aStageIndex [
 	"Stage k re-run from the source over the bridge: the real statement,
 	 registered, so the spawn is the bridged value itself. My #resolve
 	 expression rides into the source at the call site, the index as its
 	 own integer literal, the bridge's own splice."
 	^ self evaluateOrNil:
-		'Zkfol.Log.Ran.stage(' , self resolve , ', ' , aStageIndex printString , ') |> elem(1)'
+		'Zkfol.Log.Run.stage(' , self resolve , ', ' , aStageIndex printString , ') |> elem(1)'
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> stageCarries: aReaderString [
+ZkfolRun >> stageCarries: aReaderString [
 	"Whether the act's final stage answers the reader, which says if a
 	 forwarded tab can feed."
-	^ true = (self evaluateOrNil: 'case Zkfol.Log.Ran.final_stage(' , self resolve
+	^ true = (self evaluateOrNil: 'case Zkfol.Log.Run.final_stage(' , self resolve
 		, ') do %Zkfol.Statement{} = s -> not is_nil(Zkfol.Statement.'
 		, aReaderString , '(s)); _ -> false end')
 ]
 
 { #category : 'accessing' }
-ZkfolRan >> viewModel [
-	"My act off the log, one feed from the face. A stale proxy answers
-	 the fetch a refusal, which reads as an empty act, not a raise.
-	 Stage states re-run live through Log.stage so a click spawns the
-	 real bridged statement, the emit re-emitted through the face so it
-	 wears the pointer grid, the report fetched as its struct, the
-	 replay run through me."
-	| feed |
-	feed := self plainFetch: 'Zkfol.Face.act(Zkfol.Log.snapshot(), ' , self resolve , ')'.
-	(feed isKindOf: ZkfolRefusal) ifTrue: [ feed := nil ].
-	^ (ZkfolPipelineModel onAct: feed)
+ZkfolRun >> viewModel [
+	| eval run |
+	run := self resolve.
+	eval := [ :source | self application evaluateAndWait: source ].
+	^ ZkfolPipelineModel new
+		thread: (eval value: 'Zkfol.Log.thread(' , run , ')') asList;
+		define: (eval value: 'Zkfol.Log.define(' , run , ')');
+		report: (eval value: 'Zkfol.Log.report(' , run , ')');
+		failure: (eval value: 'case Zkfol.Log.refusal(' , run
+			, ') do nil -> nil; r -> Zkfol.Refusal.message(r) end');
 		stageSpawner: [ :k | self stageAt: k ];
 		emitSpawner: [ self emitted ];
 		reportSpawner: [ self provedReport ];

@@ -11,7 +11,7 @@ defmodule Examples.ELog do
   alias Zkfol.Prover
   alias Zkfol.Statement
 
-  @spec journaled_proving() :: Log.Ran.t()
+  @spec journaled_proving() :: Log.Run.t()
   example journaled_proving do
     source = %Statement{rels: [EUser.fib()], args: [8]}
     ran = Zkfol.compile(source, name: :fibonacci, public: [:r])
@@ -28,20 +28,20 @@ defmodule Examples.ELog do
              %Log.Event{body: {:piped, _verdicts}},
              %Log.Event{body: {:prove_requested, :fibonacci}},
              %Log.Event{body: {:proved, ^report}}
-           ] = Enum.take(Log.trail(snap, ran), -5)
+           ] = Enum.take(Log.thread(snap, ran), -5)
 
     ran
   end
 
   @doc "The define carries the act whole, so its receipt runs it again."
-  @spec replayed_from_the_log() :: Log.Ran.t()
+  @spec replayed_from_the_log() :: Log.Run.t()
   example replayed_from_the_log do
     ran = journaled_proving()
-    assert Log.Ran.at(Log.snapshot(), ran.defined) == ran
-    again = Log.Ran.replay(ran)
+    assert Log.Run.at(Log.snapshot(), ran.defined) == ran
+    again = Log.Run.replay(ran)
 
     assert again.defined > ran.defined
-    assert Log.Ran.stage(again, 0) == Log.Ran.stage(ran, 0)
+    assert Log.Run.stage(again, 0) == Log.Run.stage(ran, 0)
     assert %Prover.Report{} = Log.report(Log.snapshot(), again)
     again
   end
@@ -53,7 +53,6 @@ defmodule Examples.ELog do
     snap = Log.snapshot()
 
     assert {:unbound_variable, %{variable: :nope}} = refusal = Log.refusal(snap, ran)
-    assert Log.Ran.story(snap, ran).failure == Zkfol.Refusal.message(refusal)
     assert Log.report(snap, ran) == nil
     refusal
   end

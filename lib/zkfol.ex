@@ -17,14 +17,14 @@ defmodule Zkfol do
   @type target :: Statement.t() | Lang.Rel.t() | [Lang.Rel.t()]
 
   @doc "I am the whole act: define, run, verdicts, prove, receipt."
-  @spec compile(target(), keyword()) :: Log.Ran.t()
+  @spec compile(target(), keyword()) :: Log.Run.t()
   def compile(target, opts \\ []), do: taken(target, opts, :compile)
 
   @doc "I am the act up to emit: define, run, verdicts, emit, a receipt with no proof."
-  @spec emit(target(), keyword()) :: Log.Ran.t()
+  @spec emit(target(), keyword()) :: Log.Run.t()
   def emit(target, opts \\ []), do: taken(target, opts, :emit)
 
-  @spec taken(target(), keyword(), Log.Args.entry()) :: Log.Ran.t()
+  @spec taken(target(), keyword(), Log.Args.entry()) :: Log.Run.t()
   defp taken(target, opts, entry) do
     {args, opts} = Keyword.pop(opts, :args, [])
     acted(Statement.of(target, args: args), opts, entry)
@@ -89,7 +89,7 @@ defmodule Zkfol do
     )
   end
 
-  @spec acted(Statement.t(), keyword(), Log.Args.entry()) :: Log.Ran.t()
+  @spec acted(Statement.t(), keyword(), Log.Args.entry()) :: Log.Run.t()
   defp acted(statement, opts, entry) do
     {pipeline, opts} = Keyword.pop(opts, :pipeline, Pipeline.default())
     {name, opts} = Keyword.pop_lazy(opts, :name, fn -> named(statement) end)
@@ -107,7 +107,7 @@ defmodule Zkfol do
 
     with {:error, refusal} <- settled, do: Log.push({:refused, refusal}, piped)
 
-    %Log.Ran{defined: define}
+    %Log.Run{defined: define}
   end
 
   @spec settle(Log.Args.entry(), Statement.t(), keyword()) ::

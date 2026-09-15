@@ -16,6 +16,19 @@ ZkfolPipelineStage class >> index: aNumber name: aString verdict: aSymbol [
 	^ self new setIndex: aNumber name: aString verdict: aSymbol
 ]
 
+{ #category : 'instance creation' }
+ZkfolPipelineStage class >> index: anInteger pair: aTuple [
+	"An error verdict is a tuple; every other verdict is its atom."
+	| verdict |
+	verdict := aTuple itemAt: 1.
+	^ self
+		index: anInteger
+		name: ((aTuple itemAt: 0) symbol asString substrings: '.') last
+		verdict: ((verdict isKindOf: BeamTupleObject)
+			ifTrue: [ #errors ]
+			ifFalse: [ verdict symbol ])
+]
+
 { #category : 'accessing' }
 ZkfolPipelineStage >> index [
 	^ index
