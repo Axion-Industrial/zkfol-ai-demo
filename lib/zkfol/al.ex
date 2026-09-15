@@ -163,7 +163,7 @@ defmodule Zkfol.Al do
 
         exit(
           {:derived,
-           case AL.eval(ask.goal, nil, ask.branch, []) do
+           case AL.eval(ask.goal, nil, ask.branch, trace_mode: :derivation_trace) do
              {:atomic, {bindings, state}} ->
                {:atomic, {bindings, Derivation.of(state, names, ask.len?)}}
 
@@ -389,7 +389,7 @@ defmodule Zkfol.Al do
   end
 
   @spec functor(Macro.t(), Macro.t(), [Macro.t()]) :: Macro.t()
-  defp functor(term, name, args), do: {:vm_functor, [], [term, name, args]}
+  defp functor(term, name, args), do: {:functor, [], [term, name, args]}
 
   @spec arith(term()) :: {:ok, Macro.t()} | {:error, Refusal.t()}
   defp arith(q) when is_integer(q), do: {:ok, q}
@@ -437,15 +437,24 @@ defmodule Zkfol.Al do
   end
 
   # A name's clauses go before it is posted again, and when the ask that posted them closes.
+  # A retracted clause stays as history and the next posted counts past it, so the method
+  # goes too: a fresh one numbers its clauses from 0, the seq the derivation reads.
   @spec retractions([atom()]) :: [Macro.t()]
   defp retractions(names) do
-    for name <- names do
-      quote do
-        forall([vm_method(unquote(@class), unquote(name), impl), vm_clause(impl, h, _b)]) do
-          vm_retract_oapply(impl, h)
+    Enum.flat_map(names, fn name ->
+      [
+        quote do
+          forall([vm_method(unquote(@class), unquote(name), impl), vm_clause(impl, h, _b)]) do
+            vm_retract_oapply(impl, h)
+          end
+        end,
+        quote do
+          forall([vm_method(unquote(@class), unquote(name), impl)]) do
+            vm_retract_method(unquote(@class), unquote(name), impl)
+          end
         end
-      end
-    end
+      ]
+    end)
   end
 
   @spec install(program(), AL.Branch.t(), pos_integer()) :: :ok | {:error, Refusal.t()}
