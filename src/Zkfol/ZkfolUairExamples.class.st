@@ -539,10 +539,11 @@ ZkfolUairExamples >> miniatureHop [
 
 { #category : 'examples' }
 ZkfolUairExamples >> pipelineElement [
-	"I render the act as its vertical Mondrian graph and assert the flow:
+	"I render the run as its vertical Mondrian graph and assert the flow:
 	 the source node, one node per pass, the prove tail, the report at the
 	 bottom, all as nodes on the canvas."
 	<gtExample>
+	<noTest>
 	<return: #GtPhlowMondrianView>
 	| view element nodes |
 	view := self pipelineModel gtPipelineFor: GtPhlowView empty.
@@ -552,11 +553,11 @@ ZkfolUairExamples >> pipelineElement [
 		play.
 	self assert: (self elementWithId: #zkfolPipelineSource in: element) notNil.
 	nodes := self elementsWithId: #zkfolPipelineNode in: element.
-	self assert: nodes size equals: 4.
+	self assert: nodes size equals: 2.
 	self assert: (self elementWithId: #zkfolPipelineIntent in: element) notNil.
 	self assert: (self elementWithId: #zkfolPipelineReport in: element) notNil.
 	self
-		assert: ((self textsUnder: element) includes: 'source · composed_hop')
+		assert: ((self textsUnder: element) includes: 'source · doubled_fibonacci')
 		description: 'the source node names the route'.
 	self
 		assert: ((self textsUnder: element) anySatisfy: [ :each | each beginsWith: 'proved · prove' ])
@@ -566,32 +567,38 @@ ZkfolUairExamples >> pipelineElement [
 
 { #category : 'examples' }
 ZkfolUairExamples >> pipelineModel [
-	"I read the fixture trail into the pipeline model and assert the
-	 act's shape: the route named by its define, one stage per piped
-	 verdict with the shared palette color its verdict earns, the
-	 intent, and the settled report."
+	"The doubled fibonacci run off the live node: Doubling rewrites,
+	 Phi declines, the proof intended and settled with a report."
 	<gtExample>
+	<noTest>
 	<return: #ZkfolPipelineModel>
-	| model |
-	model := ZkfolPipelineModel example.
-	self assert: model routeName equals: #composed_hop.
+	| app run model |
+	app := BeamLinkApplication uniqueInstance.
+	self
+		assert: (app notNil and: [ app isRunning ])
+		description: 'a gt_bridge session must be running'.
+	run := app evaluateAndWait:
+		'Zkfol.Log.Run.at(Zkfol.Log.snapshot(), hd(Examples.EPipeline.the_trail_replays_the_act()).id)'.
+	self assert: (run isKindOf: ZkfolRun).
+	model := run viewModel.
+	self assert: model routeName equals: #doubled_fibonacci.
 	self
 		assert: (model passes collect: [ :each | each verdict ]) asArray
-		equals: #(#rewrites #solves #lowers #expands).
-	self assert: model intentName equals: #composed_hop.
-	self assert: (model report at: #backend ifAbsent: [ nil ]) equals: 'zinc+ i64'.
-	self assert: model trail size equals: 4.
+		equals: #(#rewrites #declines).
+	self assert: model intentName equals: #doubled_fibonacci.
+	self assert: (model report attributeAt: #backend) notNil.
 	^ model
 ]
 
 { #category : 'examples' }
 ZkfolUairExamples >> pipelineStageClickSpawnsTransform [
 	"I click a stage node on the Mondrian pipeline under a scripter and
-	 assert the phlow spawn: the stage transform holding before and after
-	 states, its delta showing how Doubling rewrote the statement."
+	 assert the phlow spawn: the stage transform holding the re-run
+	 states before and after Phi."
 	<gtExample>
+	<noTest>
 	<return: #BlScripter>
-	| view element scripter spawned delta |
+	| view element scripter spawned |
 	view := self pipelineModel gtPipelineFor: GtPhlowView empty.
 	view asElementDo: [ :e | element := e ].
 	scripter := BlScripter new.
@@ -602,24 +609,19 @@ ZkfolUairExamples >> pipelineStageClickSpawnsTransform [
 	self assert: spawned size equals: 1.
 	self assert: (spawned first isKindOf: ZkfolStageTransform).
 	self assert: spawned first printString
-		equals: 'composed_hop stage 1 to 2: Witness solves'.
-	delta := spawned first delta.
-	self assert: (delta detect: [ :each | each first = #branches ]) allButFirst
-		equals: #(3 5 true).
-	self assert: (delta detect: [ :each | each first = #claims ]) allButFirst
-		equals: #(0 2 true).
-	self assert: (delta detect: [ :each | each first = #rels ]) last not.
+		equals: 'doubled_fibonacci stage 1 to 2: Phi declines'.
 	^ scripter
 ]
 
 { #category : 'examples' }
 ZkfolUairExamples >> pipelineViews [
-	"I build both pipeline views from the fixture model: the Mondrian
-	 flow renders its stage nodes on a pannable canvas, and the trail
+	"I build both pipeline views from the live model: the Mondrian
+	 flow renders its stage nodes on a pannable canvas, and the thread
 	 view lists the journaled events as a columned list."
 	<gtExample>
+	<noTest>
 	<return: #ZkfolPipelineModel>
-	| model flow trailView element |
+	| model flow threadView element |
 	model := self pipelineModel.
 	flow := model gtPipelineFor: GtPhlowView empty.
 	self assert: (flow isKindOf: GtPhlowMondrianView).
@@ -630,8 +632,8 @@ ZkfolUairExamples >> pipelineViews [
 	self
 		assert: (self elementWithId: #zkfolPipelineSource in: element) notNil
 		description: 'the flow view should carry the pipeline nodes'.
-	trailView := model gtTrailFor: GtPhlowView empty.
-	self assert: (trailView isKindOf: GtPhlowColumnedListView).
+	threadView := model gtThreadFor: GtPhlowView empty.
+	self assert: (threadView isKindOf: GtPhlowColumnedListView).
 	^ model
 ]
 
@@ -810,9 +812,10 @@ ZkfolUairExamples >> stageDiffView [
 	 loaded. The styler is optional, so what it does is asserted only
 	 where it exists rather than asserting a different thing per image."
 	<gtExample>
+	<noTest>
 	<return: #ZkfolStageTransform>
 	| model transform view element change styled |
-	model := ZkfolPipelineModel example.
+	model := self pipelineModel.
 	transform := model transformFor: (model passes at: 1).
 	view := transform gtDiffFor: GtPhlowView empty.
 	self assert: (view fromLabel includesSubstring: 'before Doubling').

@@ -350,7 +350,7 @@ defmodule Examples.EProgramSpace do
   defp solved(rels, args) do
     ran = Zkfol.emit(rels, args: args)
 
-    case {Log.Ran.final_stage(ran), Log.refusal(Log.snapshot(), ran)} do
+    case {Log.Run.final_stage(ran), Log.refusal(Log.snapshot(), ran)} do
       {%Statement{stage: %Statement.Solved{}} = statement, _none} -> statement
       {_short, {:no_answer, _detail}} -> nil
       {_short, refusal} -> {:unsolved, refusal}

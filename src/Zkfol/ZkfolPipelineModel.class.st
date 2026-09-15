@@ -2,12 +2,11 @@ Class {
 	#name : 'ZkfolPipelineModel',
 	#superclass : 'Object',
 	#instVars : [
-		'trail',
-		'routeName',
-		'passes',
-		'intentName',
+		'thread',
+		'define',
 		'report',
-		'proveFailure',
+		'failure',
+		'passes',
 		'stageSpawner',
 		'emitSpawner',
 		'reportSpawner',
@@ -18,50 +17,9 @@ Class {
 	#tag : 'Views'
 }
 
-{ #category : 'examples' }
-ZkfolPipelineModel class >> example [
-	"A realistic act at fixture scale, shaped exactly as the face's act
-	 feed arrives: the composed hop route, four verdicts, the proof
-	 intended and settled with a report. Stage states answer as prepared
-	 statement summaries; the emit spawns a grid-wearing fixture so the
-	 exclass principle shows without a node."
-	| summaries report |
-	summaries := {
-		{ #rels -> 1. #branches -> nil. #witness -> nil. #claims -> 0. #args -> #(100) } asDictionary.
-		{ #rels -> 0. #branches -> 3. #witness -> nil. #claims -> 0. #args -> #(100) } asDictionary.
-		{ #rels -> 0. #branches -> 5. #witness -> nil. #claims -> 2. #args -> #(100) } asDictionary.
-		{ #rels -> 0. #branches -> 5. #witness -> '8 rows'. #claims -> 2. #args -> #(100) } asDictionary.
-		{ #rels -> 0. #branches -> 6. #witness -> '10 rows'. #claims -> 2. #args -> #(100) } asDictionary }.
-	report := { #prove_ms -> 12.4. #verify_ms -> 1.7.
-		#num_vars -> 3. #public_cols -> 1. #proof_bytes -> 4568.
-		#backend -> 'zinc+ i64'.
-		#claims -> { #('out' 6) } } asDictionary.
-	^ (self onAct: {
-		#route -> #composed_hop.
-		#intent -> #composed_hop.
-		#report -> report.
-		#failure -> nil.
-		#passes -> {
-			{ #index -> 1. #name -> 'Doubling'. #verdict -> #rewrites } asDictionary.
-			{ #index -> 2. #name -> 'Witness'. #verdict -> #solves } asDictionary.
-			{ #index -> 3. #name -> 'Phi'. #verdict -> #lowers } asDictionary.
-			{ #index -> 4. #name -> 'Accumulator'. #verdict -> #expands } asDictionary }.
-		#trail -> {
-			{ #id -> 41. #basedon -> nil. #body -> '{:define, :composed_hop, %Zkfol.Pipeline{}}' } asDictionary.
-			{ #id -> 42. #basedon -> 41. #body -> '{:piped, [{Zkfol.Doubling, :rewrites}, ...]}' } asDictionary.
-			{ #id -> 43. #basedon -> 42. #body -> '{:prove_requested, :composed_hop}' } asDictionary.
-			{ #id -> 44. #basedon -> 43. #body -> '{:proved, %Zkfol.Prover.Report{}}' } asDictionary } } asDictionary)
-		stageSpawner: [ :k | summaries at: k + 1 ];
-		emitSpawner: [ ZkfolUairGrid onUair: ZkfolUairExamples new miniatureHop ];
-		reportSpawner: [ report ];
-		yourself
-]
-
-{ #category : 'instance creation' }
-ZkfolPipelineModel class >> onAct: aFeed [
-	"I read the face's act feed: the route, one pass per piped verdict
-	 at display scale, the prove tail, and the rendered trail."
-	^ self new readAct: aFeed; yourself
+{ #category : 'accessing' }
+ZkfolPipelineModel >> define: aTuple [
+	define := aTuple
 ]
 
 { #category : 'accessing' }
@@ -69,6 +27,18 @@ ZkfolPipelineModel >> emitSpawner: aBlock [
 	"The block answering the emitted UAIR for the prove tail; live it
 	 re-emits and the exclass dresses the spawn in the pointer grid."
 	emitSpawner := aBlock
+]
+
+{ #category : 'accessing' }
+ZkfolPipelineModel >> eventTagged: aSymbol [
+	^ thread
+		detect: [ :each | ((each attributeAt: #body) itemAt: 0) symbol = aSymbol ]
+		ifNone: [ nil ]
+]
+
+{ #category : 'accessing' }
+ZkfolPipelineModel >> failure: aStringOrNil [
+	failure := aStringOrNil
 ]
 
 { #category : 'views' }
@@ -93,22 +63,22 @@ ZkfolPipelineModel >> gtPipelineFor: aView [
 ]
 
 { #category : 'views' }
-ZkfolPipelineModel >> gtTrailFor: aView [
-	"The raw thread of events the act left on the log, oldest first."
+ZkfolPipelineModel >> gtThreadFor: aView [
 	<gtView>
-	self trail isEmpty ifTrue: [ ^ aView empty ].
+	thread isEmpty ifTrue: [ ^ aView empty ].
 	^ aView columnedList
-		title: 'Trail';
+		title: 'Thread';
 		priority: 6;
-		items: [ self trail ];
-		column: 'Id' text: [ :each | (each at: #id) printString ] width: 60;
-		column: 'Based on' text: [ :each | (each at: #basedon) printString ] width: 70;
-		column: 'Body' text: [ :each | each at: #body ]
+		items: [ thread ];
+		column: 'Id' text: [ :each | (each attributeAt: #id) printString ] width: 60;
+		column: 'Based on' text: [ :each | (each attributeAt: #basedon) printString ] width: 70;
+		column: 'Body' text: [ :each | (each attributeAt: #body) printString ]
 ]
 
 { #category : 'accessing' }
 ZkfolPipelineModel >> intentName [
-	^ intentName
+	^ (self eventTagged: #prove_requested)
+		ifNotNil: [ :each | ((each attributeAt: #body) itemAt: 1) symbol ]
 ]
 
 { #category : 'accessing' }
@@ -160,37 +130,24 @@ ZkfolPipelineModel >> paintPipelineOn: aMondrian [
 
 { #category : 'accessing' }
 ZkfolPipelineModel >> passes [
-	^ passes ifNil: [ #() ]
+	^ passes ifNil: [
+		passes := (self eventTagged: #piped)
+			ifNil: [ #() ]
+			ifNotNil: [ :each |
+				((each attributeAt: #body) itemAt: 1) asList
+					withIndexCollect: [ :pair :index | ZkfolPipelineStage index: index pair: pair ] ] ]
 ]
 
 { #category : 'printing' }
 ZkfolPipelineModel >> printOn: aStream [
 	aStream
 		nextPutAll: 'pipeline ';
-		print: routeName;
+		print: self routeName;
 		nextPutAll: ', ';
 		print: self passes size;
 		nextPutAll: ' passes'.
 	report ifNotNil: [ aStream nextPutAll: ', proved' ].
-	proveFailure ifNotNil: [ aStream nextPutAll: ', failed' ]
-]
-
-{ #category : 'private' }
-ZkfolPipelineModel >> readAct: aFeed [
-	"One settled act feed from the face, taken in as it arrives, every
-	 key present by construction. A nil feed, a stale proxy answering
-	 the fetch with nothing, reads as an empty act rather than a raise."
-	aFeed ifNil: [ ^ self ].
-	routeName := aFeed at: #route.
-	intentName := aFeed at: #intent.
-	report := aFeed at: #report.
-	proveFailure := aFeed at: #failure.
-	trail := aFeed at: #trail.
-	passes := (aFeed at: #passes) collect: [ :each |
-		ZkfolPipelineStage
-			index: (each at: #index)
-			name: (each at: #name)
-			verdict: (each at: #verdict) ]
+	failure ifNotNil: [ aStream nextPutAll: ', failed' ]
 ]
 
 { #category : 'accessing' }
@@ -207,21 +164,26 @@ ZkfolPipelineModel >> report [
 ]
 
 { #category : 'accessing' }
+ZkfolPipelineModel >> report: aReportOrNil [
+	report := aReportOrNil
+]
+
+{ #category : 'accessing' }
 ZkfolPipelineModel >> reportLabel [
 	"The report's one line: verdict, timings, size, backend. A report
 	 exists only where proving and verifying both succeeded, so its
 	 presence is the verdict and there is no field to read for it."
-	proveFailure ifNotNil: [ ^ 'failed: ' , proveFailure asString ].
+	failure ifNotNil: [ ^ 'failed: ' , failure asString ].
 	report ifNil: [ ^ 'unsettled' ].
 	^ String streamContents: [ :s |
 		s nextPutAll: 'proved'.
-		(report at: #prove_ms)
+		(report attributeAt: #prove_ms)
 			ifNotNil: [ :ms | s nextPutAll: ' · prove ' , ms printString , ' ms' ].
-		(report at: #verify_ms)
+		(report attributeAt: #verify_ms)
 			ifNotNil: [ :ms | s nextPutAll: ' · verify ' , ms printString , ' ms' ].
-		(report at: #proof_bytes)
+		(report attributeAt: #proof_bytes)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b printString , ' B' ].
-		(report at: #backend)
+		(report attributeAt: #backend)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b asString ] ]
 ]
 
@@ -234,19 +196,19 @@ ZkfolPipelineModel >> reportSpawner: aBlock [
 
 { #category : 'accessing' }
 ZkfolPipelineModel >> routeName [
-	^ routeName
+	^ (define itemAt: 1) symbol
 ]
 
 { #category : 'accessing' }
 ZkfolPipelineModel >> stageNodes [
 	"One node builder per stage, in order: the source, one per pass with
-	 its verdict, the prove tail when the trail carries one, and the
+	 its verdict, the prove tail when the thread carries one, and the
 	 report at the bottom. A log-opened act has no spawners, but its
 	 report rides the feed, so that click still answers."
 	| nodes |
 	nodes := OrderedCollection new.
 	nodes add: [ self
-		nodeLabeled: 'source · ' , routeName asString
+		nodeLabeled: 'source · ' , self routeName asString
 		color: nil
 		id: #zkfolPipelineSource
 		click: [ self stageStateAt: 0 ] ].
@@ -256,17 +218,17 @@ ZkfolPipelineModel >> stageNodes [
 			color: each verdictColor
 			id: #zkfolPipelineNode
 			click: [ self transformFor: each ] ] ].
-	intentName ifNotNil: [
+	self intentName ifNotNil: [ :intent |
 		nodes add: [ self
-			nodeLabeled: 'prove · ' , intentName asString
+			nodeLabeled: 'prove · ' , intent asString
 			color: (ZkfolPalette kindColor: #pointer)
 			id: #zkfolPipelineIntent
 			click: (emitSpawner ifNotNil: [ [ emitSpawner value ] ]) ] ].
-	(report notNil or: [ proveFailure notNil ]) ifTrue: [
+	(report notNil or: [ failure notNil ]) ifTrue: [
 		"a report exists only where it proved, so its presence settles it."
 		nodes add: [ self
 			nodeLabeled: self reportLabel
-			color: (proveFailure
+			color: (failure
 				ifNil: [ ZkfolPalette kindColor: #result ]
 				ifNotNil: [ ZkfolPalette highlightColor ])
 			id: #zkfolPipelineReport
@@ -297,8 +259,8 @@ ZkfolPipelineModel >> stageStateAt: aStageIndex [
 ]
 
 { #category : 'accessing' }
-ZkfolPipelineModel >> trail [
-	^ trail ifNil: [ #() ]
+ZkfolPipelineModel >> thread: events [
+	thread := events
 ]
 
 { #category : 'accessing' }
@@ -306,7 +268,7 @@ ZkfolPipelineModel >> transformFor: aStage [
 	"The stage's output as a transformation: what its pass received and
 	 what it handed on, both re-run through the spawner."
 	^ ZkfolStageTransform
-		route: routeName
+		route: self routeName
 		stage: aStage
 		before: (self stageStateAt: aStage index - 1)
 		after: (self stageStateAt: aStage index)

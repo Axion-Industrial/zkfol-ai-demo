@@ -36,8 +36,9 @@ defmodule Zkfol.Query do
           {:ok, t()} | {:error, Refusal.t()}
   def open(rels, arguments, opts) do
     with {:ok, ask} <- Al.open(rels, arguments, opts),
-         {:ok, pid} <- GenServer.start(__MODULE__, ask),
-         do: {:ok, %__MODULE__{pid: pid, ask: ask}}
+         {:ok, pid} <- GenServer.start(__MODULE__, ask) do
+      {:ok, %__MODULE__{pid: pid, ask: ask}}
+    end
   end
 
   @doc "I am the query's next answer, `:exhausted`, or the refusal that stopped it."

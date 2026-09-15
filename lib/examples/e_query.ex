@@ -122,12 +122,12 @@ defmodule Examples.EQuery do
   end
 
   @doc "The line at the keyboard: an answer taken is a statement, and the front door proves it."
-  @spec an_answer_compiles() :: Zkfol.Log.Ran.t()
+  @spec an_answer_compiles() :: Zkfol.Log.Run.t()
   example an_answer_compiles do
     ran = Zkfol.eval!(EUser.fib(), [8, :_], []) |> Query.statement() |> Zkfol.compile()
 
     assert %Zkfol.Prover.Report{claims: []} = Zkfol.Log.report(Zkfol.Log.snapshot(), ran)
-    assert {:ok, %Zkfol.Statement{args: [8, 21]}} = Zkfol.Log.Ran.stage(ran, 0)
+    assert {:ok, %Zkfol.Statement{args: [8, 21]}} = Zkfol.Log.Run.stage(ran, 0)
     ran
   end
 

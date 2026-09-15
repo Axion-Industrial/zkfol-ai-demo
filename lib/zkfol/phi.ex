@@ -77,7 +77,7 @@ defmodule Zkfol.Phi do
   def run(statement = %Statement{}, _opts), do: {:ok, statement}
 
   @impl Zkfol.Pipeline
-  @spec verb() :: Zkfol.Pipeline.verdict()
+  @spec verb() :: Zkfol.Pipeline.result()
   def verb, do: :lowers
 
   @doc "I lay the derivation for the statement; `unrolling: false` lays it with every list in the heap."

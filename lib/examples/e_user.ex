@@ -289,8 +289,8 @@ defmodule Examples.EUser do
   @doc "A walk is a column per step, so one predicate stands at any length."
   @spec doubles(pos_integer()) :: Statement.t()
   example doubles(n \\ 3) do
-    statement = Log.Ran.final_stage(Zkfol.emit(doubled(), args: [Enum.to_list(1..n), :_]))
-    longer = Log.Ran.final_stage(Zkfol.emit(doubled(), args: [Enum.to_list(1..(10 * n)), :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(doubled(), args: [Enum.to_list(1..n), :_]))
+    longer = Log.Run.final_stage(Zkfol.emit(doubled(), args: [Enum.to_list(1..(10 * n)), :_]))
 
     assert Statement.pred(statement) == Statement.pred(longer)
     statement
@@ -299,7 +299,7 @@ defmodule Examples.EUser do
   @doc "One relation walked twice takes a copy per call, so each run stands on rows of its own."
   @spec chained_walks() :: Statement.t()
   example chained_walks do
-    statement = Log.Ran.final_stage(Zkfol.emit(chained(), args: [[1, 2, 3], :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(chained(), args: [[1, 2, 3], :_]))
 
     assert Enum.take(Zkfol.stream(chained(), [[1, 2, 3], :_]), 1) ==
              [[[1, 2, 3], [4, 4, 4, 4, 8, 8, 8, 8, 12, 12, 12, 12]]]
@@ -316,13 +316,13 @@ defmodule Examples.EUser do
              [[[1, 2, 3], [4, 4, 4, 8, 12]]]
 
     assert %Prover.Report{} = Log.report(Log.snapshot(), ran)
-    Log.Ran.final_stage(ran)
+    Log.Run.final_stage(ran)
   end
 
   @doc "A bank a strided walk wrote is carried on whole: two members hold the cells they share."
   @spec tacked_bank() :: Statement.t()
   example tacked_bank do
-    statement = Log.Ran.final_stage(Zkfol.emit(tacked(), args: [[1, 2], :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(tacked(), args: [[1, 2], :_]))
 
     assert Enum.take(Zkfol.stream(tacked(), [[1, 2], :_]), 1) == [[[1, 2], [2, 2, 4, 4, 9]]]
     statement
@@ -331,7 +331,7 @@ defmodule Examples.EUser do
   @doc "A bracket an equation writes is a sequence like a head's; its end name carries the rest."
   @spec fronted_bank() :: Statement.t()
   example fronted_bank do
-    statement = Log.Ran.final_stage(Zkfol.emit(fronted(), args: [[1, 2], :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(fronted(), args: [[1, 2], :_]))
 
     assert Enum.take(Zkfol.stream(fronted(), [[1, 2], :_]), 1) ==
              [[[1, 2], [1, 4, 4, 4, 4, 8, 8, 8, 8]]]
@@ -343,7 +343,7 @@ defmodule Examples.EUser do
   @doc "A reading takes a bank the run wrote as the cells standing on its member's rows."
   @spec indexed_cell() :: Statement.t()
   example indexed_cell do
-    statement = Log.Ran.final_stage(Zkfol.emit(cell_of(), args: [3, :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(cell_of(), args: [3, :_]))
 
     assert Enum.take(Zkfol.stream(cell_of(), [3, :_]), 1) == [[3, 6]]
     statement
@@ -361,7 +361,7 @@ defmodule Examples.EUser do
   @doc "A member no site steps stands where it is read; opening the index claims that cell."
   @spec opened_cell() :: Statement.t()
   example opened_cell do
-    statement = Log.Ran.final_stage(Zkfol.emit(tab(), args: [4, :_], public: [1]))
+    statement = Log.Run.final_stage(Zkfol.emit(tab(), args: [4, :_], public: [1]))
 
     assert Statement.bank(statement, :tab) == [[4], [40]]
     assert Statement.claims(statement) == [{"tab.a1", 1, 1}, {"in", 3, 1}]
@@ -373,7 +373,7 @@ defmodule Examples.EUser do
   @spec open_tail() :: Statement.t()
   example open_tail do
     ran = Zkfol.emit(topped(), args: [[3, 1, 2, 4]])
-    statement = Log.Ran.final_stage(ran)
+    statement = Log.Run.final_stage(ran)
 
     assert Enum.take(Zkfol.stream(topped(), [[3, 1, 2, 4]]), 1) == [[[3, 1, 2, 4]]]
 
@@ -388,7 +388,7 @@ defmodule Examples.EUser do
   @doc "An index counts from where a base clause of it starts, a column from one."
   @spec zero_based(non_neg_integer()) :: Statement.t()
   example zero_based(n \\ 3) do
-    statement = Log.Ran.final_stage(Zkfol.emit(from_zero(), args: [n, :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(from_zero(), args: [n, :_]))
 
     assert Enum.take(Zkfol.stream(from_zero(), [n, :_]), 1) == [[n, n + 1]]
     assert Statement.bank(statement, :from_zero) == [Enum.to_list(1..(n + 1))]
@@ -398,7 +398,7 @@ defmodule Examples.EUser do
   @doc "An inner bracket is an earlier dimension: two rows a column, the columns the walk."
   @spec row_sums() :: Statement.t()
   example row_sums do
-    statement = Log.Ran.final_stage(Zkfol.emit(rows(), args: [[[3, 4], [5, 6]], :_]))
+    statement = Log.Run.final_stage(Zkfol.emit(rows(), args: [[[3, 4], [5, 6]], :_]))
 
     assert Statement.bank(statement, :rows) == [[0, 11, 18]]
     assert Statement.bank(statement, :"rows a1") == [[0, 5, 3], [0, 6, 4]]
@@ -444,7 +444,7 @@ defmodule Examples.EUser do
 
     assert Alloc.names(alloc) == [:cells_ok, :"cells_ok rs", :each]
 
-    statement = Log.Ran.final_stage(ran)
+    statement = Log.Run.final_stage(ran)
     assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
     statement
   end

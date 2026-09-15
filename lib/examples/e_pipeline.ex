@@ -19,7 +19,7 @@ defmodule Examples.EPipeline do
     pipeline = %Pipeline{passes: [{Doubling, []}, {Zkfol.Phi, []}]}
     source = %Statement{rels: [EUser.fib()], args: [100]}
     ran = Zkfol.compile(source, pipeline: pipeline, name: :doubled_fibonacci, public: [:r, :e])
-    trail = Log.trail(Log.snapshot(), ran)
+    trail = Log.thread(Log.snapshot(), ran)
 
     assert %Prover.Report{claims: [{_claim, value}, {"in", 1}, {_position, _walked}]} =
              Log.report(Log.snapshot(), ran)
@@ -31,11 +31,11 @@ defmodule Examples.EPipeline do
              _event -> nil
            end) == [{Doubling, :rewrites}, {Zkfol.Phi, :declines}]
 
-    assert Log.Ran.stage(ran, 0) == {:ok, entered(source)}
-    assert {:ok, doubled} = Log.Ran.stage(ran, 1)
+    assert Log.Run.stage(ran, 0) == {:ok, entered(source)}
+    assert {:ok, doubled} = Log.Run.stage(ran, 1)
     assert Statement.pred(doubled) != nil
     assert Statement.claims(doubled) == []
-    assert {:ok, %Statement{stage: %Statement.Solved{}}} = Log.Ran.stage(ran, 2)
+    assert {:ok, %Statement{stage: %Statement.Solved{}}} = Log.Run.stage(ran, 2)
 
     emitted = Zkfol.emit(source, pipeline: pipeline, name: :emitted_fibonacci)
     assert Log.report(Log.snapshot(), emitted) == nil
