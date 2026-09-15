@@ -57,6 +57,14 @@ defmodule Zkfol.Prims do
   @al quote(do: all_dif(cells))
   defrel all_distinct(cells)
 
+  # The values are the circuit's own: one prescribed lookup, no copy.
+  @phi {Zkfol.Ast, :permutation}
+  defrel permutation(n, cells) do
+    length(cells, n)
+    each(between(1, n), cells)
+    all_distinct(cells)
+  end
+
   # Evaluation only: a free cell takes each value of its domain in turn.
   @al quote(do: label(x))
   defrel label(x)

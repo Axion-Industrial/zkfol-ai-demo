@@ -2,6 +2,7 @@ defmodule Examples.EUair do
   @moduledoc "I am the prover boundary's evidence: what it refuses, and the shapes it emits."
 
   use ExExample
+  use Zkfol.Lang
 
   import ExUnit.Assertions
 
@@ -17,6 +18,69 @@ defmodule Examples.EUair do
   alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
+
+  defrel selected_when(0, cells)
+
+  defrel selected_when(1, cells) do
+    permutation(2, cells)
+  end
+
+  defrel apart(cells) do
+    all_distinct(cells)
+  end
+
+  @doc "Distinct private values prove through a sorted copy; a repeat is refused before the prover."
+  @spec private_distinctness() :: Prover.Report.t()
+  example private_distinctness do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [apart()], args: [[5, 9, 2]]})
+
+    pred = Statement.pred(statement)
+    witness = Statement.witness(statement)
+    {:ok, uair} = Uair.emit(pred, witness)
+    assert uair.selected_lookups == []
+    assert [%ZincPlus.Permuted{pairs: pairs}] = uair.permuted_lookups
+    assert length(pairs) == uair.len
+    {:ok, report, _id} = Prover.prove_uair(uair, name: :apart)
+
+    {:ok, claims} = Zkfol.Lay.claims(Statement.lay(statement), [1])
+    [{_name, row, column} | _rest] = for {"apart.cells", _, _} = claim <- claims, do: claim
+    repeated = EAst.tamper(witness, row, column, 9)
+    refute Semantics.valid?(pred, repeated)
+    assert {:error, {:witness_unsatisfies_schedule, _column}} = Uair.emit(pred, repeated)
+    report
+  end
+
+  @doc "An inactive selection cannot replace the values an act opens."
+  @spec selections_preserve_openings() :: [Prover.Report.t()]
+  example selections_preserve_openings do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [selected_when()], args: [0, [2, 2]]})
+
+    {:ok, opened} = Statement.opened(statement, [1, 2])
+
+    assert {:error, {:selection_changes_claim, %{claim: "selected_when.cells"}}} =
+             Uair.emit(
+               Statement.pred(opened),
+               Statement.witness(opened),
+               Statement.claims(opened)
+             )
+
+    for enabled <- [0, 1] do
+      {:ok, statement, _trace} =
+        Pipeline.run(EUser.plain(), %Statement{rels: [selected_when()], args: [enabled, [2, 1]]})
+
+      {:ok, opened} = Statement.opened(statement, [1, 2])
+      claims = Statement.claims(opened)
+      witness = Statement.witness(opened)
+      expected = for {name, i, x} <- claims, do: {name, Interpretation.at(witness, i, x)}
+      assert {:ok, uair} = Uair.emit(Statement.pred(opened), witness, claims)
+      assert uair.claims == expected
+      assert {:ok, report, _id} = Prover.prove_uair(uair)
+      assert report.claims == expected
+      report
+    end
+  end
 
   @doc "I take the plain route on purpose: the trace's own values need int768."
   @spec big_values_prove(pos_integer()) :: Log.Ran.t()

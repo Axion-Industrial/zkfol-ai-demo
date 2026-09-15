@@ -77,6 +77,7 @@ defmodule Zkfol.Uair do
     field(:rows, [pos_integer() | :x | :ones], default: [])
     field(:word_lookups, [ZincPlus.lookup()], default: [])
     field(:selected_lookups, [ZincPlus.Selected.t()], default: [])
+    field(:permuted_lookups, [ZincPlus.Permuted.t()], default: [])
     field(:point_ties, [ZincPlus.Tie.t()], default: [])
   end
 
@@ -95,14 +96,22 @@ defmodule Zkfol.Uair do
   def emit(pred, witness, claims \\ []) do
     public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
-    with :ok <- models(pred, witness),
+    with {:ok, resolved} <- resolve_claims(claims, witness),
+         :ok <- models(pred, witness),
          {pred, witness} = materialized(pred, witness),
          len = Interpretation.len(witness),
          num_vars = num_vars(len),
          {:ok, stood} <- stood(pred, len),
-         witness = filled(witness, stood),
+         {:ok, paired} <- paired(pred, len),
+         {:ok, witness} <- filled(witness, stood, claims),
          naturals = natural_rows(pred),
-         permuted = for(g <- stood, {i, _c} <- Enum.concat(g.selections), uniq: true, do: i),
+         permuted =
+           for(
+             cells <- Enum.map(stood, & &1.selections) ++ paired,
+             {i, _c} <- Enum.concat(cells),
+             uniq: true,
+             do: i
+           ),
          kind = &kind(&1, Interpretation.arity(witness), len),
          {pred, witness, ties} = addressed(stripped(pred), witness, kind, len),
          through = for({i, _address} = read <- reads(pred), kind.(read) == :pointer, do: i),
@@ -119,7 +128,6 @@ defmodule Zkfol.Uair do
            Composed.value_rows(lowering) ++
              naturals ++ permuted ++ for({i, _c, _target} <- ties, do: i),
          refs = refs(poly, kind),
-         {:ok, resolved} <- resolve_claims(claims, witness),
          :ok <- models(pred, witness) do
       layout = layout(poly, refs, unread, public)
       program = poly |> resolve(len, layout, kind) |> postfix()
@@ -145,6 +153,7 @@ defmodule Zkfol.Uair do
                {Map.fetch!(layout.cols, i), @word_width, @word_chunk}
              end,
            selected_lookups: selected(stood, layout.cols, len),
+           permuted_lookups: permuted(paired, layout.cols, len),
            point_ties:
              for {i, c, {:broadcast, row}} <- ties do
                %ZincPlus.Tie{
@@ -193,9 +202,30 @@ defmodule Zkfol.Uair do
     {rewrite.(pred, rows), Interpretation.new(Interpretation.rows(witness) ++ stored), rows}
   end
 
-  # A naturality over an expression takes a row of its own, pinned beside the obligation.
+  # Distinct cells take a sorted copy in rows of their own: the copy holds their multiset,
+  # and each of its steps is a naturality. A naturality over an expression takes a row of
+  # its own, pinned beside the obligation.
   @spec materialized(Ast.pred(), Interpretation.t()) :: {Ast.pred(), Interpretation.t()}
   defp materialized(pred, witness) do
+    copies = for cells <- distinct(pred), k <- 0..(length(cells) - 1)//1, do: {cells, k}
+
+    {pred, witness, _rows} =
+      rowed(pred, witness, copies, &sorted_value(&1, witness, &2), fn pred, rows ->
+        Ast.postwalk(pred, fn
+          {:distinct, cells} ->
+            copy = for k <- 0..(length(cells) - 1)//1, do: Ast.cell(rows[{cells, k}])
+
+            steps =
+              for [a, b] <- Enum.chunk_every(copy, 2, 1, :discard),
+                  do: Ast.natural(Ast.add(Ast.add(b, Ast.mul(a, -1)), -1))
+
+            Ast.conj([Ast.permuted(cells, copy) | steps])
+
+          node ->
+            node
+        end)
+      end)
+
     terms = pred |> bounded() |> Enum.reject(&Ast.read/1)
 
     {pred, witness, _rows} =
@@ -217,6 +247,25 @@ defmodule Zkfol.Uair do
     with v when is_integer(v) and v >= 0 <- Semantics.eval(term, witness, x),
          do: v,
          else: (_ -> 0)
+  end
+
+  # The `k`-th smallest of the cells at `x`; a cell off the trace leaves the copy unfilled.
+  @spec sorted_value({[Ast.term_t()], non_neg_integer()}, Interpretation.t(), pos_integer()) ::
+          integer()
+  defp sorted_value({cells, k}, witness, x) do
+    values = Enum.map(cells, &Semantics.eval(&1, witness, x))
+    if :error in values, do: 0, else: values |> Enum.sort() |> Enum.at(k)
+  end
+
+  @spec distinct(Ast.pred()) :: [[Ast.term_t()]]
+  defp distinct(pred) do
+    pred
+    |> Ast.reduce([], fn
+      {:distinct, cells}, acc -> [cells | acc]
+      _node, acc -> acc
+    end)
+    |> Enum.reverse()
+    |> Enum.uniq()
   end
 
   @spec bounded(Ast.pred()) :: [Ast.term_t()]
@@ -321,6 +370,28 @@ defmodule Zkfol.Uair do
     end)
   end
 
+  # Each pair, at every column: the cells and their copy, standing.
+  @spec paired(Ast.pred(), pos_integer()) ::
+          {:ok, [[[{pos_integer(), pos_integer()}]]]} | {:error, Refusal.t()}
+  defp paired(pred, len) do
+    pairs =
+      pred
+      |> Ast.reduce([], fn
+        {:permuted, cells, copy}, acc -> [{cells, copy} | acc]
+        _node, acc -> acc
+      end)
+      |> Enum.reverse()
+      |> Enum.uniq()
+
+    Refusal.flat_map(pairs, fn {cells, copy} ->
+      Refusal.map(1..len, fn x ->
+        with {:ok, first} <- standing(cells, x, len),
+             {:ok, second} <- standing(copy, x, len),
+             do: {:ok, [first, second]}
+      end)
+    end)
+  end
+
   @spec groups(Ast.pred()) :: [{[Ast.term_t()], [integer()]}]
   defp groups(pred) do
     pred
@@ -344,9 +415,10 @@ defmodule Zkfol.Uair do
     end)
   end
 
-  # A selection fails only where the group's branch does not answer; there its cells are padding.
-  @spec filled(Interpretation.t(), [Group.t()]) :: Interpretation.t()
-  defp filled(witness, stood) do
+  # An unconditional backend selection may fill inactive cells, but never change an opening.
+  @spec filled(Interpretation.t(), [Group.t()], [Interpretation.claim()]) ::
+          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp filled(witness, stood, claims) do
     fills =
       for group <- stood,
           cells <- group.selections,
@@ -356,11 +428,24 @@ defmodule Zkfol.Uair do
           into: %{},
           do: {cell, value}
 
-    Interpretation.new(
-      for {row, i} <- Enum.with_index(Interpretation.rows(witness), 1) do
-        for {held, c} <- Enum.with_index(row, 1), do: Map.get(fills, {i, c}, held)
-      end
-    )
+    with :ok <-
+           Refusal.refute(
+             claims,
+             fn {_name, i, c} ->
+               held = Interpretation.at(witness, i, c)
+               Map.get(fills, {i, c}, held) != held
+             end,
+             fn {name, i, c} ->
+               {:selection_changes_claim, %{claim: name, row: i, column: c}}
+             end
+           ) do
+      {:ok,
+       Interpretation.new(
+         for {row, i} <- Enum.with_index(Interpretation.rows(witness), 1) do
+           for {held, c} <- Enum.with_index(row, 1), do: Map.get(fills, {i, c}, held)
+         end
+       )}
+    end
   end
 
   # A cell stands at `len - c` of its column; a table is one group.
@@ -381,6 +466,29 @@ defmodule Zkfol.Uair do
     end
   end
 
+  # Every pair is one group over the columns they reach across.
+  @spec permuted(
+          [[[{pos_integer(), pos_integer()}]]],
+          %{pos_integer() => non_neg_integer()},
+          pos_integer()
+        ) :: [ZincPlus.Permuted.t()]
+  defp permuted([], _cols, _len), do: []
+
+  defp permuted(paired, cols, len) do
+    columns =
+      for({i, _c} <- Enum.concat(Enum.concat(paired)), uniq: true, do: cols[i]) |> Enum.sort()
+
+    slots = columns |> Enum.with_index() |> Map.new()
+    placed = fn cells -> for {i, c} <- cells, do: {slots[cols[i]], len - c} end
+
+    [
+      %ZincPlus.Permuted{
+        columns: columns,
+        pairs: for([first, second] <- paired, do: {placed.(first), placed.(second)})
+      }
+    ]
+  end
+
   @spec stripped(Ast.pred()) :: Ast.pred()
   defp stripped(pred) do
     Ast.postwalk(pred, fn
@@ -392,6 +500,7 @@ defmodule Zkfol.Uair do
   @spec obligation?(Ast.pred()) :: boolean()
   defp obligation?({:natural, _t}), do: true
   defp obligation?({:permutes, _rows, _values}), do: true
+  defp obligation?({:permuted, _cells, _copy}), do: true
   defp obligation?(_pred), do: false
 
   @spec models(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}

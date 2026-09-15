@@ -8,9 +8,13 @@ defmodule Examples.EFol do
 
   alias Examples.ESudoku
   alias Examples.EUser
+  alias Zkfol.Al
   alias Zkfol.Alloc
+  alias Zkfol.Ast
+  alias Zkfol.Derivation
   alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
 
@@ -25,7 +29,7 @@ defmodule Examples.EFol do
 
   defrel columns_apart(x) do
     column(x, cols)
-    each(all_distinct, cols)
+    each(permutation(9), cols)
   end
 
   defrel literal_columns(cs) do
@@ -35,7 +39,7 @@ defmodule Examples.EFol do
   defrel there_and_back(x) do
     column(x, cs)
     column(cs, back)
-    each(all_distinct, back)
+    each(permutation(9), back)
   end
 
   defrel bumped(ys) do
@@ -81,6 +85,24 @@ defmodule Examples.EFol do
       Pipeline.run(EUser.plain(), %Statement{rels: [joined()], args: [:_]})
 
     statement
+  end
+
+  @doc "I infer a permutation's size from its list; a missing value cannot form a permutation."
+  @spec permutation_size() :: Derivation.t()
+  example permutation_size do
+    relation = Zkfol.Prims.permutation()
+    {:ok, derivation} = Al.derived(relation, [:_, [3, 1, 2]])
+    assert Derivation.root(derivation, :permutation) == {:permutation, [3, [3, 1, 2]]}
+
+    for {n, cells} <- [{3, [1, 2]}, {2, [1, 2, 3]}, {1, []}, {-1, []}] do
+      assert {:error, {:no_answer, _detail}} = Al.derived(relation, [n, cells])
+      predicate = Ast.permutation(n, cells)
+      assert Semantics.eval(predicate, 1, 1, fn _row, _column -> :error end) != 0
+    end
+
+    assert {:ok, _empty} = Al.derived(relation, [0, []])
+    assert Semantics.eval(Ast.permutation(0, []), 1, 1, fn _row, _column -> :error end) == 0
+    derivation
   end
 
   @doc "A row of the bank is a column of the grid, so the transpose lays no bank of its own."

@@ -157,7 +157,7 @@ defmodule Examples.EUser do
   end
 
   defrel topped([a, b, c | _rest]) do
-    all_distinct([a, b, c])
+    permutation(3, [a, b, c])
   end
 
   defrel dropped(1, xs, xs)

@@ -22,7 +22,7 @@ use config::{
     setup_big_pp, setup_huge_pp, setup_pp, BigCfg, BigInt, Cfg, HugeCfg, HugeInt, D, F,
     NUM_COLUMN_OPENINGS, PERFORM_CHECKS, REP_FACTOR,
 };
-use runtime::{Op, RuntimeUair, Selected, Spec, Tie, SPEC};
+use runtime::{Op, Permuted, RuntimeUair, Selected, Spec, Tie, SPEC};
 
 const BACKEND: &str = "zinc-plus-66776a3";
 
@@ -99,6 +99,7 @@ struct Request {
     cells: Payload,
     word_lookups: Vec<(usize, usize, usize)>,
     selected_lookups: Vec<Selected>,
+    permuted_lookups: Vec<Permuted>,
     point_ties: Vec<Tie>,
     reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
@@ -119,6 +120,7 @@ fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
             program,
             word_lookups: request.word_lookups,
             selected: request.selected_lookups,
+            permuted: request.permuted_lookups,
             point_ties: request.point_ties,
             reads: request.reads,
         },
