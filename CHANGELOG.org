@@ -1,3 +1,17 @@
+* V0.6.0
+** Features
+- ~permutation/2~ primitive is introduced that notes a permutation of
+  a row between 1 and the given number
+- Each sname gets their own mnesia store
+- ~Examples.EBench~ now gives a proper benchmarking data
+** Changes
+- README was changed to org and is now written with the user in mind
+- ~Zkfol.Log.Run~ replaces ~Ran~; ~Log.report/1~ on a run gives its proof report
+** Dependencies
+- AL 0.3.0; if you already have the repo loaded, remove your local
+  mnesia files.
+- ~gt_bridge~ 0.20.1, Zinc+ ~66776a3~
+
 * V0.5.0
 ** Features
 - Shared matrix views and dynamic conses, with a reusable predicate per shape
