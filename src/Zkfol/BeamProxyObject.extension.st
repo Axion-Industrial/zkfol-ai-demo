@@ -1,6 +1,37 @@
 Extension { #name : 'BeamProxyObject' }
 
 { #category : '*Zkfol' }
+BeamProxyObject >> evaluateOrNil: anElixirSource [
+	"A remote call, guarded: nil rather than a raise when the session
+	 is gone or the proxy is stale, so a view degrades to empty. My
+	 callers splice my #resolve expression into their source the
+	 bridge's way; I carry no template and no marker."
+	(self application notNil and: [ self elixirVar notNil ])
+		ifFalse: [ ^ nil ].
+	^ [ self evaluateAndWait: anElixirSource ] on: Error do: [ :e | nil ]
+]
+
+{ #category : '*Zkfol' }
+BeamProxyObject >> forward: aView title: aTitle priority: aNumber view: aViewSelector [
+	"The proxy-side view pattern ALObject set and every Zkfol proxy
+	 repeats: forward to the image-side model, built fresh per view."
+	^ aView forward
+		title: aTitle;
+		priority: aNumber;
+		object: [ self viewModel ];
+		view: aViewSelector
+]
+
+{ #category : '*Zkfol' }
+BeamProxyObject >> plainFetch: anElixirSource [
+	"The class-side seam through my own session; stale, I refuse
+	 rather than raise, so a view degrades to hidden."
+	(self application notNil and: [ self elixirVar notNil ])
+		ifFalse: [ ^ ZkfolRefusal because: 'the session is gone' ].
+	^ self class plainFetch: anElixirSource through: self application
+]
+
+{ #category : '*Zkfol' }
 BeamProxyObject class >> plainFetch: anElixirSource through: anApplication [
 	"The node's answer as plain Smalltalk, in one round trip: the
 	 bridge fetches and decodes, then the struct tags go and the keys
@@ -36,35 +67,4 @@ BeamProxyObject class >> plainly: aValue [
 	(aValue isString or: [ aValue isSymbol ]) ifTrue: [ ^ aValue ].
 	aValue isCollection ifTrue: [ ^ aValue collect: [ :each | self plainly: each ] ].
 	^ aValue
-]
-
-{ #category : '*Zkfol' }
-BeamProxyObject >> evaluateOrNil: anElixirSource [
-	"A remote call, guarded: nil rather than a raise when the session
-	 is gone or the proxy is stale, so a view degrades to empty. My
-	 callers splice my #resolve expression into their source the
-	 bridge's way; I carry no template and no marker."
-	(self application notNil and: [ self elixirVar notNil ])
-		ifFalse: [ ^ nil ].
-	^ [ self evaluateAndWait: anElixirSource ] on: Error do: [ :e | nil ]
-]
-
-{ #category : '*Zkfol' }
-BeamProxyObject >> forward: aView title: aTitle priority: aNumber view: aViewSelector [
-	"The proxy-side view pattern ALObject set and every Zkfol proxy
-	 repeats: forward to the image-side model, built fresh per view."
-	^ aView forward
-		title: aTitle;
-		priority: aNumber;
-		object: [ self viewModel ];
-		view: aViewSelector
-]
-
-{ #category : '*Zkfol' }
-BeamProxyObject >> plainFetch: anElixirSource [
-	"The class-side seam through my own session; stale, I refuse
-	 rather than raise, so a view degrades to hidden."
-	(self application notNil and: [ self elixirVar notNil ])
-		ifFalse: [ ^ ZkfolRefusal because: 'the session is gone' ].
-	^ self class plainFetch: anElixirSource through: self application
 ]

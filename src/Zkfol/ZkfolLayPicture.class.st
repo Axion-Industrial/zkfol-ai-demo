@@ -137,6 +137,13 @@ ZkfolLayPicture >> displayGroups [
 	^ groups
 ]
 
+{ #category : 'accessing' }
+ZkfolLayPicture >> fromRowOf: anArrow [
+	"The row an arrow leaves from: its pointer cell, or the consumer's
+	 presence cell where the index reached the read."
+	^ (anArrow at: #ptr) ifNil: [ anArrow at: #from_row ]
+]
+
 { #category : 'rendering' }
 ZkfolLayPicture >> headerRowElement [
 	"The position ruler over the grid: a spacer the width of the row
@@ -302,11 +309,4 @@ ZkfolLayPicture >> statusText [
 				ifNotNil: [ 'dynamic' ]) ]
 		ifNone: [ ].
 	^ ' · ' join: parts
-]
-
-{ #category : 'accessing' }
-ZkfolLayPicture >> fromRowOf: anArrow [
-	"The row an arrow leaves from: its pointer cell, or the consumer's
-	 presence cell where the index reached the read."
-	^ (anArrow at: #ptr) ifNil: [ anArrow at: #from_row ]
 ]

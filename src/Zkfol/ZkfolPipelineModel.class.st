@@ -194,6 +194,14 @@ ZkfolPipelineModel >> readAct: aFeed [
 ]
 
 { #category : 'accessing' }
+ZkfolPipelineModel >> replaySpawner: aBlock [
+	"The block answering the act run again, a fresh receipt; whoever
+	 opens me off the log knows the define to replay from. Without one
+	 the pipeline view has no play button."
+	replaySpawner := aBlock
+]
+
+{ #category : 'accessing' }
 ZkfolPipelineModel >> report [
 	^ report
 ]
@@ -215,14 +223,6 @@ ZkfolPipelineModel >> reportLabel [
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b printString , ' B' ].
 		(report at: #backend)
 			ifNotNil: [ :b | s nextPutAll: ' · ' , b asString ] ]
-]
-
-{ #category : 'accessing' }
-ZkfolPipelineModel >> replaySpawner: aBlock [
-	"The block answering the act run again, a fresh receipt; whoever
-	 opens me off the log knows the define to replay from. Without one
-	 the pipeline view has no play button."
-	replaySpawner := aBlock
 ]
 
 { #category : 'accessing' }

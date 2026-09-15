@@ -42,42 +42,6 @@ ZkfolElements class >> canvasOn: aView title: aTitle priority: aNumber node: aPi
 ]
 
 { #category : 'building' }
-ZkfolElements class >> make: anElement spawn: aBlock [
-	"Clicking anElement opens what the block answers in the next pane."
-	anElement mouseCursor: BlHandCursor new.
-	anElement addEventHandlerOn: BlClickEvent do: [ :evt |
-		evt consumed: true.
-		evt currentTarget phlow spawnObject: aBlock value ].
-	^ anElement
-]
-
-{ #category : 'building' }
-ZkfolElements class >> safely: aBlock as: anIdSymbol [
-	"A stencil that raises during an async forward build trips phlow's
-	 double entity assertion and ends in a debugger, never an error
-	 view, so no Zkfol stencil may raise: it renders its reason instead."
-	^ [ aBlock value ]
-		on: Error
-		do: [ :anError |
-			BlTextElement new
-				id: anIdSymbol;
-				text: ('cannot render: ' , anError messageText asString) asRopedText;
-				padding: (BlInsets all: 10);
-				yourself ]
-]
-
-{ #category : 'building' }
-ZkfolElements class >> swatch: aColorOrNil [
-	"The small square legend chip every row tag, fact line, and delta
-	 row wears: a kind's shared color, or transparent for none. Callers
-	 add their own margin, since the chip sits differently in each."
-	^ BlElement new
-		size: 10 @ 10;
-		background: (aColorOrNil ifNil: [ Color transparent ]);
-		yourself
-]
-
-{ #category : 'building' }
 ZkfolElements class >> compactValue: aNumber upTo: aCount [
 	"A value that cannot say itself in aCount characters says its two
 	 leading digits and its magnitude, honest and terse: 1.2e20 is a
@@ -142,6 +106,16 @@ ZkfolElements class >> labelWidthFor: someStrings [
 ]
 
 { #category : 'building' }
+ZkfolElements class >> make: anElement spawn: aBlock [
+	"Clicking anElement opens what the block answers in the next pane."
+	anElement mouseCursor: BlHandCursor new.
+	anElement addEventHandlerOn: BlClickEvent do: [ :evt |
+		evt consumed: true.
+		evt currentTarget phlow spawnObject: aBlock value ].
+	^ anElement
+]
+
+{ #category : 'building' }
 ZkfolElements class >> overlay: anId [
 	"The layer connectors draw on: ignored by the grid's layout,
 	 unclipped, added last so its lines ride over the cells."
@@ -165,5 +139,31 @@ ZkfolElements class >> rowLabel: aString width: aNumber [
 			constraintsDo: [ :c | c horizontal matchParent ];
 			text: (aString asRopedText fontSize: 10);
 			yourself);
+		yourself
+]
+
+{ #category : 'building' }
+ZkfolElements class >> safely: aBlock as: anIdSymbol [
+	"A stencil that raises during an async forward build trips phlow's
+	 double entity assertion and ends in a debugger, never an error
+	 view, so no Zkfol stencil may raise: it renders its reason instead."
+	^ [ aBlock value ]
+		on: Error
+		do: [ :anError |
+			BlTextElement new
+				id: anIdSymbol;
+				text: ('cannot render: ' , anError messageText asString) asRopedText;
+				padding: (BlInsets all: 10);
+				yourself ]
+]
+
+{ #category : 'building' }
+ZkfolElements class >> swatch: aColorOrNil [
+	"The small square legend chip every row tag, fact line, and delta
+	 row wears: a kind's shared color, or transparent for none. Callers
+	 add their own margin, since the chip sits differently in each."
+	^ BlElement new
+		size: 10 @ 10;
+		background: (aColorOrNil ifNil: [ Color transparent ]);
 		yourself
 ]

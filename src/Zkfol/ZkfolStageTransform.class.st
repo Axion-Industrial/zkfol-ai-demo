@@ -58,6 +58,14 @@ ZkfolStageTransform >> elixirStyler [
 ]
 
 { #category : 'accessing' }
+ZkfolStageTransform >> factKeys [
+	"The statement facts a stage transition shows, in reading order. The
+	 delta, the diff text and the fact extraction each carried their own
+	 copy of this list."
+	^ #(rels branches arity witness claims args)
+]
+
+{ #category : 'accessing' }
 ZkfolStageTransform >> factsOf: aState [
 	"The state's facts as one dictionary: a fixture summary already is
 	 one, a live bridged statement summarises through the face in one
@@ -68,14 +76,6 @@ ZkfolStageTransform >> factsOf: aState [
 		fetched := aState plainFetch: 'Zkfol.Face.summary(' , aState resolve , ')'.
 		^ (fetched isKindOf: Dictionary) ifTrue: [ fetched ] ifFalse: [ Dictionary new ] ].
 	^ Dictionary new
-]
-
-{ #category : 'accessing' }
-ZkfolStageTransform >> factKeys [
-	"The statement facts a stage transition shows, in reading order. The
-	 delta, the diff text and the fact extraction each carried their own
-	 copy of this list."
-	^ #(rels branches arity witness claims args)
 ]
 
 { #category : 'views' }

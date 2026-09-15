@@ -175,6 +175,23 @@ ZkfolLayJoin >> setFeed: aDictionary [
 ]
 
 { #category : 'painting' }
+ZkfolLayJoin >> show: aBoolean arcsOf: aModel [
+	(arcs at: aModel ifAbsent: [ #() ]) do: [ :arc |
+		arc visibility: (aBoolean ifTrue: [ BlVisibility visible ] ifFalse: [ BlVisibility hidden ]) ]
+]
+
+{ #category : 'colouring' }
+ZkfolLayJoin >> siteColor: aSite [
+	"A site wears its read colour, the one the grid's arrows wear."
+	^ (ZkfolPalette readColor: aSite third) alpha: 0.35
+]
+
+{ #category : 'colouring' }
+ZkfolLayJoin >> siteText: aSite [
+	^ aSite last asRopedText background: (self siteColor: aSite)
+]
+
+{ #category : 'painting' }
 ZkfolLayJoin >> spawn: anElement as: anExpression [
 	"Clicking the element opens the datum the expression names in the lay."
 	spawner ifNil: [ ^ anElement ].
@@ -190,21 +207,4 @@ ZkfolLayJoin >> spawner: aBlock [
 { #category : 'painting' }
 ZkfolLayJoin >> standPath: aStand [
 	^ 'Enum.at(lay.stands, ' , (((feed at: #stands) identityIndexOf: aStand) - 1) printString , ')'
-]
-
-{ #category : 'painting' }
-ZkfolLayJoin >> show: aBoolean arcsOf: aModel [
-	(arcs at: aModel ifAbsent: [ #() ]) do: [ :arc |
-		arc visibility: (aBoolean ifTrue: [ BlVisibility visible ] ifFalse: [ BlVisibility hidden ]) ]
-]
-
-{ #category : 'colouring' }
-ZkfolLayJoin >> siteColor: aSite [
-	"A site wears its read colour, the one the grid's arrows wear."
-	^ (ZkfolPalette readColor: aSite third) alpha: 0.35
-]
-
-{ #category : 'colouring' }
-ZkfolLayJoin >> siteText: aSite [
-	^ aSite last asRopedText background: (self siteColor: aSite)
 ]

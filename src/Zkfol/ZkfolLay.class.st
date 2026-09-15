@@ -13,6 +13,22 @@ ZkfolLay class >> elixirClass [
 ]
 
 { #category : 'views' }
+ZkfolLay >> gtDerivationGraphFor: aView [
+	"The derivation I placed, as its graph."
+	<gtView>
+	<gtBeamView>
+	| feed |
+	feed := self plainFetch: 'Zkfol.Face.derivation(' , self resolve , '.derivation)'.
+	((feed isKindOf: Dictionary)
+		and: [ (feed at: #rows ifAbsent: [ #() ]) notEmpty ])
+			ifFalse: [ ^ aView empty ].
+	^ aView mondrian
+		title: 'Derivation';
+		priority: 11;
+		painting: [ :aMondrian | (ZkfolDerivationGraph onFeed: feed) paint: aMondrian ]
+]
+
+{ #category : 'views' }
 ZkfolLay >> gtGridFor: aView [
 	"Myself as the grid: banks behind seams, pointers grouped with the
 	 caller entailing them, hover speaking each cell's place. I am the
@@ -27,22 +43,6 @@ ZkfolLay >> gtGridFor: aView [
 	^ ZkfolElements
 		canvasOn: aView title: 'Grid' priority: 5
 		node: (ZkfolLayPicture onFeed: feed)
-]
-
-{ #category : 'views' }
-ZkfolLay >> gtDerivationGraphFor: aView [
-	"The derivation I placed, as its graph."
-	<gtView>
-	<gtBeamView>
-	| feed |
-	feed := self plainFetch: 'Zkfol.Face.derivation(' , self resolve , '.derivation)'.
-	((feed isKindOf: Dictionary)
-		and: [ (feed at: #rows ifAbsent: [ #() ]) notEmpty ])
-			ifFalse: [ ^ aView empty ].
-	^ aView mondrian
-		title: 'Derivation';
-		priority: 11;
-		painting: [ :aMondrian | (ZkfolDerivationGraph onFeed: feed) paint: aMondrian ]
 ]
 
 { #category : 'views' }

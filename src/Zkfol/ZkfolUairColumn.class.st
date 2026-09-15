@@ -22,20 +22,26 @@ ZkfolUairColumn class >> position: aPosition bits: aBitString cells: aCellCollec
 ]
 
 { #category : 'accessing' }
-ZkfolUairColumn >> derefs [
-	^ derefs
+ZkfolUairColumn >> addressBitLabelFor: aCell [
+	"Which bit of which read a row spells here, and what the bits add up
+	 to. The position's own hypercube point is a different number that
+	 happens to be spelled in bits too, so the two are never both just
+	 'bits' in the same view."
+	^ String streamContents: [ :out |
+		derefs do: [ :chain |
+			| at |
+			at := chain bitRowIndices indexOf: aCell row.
+			at = 0 ifFalse: [
+				out
+					nextPutAll: 'b';
+					print: at - 1;
+					nextPutAll: ' of A=';
+					print: chain address ] ] ]
 ]
 
-{ #category : 'views' }
-ZkfolUairColumn >> gtDerefsFor: aView [
-	<gtView>
-	derefs isEmpty ifTrue: [ ^ aView empty ].
-	^ ZkfolElements
-		canvasOn: aView title: 'Deref chain' priority: 5
-		node: (derefs first grid picture
-			emphasis: (derefs flatCollect: [ :each | each coords ]);
-			connectors: (derefs flatCollect: [ :each | each threads ]);
-			yourself)
+{ #category : 'accessing' }
+ZkfolUairColumn >> derefs [
+	^ derefs
 ]
 
 { #category : 'views' }
@@ -52,22 +58,16 @@ ZkfolUairColumn >> gtCellsFor: aView [
 		column: 'Value' text: [ :each | each value printString ]
 ]
 
-{ #category : 'accessing' }
-ZkfolUairColumn >> addressBitLabelFor: aCell [
-	"Which bit of which read a row spells here, and what the bits add up
-	 to. The position's own hypercube point is a different number that
-	 happens to be spelled in bits too, so the two are never both just
-	 'bits' in the same view."
-	^ String streamContents: [ :out |
-		derefs do: [ :chain |
-			| at |
-			at := chain bitRowIndices indexOf: aCell row.
-			at = 0 ifFalse: [
-				out
-					nextPutAll: 'b';
-					print: at - 1;
-					nextPutAll: ' of A=';
-					print: chain address ] ] ]
+{ #category : 'views' }
+ZkfolUairColumn >> gtDerefsFor: aView [
+	<gtView>
+	derefs isEmpty ifTrue: [ ^ aView empty ].
+	^ ZkfolElements
+		canvasOn: aView title: 'Deref chain' priority: 5
+		node: (derefs first grid picture
+			emphasis: (derefs flatCollect: [ :each | each coords ]);
+			connectors: (derefs flatCollect: [ :each | each threads ]);
+			yourself)
 ]
 
 { #category : 'accessing' }

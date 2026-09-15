@@ -15,24 +15,16 @@ ZkfolRefusal class >> because: aString [
 	^ self new setReason: aString
 ]
 
-{ #category : 'printing' }
-ZkfolRefusal >> printOn: aStream [
-	aStream nextPutAll: 'refused: '; nextPutAll: reason asString
-]
-
-{ #category : 'accessing' }
-ZkfolRefusal >> reason [
-	^ reason
-]
-
-{ #category : 'accessing' }
-ZkfolRefusal >> setReason: aString [
-	reason := aString
-]
-
 { #category : 'views' }
 ZkfolRefusal >> gtDerivationGraphFor: aView [
 	"A refusal has no derivation; the forwarded tab hides."
+	<gtView>
+	^ aView empty
+]
+
+{ #category : 'views' }
+ZkfolRefusal >> gtGridFor: aView [
+	"A refusal has no grid; the forwarded tab hides."
 	<gtView>
 	^ aView empty
 ]
@@ -51,15 +43,23 @@ ZkfolRefusal >> gtLayFor: aView [
 	^ aView empty
 ]
 
-{ #category : 'views' }
-ZkfolRefusal >> gtGridFor: aView [
-	"A refusal has no grid; the forwarded tab hides."
-	<gtView>
-	^ aView empty
-]
-
 { #category : 'accessing' }
 ZkfolRefusal >> interestingObjects [
 	"A refusal holds nothing to conjure."
 	^ #()
+]
+
+{ #category : 'printing' }
+ZkfolRefusal >> printOn: aStream [
+	aStream nextPutAll: 'refused: '; nextPutAll: reason asString
+]
+
+{ #category : 'accessing' }
+ZkfolRefusal >> reason [
+	^ reason
+]
+
+{ #category : 'accessing' }
+ZkfolRefusal >> setReason: aString [
+	reason := aString
 ]
