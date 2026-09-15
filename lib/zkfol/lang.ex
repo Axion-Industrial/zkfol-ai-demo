@@ -365,6 +365,31 @@ defmodule Zkfol.Lang do
     end
   end
 
+  @doc """
+  I return the recursive relation names in a resolved program.
+
+  Calls and passed relations form a directed graph. A relation is recursive when it
+  belongs to a cycle; calling a recursive relation does not itself make a caller recursive.
+  """
+  @spec recursive([Rel.t()]) :: MapSet.t(atom())
+  def recursive(rels) do
+    graph = :digraph.new()
+
+    try do
+      for rel <- rels, do: :digraph.add_vertex(graph, rel.name)
+
+      for rel <- rels,
+          callee <- Rel.calls(rel) ++ Rel.passes(rel),
+          :digraph.vertex(graph, callee) != false do
+        :digraph.add_edge(graph, rel.name, callee)
+      end
+
+      graph |> :digraph_utils.cyclic_strong_components() |> List.flatten() |> MapSet.new()
+    after
+      :digraph.delete(graph)
+    end
+  end
+
   @spec scoped(Rel.t(), MapSet.t()) :: Rel.t()
   defp scoped(rel = %Rel{clauses: clauses}, scope) do
     clauses =

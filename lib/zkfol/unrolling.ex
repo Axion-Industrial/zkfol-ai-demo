@@ -19,15 +19,17 @@ defmodule Zkfol.Unrolling do
   table in `place/6`.
 
   Per call, I decide whether it is unrolled into its clauses or compiled as a member
-  (`strategy/4`), and the column a continued or a new member stands at (`frame/2`,
-  `new_frame/4`).
+  (`strategy/4`), and the column a continued or a new member stands at (`frame/2`).
 
   ### Public API
 
-  - `parameters/5`: the column counter, and a shape and a place per parameter.
+  - `column/3`: choose the stepping call and column counter.
+  - `parameters/6`: a shape and a place per parameter, in the chosen column.
   - `strategy/4`: unroll a call, prefer a member, or require one.
-  - `frame/2`, `new_frame/4`: the column a continued member and a new member stand at.
+  - `frame/2`: locate a call from its column counter.
   """
+
+  use TypedStruct
 
   alias Zkfol.Alloc.Bank
   alias Zkfol.Ast
@@ -46,8 +48,11 @@ defmodule Zkfol.Unrolling do
   """
   @type step :: {non_neg_integer(), integer(), atom(), [[integer() | nil]]}
 
-  @typedoc "The stepping call and the column counter, each when there is one."
-  @type steps :: {step() | nil, counter() | nil}
+  @typedoc "The stepping call and column counter chosen before entering a member's frame."
+  typedstruct do
+    field(:step, step() | nil)
+    field(:counter, counter() | nil)
+  end
 
   @typep clauses :: [{[term()], [term()]}]
 
@@ -60,16 +65,39 @@ defmodule Zkfol.Unrolling do
            seen: [atom()]
          }
 
-  @doc "I return the column counter, and a shape and a place per parameter."
+  @doc """
+  I choose the stepping call and column counter: the parameter the call displaces,
+  or else the first counted argument. A heap term cannot count the column.
+  `handed` contains canonical values from `Value.handed/1`. This choice determines
+  the call's frame and is retained when its arguments move into that frame.
+  Parameter extents are inferred after that move.
+  """
+  @spec column(Rel.t(), [Place.t()], Place.known()) :: t()
+  def column(%Rel{clauses: clauses}, handed, known) do
+    step = displaced_call(clauses)
+    j = (step && elem(step, 0)) || Enum.find_index(handed, &counted?(&1, known))
+
+    counter =
+      if j && not term?(clauses, j) && walkable?(Enum.at(handed, j)),
+        do: {j, origin(clauses, j, handed, known)}
+
+    %__MODULE__{step: step, counter: counter}
+  end
+
+  @doc """
+  I return a shape and a place per parameter. The arguments are expressed in the
+  callee's frame; the column is the choice that located that frame.
+  """
   @spec parameters(
           Rel.t(),
           [Ast.row_ref()],
           [Place.t()],
           Place.known(),
-          %{atom() => Rel.t()}
-        ) :: {counter() | nil, [Shape.t()], [Place.t()]}
-  def parameters(rel = %Rel{clauses: clauses, arity: arity}, refs, handed, known, scope) do
-    {step, counter} = column_counter(clauses, handed, known)
+          %{atom() => Rel.t()},
+          t()
+        ) :: {[Shape.t()], [Place.t()]}
+  def parameters(rel = %Rel{clauses: clauses, arity: arity}, refs, handed, known, scope, column) do
+    %__MODULE__{step: step, counter: counter} = column
     solve = %{step: step, counter: counter, handed: handed, known: known, scope: scope, seen: []}
 
     shapes =
@@ -82,10 +110,10 @@ defmodule Zkfol.Unrolling do
 
     places =
       for {{ref, form, shape}, k} <- Enum.with_index(Enum.zip([refs, handed, shapes])) do
-        place(clauses, k, ref, form, shape, {step, counter})
+        place(clauses, k, ref, form, shape, column)
       end
 
-    {counter, shapes, places}
+    {shapes, places}
   end
 
   # A term, a list in a member that counts no column, and an unbounded list nothing was
@@ -94,8 +122,8 @@ defmodule Zkfol.Unrolling do
   # passed relation's fixed arguments take the member's own cells. A list that already
   # stands somewhere is read where it is, re-headed at the member's extent when the member
   # steps. Every other list takes a bank along the trace.
-  @spec place(clauses(), integer(), Ast.row_ref(), Place.t(), Shape.t(), steps()) :: Place.t()
-  defp place(clauses, k, ref, form, shape, {step, counter}) do
+  @spec place(clauses(), integer(), Ast.row_ref(), Place.t(), Shape.t(), t()) :: Place.t()
+  defp place(clauses, k, ref, form, shape, %__MODULE__{step: step, counter: counter}) do
     {j, o} = counter || {nil, 0}
 
     cond do
@@ -141,20 +169,6 @@ defmodule Zkfol.Unrolling do
   ############################################################
   #                       The counter                        #
   ############################################################
-
-  # The stepping call and the column counter: the parameter the stepping call displaces,
-  # or else the first list, unless the clauses make it a term or it cannot be walked.
-  @spec column_counter(clauses(), [Place.t()], Place.known()) :: steps()
-  defp column_counter(clauses, handed, known) do
-    step = displaced_call(clauses)
-    j = (step && elem(step, 0)) || Enum.find_index(handed, &counted?(&1, known))
-
-    counter =
-      if j && not term?(clauses, j) && walkable?(Enum.at(handed, j)),
-        do: {j, origin(clauses, j, handed, known)}
-
-    {step, counter}
-  end
 
   # A position that is an integer in one head and a bracket in another: a term of two
   # constructors, which only the heap holds.
@@ -313,8 +327,8 @@ defmodule Zkfol.Unrolling do
     fresh = List.duplicate(:fresh, arity)
 
     with false <- q in solve.seen,
-         {step, counter = {_jc, oc}} <-
-           column_counter(callee.clauses, fresh, solve.known),
+         %__MODULE__{step: step, counter: counter = {_jc, oc}} <-
+           column(callee, fresh, solve.known),
          false <- term?(callee.clauses, p),
          inner = %{solve | step: step, counter: counter, handed: fresh, seen: [q | solve.seen]},
          extent = {_m, _a} <- extent(callee, p, inner) do
@@ -417,20 +431,12 @@ defmodule Zkfol.Unrolling do
   defp size(_cell, _known), do: 1
 
   @doc """
-  I return where a new member stands: the caller's column where the callee's count
-  stands, or the caller's own column when the callee counts none, since unrolling gives
-  each call its own column.
+  I locate the callee's counter in the caller's column, or use a pointer when that
+  count is unknown. A new member without a counter shares the caller's column.
   """
-  @spec new_frame(Rel.t(), [Value.t()], [Value.t()], Place.known()) :: Ast.address() | :ptr
-  def new_frame(%Rel{clauses: clauses}, values, lifted, known) do
-    case column_counter(clauses, lifted, known) do
-      {_step, nil} -> Ast.address(:x, 1, 0)
-      {_step, counter} -> frame(values, counter)
-    end
-  end
+  @spec frame([Value.t()], counter() | nil) :: Ast.address() | :ptr
+  def frame(_values, nil), do: Ast.address(:x, 1, 0)
 
-  @doc "I return the caller's column where a continued member's count stands, or `:ptr` when the count is open."
-  @spec frame([Value.t()], counter()) :: Ast.address() | :ptr
   def frame(values, {j, o}) do
     count =
       case Enum.at(values, j) do

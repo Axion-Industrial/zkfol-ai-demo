@@ -31,12 +31,14 @@ defmodule Examples.EAlloc do
   defrel choose(1)
 
   defrel impossible_after(n, value) do
+    blocked = unknown * []
     held(n, value)
     1 = 2
   end
 
   defrel impossible_before(n, value) do
     1 = 2
+    blocked = unknown * []
     held(n, value)
   end
 

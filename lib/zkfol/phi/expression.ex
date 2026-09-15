@@ -1,125 +1,124 @@
 defmodule Zkfol.Phi.Expression do
   @moduledoc """
-  I interpret source expressions using a walk's bindings, without allocating storage.
+  I substitute a walk's bindings into a term, leaving unknown names as variables.
 
-  Missing source bindings are `{:waiting, names}`. An unresolved parameter already
-  has an identity: a call argument retains it, while an expression can read its cell.
+  Substitution replaces names without evaluating the term. A complete expression can
+  be read as arithmetic or passed to a call; an incomplete sum can identify its unknown.
 
   ### Public API
 
-  - `resolve/2`, `resolve!/2`: interpret an expression, reporting an unbound source variable.
-  - `argument/2`: interpret a call argument, retaining an unresolved parameter's identity.
-  - `solve/2`: interpret an expression or isolate its one unknown in a sum.
+  - `substitute/2`: the term with its known names substituted.
+  - `resolve/2`, `resolve!/2`: the expression, or the names still needed.
+  - `argument/2`: the value handed to a call, retaining a parameter's identity.
+  - `solve/2`: the expression, or its one unknown in a sum.
   """
 
   alias Zkfol.Ast
+  alias Zkfol.Lang.Term
   alias Zkfol.Phi.{Place, Value, Walk}
 
-  @type waiting :: {:waiting, [atom()]}
+  @typedoc "A source name, qualified by its call site when its clause is inlined."
+  @type name :: atom() | {[atom() | non_neg_integer()], atom()}
+
+  @type symbolic ::
+          Ast.poly(
+            Value.t()
+            | {:var, name()}
+            | nil
+            | {:cons, symbolic(), symbolic()}
+            | {:papply, Term.name(), [symbolic()]}
+          )
+          | [symbolic()]
+  @type waiting :: {:waiting, [name()]}
   @type result :: {:ok, Value.t()} | waiting()
 
-  @doc "I interpret a source expression; an unbound variable is a result, not a cell."
+  @doc "I substitute known bindings without assigning a value to an unknown name."
+  @spec substitute(term(), Walk.t()) :: symbolic()
+  def substitute(variable = {:var, name}, walk) do
+    case Map.get(walk.env, name, :fresh) do
+      :fresh -> variable
+      value -> substitute(value, walk)
+    end
+  end
+
+  def substitute(nil, _walk), do: nil
+
+  def substitute(term, walk),
+    do: map_children(term, &substitute(&1, walk), &Walk.follow(walk, &1))
+
+  @doc "I read an expression, reporting the names still needed."
   @spec resolve(term(), Walk.t()) :: result()
-  def resolve({:var, name}, walk) when not is_map_key(walk.env, name),
-    do: {:waiting, [name]}
+  def resolve(term, walk) do
+    value = substitute(term, walk)
 
-  def resolve({:var, name}, walk) do
-    case Walk.fetch(walk, name) do
-      :fresh -> {:waiting, [name]}
-      fresh = {:fresh, _ref} -> resolve(fresh, walk)
-      value -> {:ok, value}
+    case Term.names(value) do
+      [] -> {:ok, read(value, walk)}
+      missing -> {:waiting, Enum.uniq(missing)}
     end
   end
 
-  def resolve(fresh = {:fresh, _ref}, walk) do
-    case Walk.follow(walk, fresh) do
-      {:fresh, unread} -> {:ok, Ast.cell(unread)}
-      value -> {:ok, value}
-    end
-  end
-
-  def resolve({:papply, relation, fixed}, walk) do
-    fixed
-    |> Enum.reduce_while({:ok, []}, fn term, {:ok, values} ->
-      case resolve(term, walk) do
-        {:ok, value} -> {:cont, {:ok, [value | values]}}
-        waiting -> {:halt, waiting}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, {:rel, relation, Enum.reverse(values)}}
-      waiting -> waiting
-    end
-  end
-
-  def resolve({op, a, b}, walk) when op in [:add, :mul, :cons] do
-    with {:ok, a} <- resolve(a, walk),
-         {:ok, b} <- resolve(b, walk) do
-      value =
-        case op do
-          :add -> Ast.add(Value.scalar(a), Value.scalar(b))
-          :mul -> Ast.mul(Value.scalar(a), Value.scalar(b))
-          :cons -> Place.consed(a, b, walk.shapes)
-        end
-
-      {:ok, value}
-    end
-  end
-
-  def resolve(nil, _walk), do: {:ok, []}
-  def resolve(value, walk), do: {:ok, Value.shaped(value, walk.shapes)}
-
-  @doc "I require an expression's value, refusing an unbound source variable."
+  @doc "I require an expression whose variables have values."
   @spec resolve!(term(), Walk.t()) :: Value.t()
   def resolve!(term, walk) do
     case resolve(term, walk) do
       {:ok, value} -> value
-      {:waiting, [name]} -> throw({:refused, {:unbound_variable, %{variable: name}}})
+      {:waiting, [name | _]} -> throw({:refused, {:unbound_variable, %{variable: name}}})
     end
   end
 
-  @doc "I pass a known value or unresolved parameter; an unknown expression passes a wildcard."
+  @doc "I pass a complete value or unresolved parameter; an unknown expression passes a wildcard."
   @spec argument(term(), Walk.t()) :: Value.t()
-  def argument({:var, name}, walk) do
-    if Map.has_key?(walk.env, name), do: Walk.fetch(walk, name), else: :fresh
-  end
-
   def argument(term, walk) do
-    case resolve(term, walk) do
-      {:ok, value} -> value
-      {:waiting, _names} -> :fresh
+    value = substitute(term, walk)
+
+    case {term, value, Term.names(value)} do
+      {{:var, _name}, fresh = {:fresh, _ref}, []} -> fresh
+      {_term, value, []} -> read(value, walk)
+      {_term, _value, _names} -> :fresh
     end
   end
 
-  @doc "I isolate one unknown in a sum; the returned function computes it from the other side."
+  @doc "I return a complete expression, or the one unknown and the rest of its sum."
   @spec solve(term(), Walk.t()) ::
-          {:ok, Value.t()} | {:free, atom(), (Value.scalar() -> Value.scalar())} | waiting()
-  def solve({:var, name}, walk) when not is_map_key(walk.env, name),
-    do: {:free, name, & &1}
+          {:ok, Value.t()} | {:free, name(), Value.scalar()} | waiting()
+  def solve(term, walk) do
+    value = substitute(term, walk)
+    {known, unknown} = Enum.split_with(summands(value, []), &(Term.names(&1) == []))
 
-  def solve({:add, a, b}, walk) do
-    left = with {:ok, value} <- solve(a, walk), do: {:ok, Value.scalar(value)}
+    case unknown do
+      [] ->
+        {:ok, read(value, walk)}
 
-    case {left, solve(b, walk)} do
-      {{:ok, a}, {:ok, b}} ->
-        {:ok, Ast.add(a, Value.scalar(b))}
+      [{:var, name}] ->
+        rest = known |> Enum.map(&Value.scalar(read(&1, walk))) |> Enum.reduce(0, &Ast.add/2)
+        {:free, name, rest}
 
-      {{:ok, a}, {:free, name, rebuild}} ->
-        {:free, name, fn other -> rebuild.(Ast.add(other, Ast.mul(a, -1))) end}
-
-      {{:free, name, rebuild}, {:ok, b}} ->
-        {:free, name, fn other -> rebuild.(Ast.add(other, Ast.mul(Value.scalar(b), -1))) end}
-
-      {{:free, a, _rebuild_a}, {:free, b, _rebuild_b}} ->
-        {:waiting, Enum.uniq([a, b])}
-
-      {waiting = {:waiting, _names}, _right} ->
-        waiting
-
-      {_left, waiting = {:waiting, _names}} ->
-        waiting
+      _several ->
+        {:waiting, Enum.uniq(Term.names(unknown))}
     end
   end
 
-  def solve(term, walk), do: resolve(term, walk)
+  defp read(term, walk) do
+    case map_children(term, &read(&1, walk)) do
+      {:add, a, b} -> Ast.add(Value.scalar(a), Value.scalar(b))
+      {:mul, a, b} -> Ast.mul(Value.scalar(a), Value.scalar(b))
+      {:cons, h, t} -> Place.consed(h, t, walk.shapes)
+      {:papply, p, fixed} -> {:rel, p, fixed}
+      fresh = {:fresh, _ref} -> Value.scalar(fresh)
+      nil -> []
+      value -> Value.shaped(value, walk.shapes)
+    end
+  end
+
+  defp summands({:add, a, b}, rest), do: summands(a, summands(b, rest))
+  defp summands(value, rest), do: [value | rest]
+
+  defp map_children(term, fun, leaf \\ & &1)
+
+  defp map_children({op, a, b}, fun, _leaf) when op in [:add, :mul, :cons],
+    do: {op, fun.(a), fun.(b)}
+
+  defp map_children({:papply, p, fixed}, fun, _leaf), do: {:papply, p, Enum.map(fixed, fun)}
+  defp map_children(terms, fun, _leaf) when is_list(terms), do: Enum.map(terms, fun)
+  defp map_children(value, _fun, leaf), do: leaf.(value)
 end
