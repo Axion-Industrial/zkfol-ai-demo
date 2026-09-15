@@ -56,7 +56,7 @@ defmodule Zkfol.Prims do
   # The clauses define it for a list the lowering cannot read as cells: each element is
   # absent from the rest.
   @phi {Zkfol.Ast, :distinct}
-  @al quote(do: all_dif(cells))
+  @al {:definition, quote(do: all_dif(cells))}
   defrel all_distinct(cells) do
     pairwise(cells)
   end
