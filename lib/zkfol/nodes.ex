@@ -5,23 +5,20 @@ defmodule Zkfol.Nodes do
 
   ### Public API
 
-  - `reads/1`: dependencies, including those inside generated expressions.
   - `lower/2`: realize demanded terms and bank bridges in the predicate and allocation.
   - `cells/4`: derive table and generated cells from the allocation’s producers.
   - `openings/4`: bind the fields of a reachable term graph.
   """
   use TypedStruct
   alias Zkfol.{Alloc, Ast, Interpretation}
-  alias Zkfol.Phi.{Cons, Ref, Value, View}
+  alias Zkfol.Phi.{Place, Shape, Value}
+
+  require Place
 
   typedstruct enforce: true do
     field(:name, atom(), default: __MODULE__)
     field(:refs, [Ast.row_ref()])
   end
-
-  @doc "I include references inside generated expressions when judging which slots are read."
-  @spec reads(Ast.pred()) :: [Ast.row_ref()]
-  def reads(pred), do: pred |> expand(MapSet.new()) |> references()
 
   @doc "I realize the reads a predicate demands, returning their allocation beside it."
   @spec lower(Ast.pred(), [Alloc.Member.t() | Alloc.Bank.t()]) ::
@@ -33,11 +30,12 @@ defmodule Zkfol.Nodes do
           do: ref
 
     if stored != [] or Enum.any?(references(pred), &match?({__MODULE__, _}, &1)) do
-      expanded = expand(pred, MapSet.new())
+      known = known(members)
+      expanded = expand(pred, MapSet.new(), known)
 
       bridges =
-        for {__MODULE__, {:suffix, bank}} <- references(expanded),
-            do: expand(bridge(Enum.find(members, &(&1.name == bank))), MapSet.new())
+        for {__MODULE__, {:suffix, source}} <- references(expanded),
+            do: expand(bridge(source), MapSet.new(), known)
 
       unread = stored -- Ast.pointer_reads(expanded)
 
@@ -57,15 +55,23 @@ defmodule Zkfol.Nodes do
     end
   end
 
-  defp expand({:disj, choices}, seen),
-    do: Ast.disj(Enum.map(choices, &expand(&1, seen)))
+  # What is known of every bank's elements, from the allocation.
+  @spec known([Alloc.Member.t() | Alloc.Bank.t()] | Alloc.t()) :: Place.known()
+  defp known(%Alloc{members: members}), do: known(members)
 
-  defp expand(pred, seen) do
+  defp known(members) when is_list(members) do
+    for %Alloc.Bank{name: name, element: element} <- members, into: %{}, do: {{name, 1}, element}
+  end
+
+  defp expand({:disj, choices}, seen, known),
+    do: Ast.disj(Enum.map(choices, &expand(&1, seen, known)))
+
+  defp expand(pred, seen, known) do
     {choices, atoms} = Enum.split_with(Ast.conjuncts(pred), &match?({:disj, _}, &1))
     keys = atoms |> Enum.flat_map(&needs/1) |> Enum.uniq() |> Enum.reject(&(&1 in seen))
     seen = Enum.into(keys, seen)
-    definitions = Enum.map(keys, &expand(definition(&1), seen))
-    branches = Enum.map(choices, &expand(&1, seen))
+    definitions = Enum.map(keys, &expand(definition(&1, known), seen, known))
+    branches = Enum.map(choices, &expand(&1, seen, known))
     Ast.conj(Enum.uniq(atoms ++ definitions ++ branches))
   end
 
@@ -91,58 +97,70 @@ defmodule Zkfol.Nodes do
     Enum.uniq(generated ++ scalar)
   end
 
-  defp definition({:scalar, pointer}),
+  defp definition({:scalar, pointer}, _known),
     do: Ast.eq(Ast.cell({__MODULE__, :tag}, pointer), 1)
 
-  defp definition({__MODULE__, {:read, expr}} = row), do: Ast.eq(Ast.cell(row), expr)
+  defp definition({__MODULE__, {:read, expr}} = row, _known), do: Ast.eq(Ast.cell(row), expr)
 
-  defp definition({__MODULE__, {:node, value}} = row),
-    do: node(%Ref{id: Ast.cell(row)}, value)
+  defp definition({__MODULE__, {:node, value}} = row, known),
+    do: node(Ast.cell(row), value, known)
 
-  defp bridge(%Alloc.Bank{name: bank, depth: depth}) do
-    row = {__MODULE__, {:suffix, bank}}
-    ref = %Ref{id: Ast.cell(row)}
-    head = if depth == 1, do: Ast.cell({bank, 1}), else: Enum.map(1..depth, &Ast.cell({bank, &1}))
+  defp bridge(source = {bank, element}) do
+    row = {__MODULE__, {:suffix, source}}
+    id = Ast.cell(row)
+    along = {:along, {bank, 1}, Ast.address(:x, 1, 0)}
+    known = %{{bank, 1} => element}
+    if Shape.width(element) == nil, do: throw({:refused, {:unliftable_term, %{term: along}}})
+    head = Place.slice(along, 0, known)
 
     Ast.disj([
-      Ast.conj([Ast.eq(Ast.cell({:in, bank}), 0), Ast.eq(ref.id, 1)]),
+      Ast.conj([Ast.eq(Ast.cell({:in, bank}), 0), Ast.eq(id, 1)]),
       Ast.conj([
         Ast.eq(Ast.cell({:in, bank}), 1),
-        node(ref, Cons.new(head, %Ref{id: Ast.at(row, :x, 1, -1)}))
+        node(id, {:pair, head, {:node, Ast.at(row, :x, 1, -1)}}, known)
       ])
     ])
   end
 
-  defp node(ref, %Ref{id: id}), do: Ast.eq(ref.id, id)
-  defp node(ref, []), do: Ast.eq(ref.id, 1)
-  defp node(ref, [h | t]), do: node(ref, Cons.new(h, t))
+  # What the node with this id holds, as equations on its fields.
+  @spec node(Ast.term_t(), term(), Place.known()) :: Ast.pred()
+  defp node(id, {:node, other}, _known), do: Ast.eq(id, other)
+  defp node(id, [], _known), do: Ast.eq(id, 1)
+  defp node(id, [h | t], known), do: node(id, {:pair, h, t}, known)
 
-  defp node(ref, %Cons{head: h, tail: t}) do
+  defp node(id, {:pair, h, t}, _known) do
     Ast.conj([
-      Ast.eq(Ref.read(:tag, ref), 2),
-      Ast.eq(Ref.read(:head, ref), Ref.of(h).id),
-      Ast.eq(Ref.read(:tail, ref), Ref.of(t).id)
+      Ast.eq(Place.read(:tag, id), 2),
+      Ast.eq(Place.read(:head, id), elem(Place.node_of(h), 1)),
+      Ast.eq(Place.read(:tail, id), elem(Place.node_of(t), 1))
     ])
   end
 
-  defp node(ref, %View{row: {bank, 1}, col: {base, m, a}, axes: [%{row: 0, col: -1} | _]}) do
-    Ast.eq(ref.id, Ast.at({__MODULE__, {:suffix, bank}}, base, m, a))
+  # A whole bank is the term its suffix bridge realizes; a part of one is its elements.
+  defp node(id, laid, known) when Place.is_laid(laid) and elem(elem(laid, 1), 1) == 1 do
+    {bank, 1} = elem(laid, 1)
+    {:at, base, m, a} = Place.address(laid)
+    element = Map.get(known, {bank, 1}, :unknown)
+    Ast.eq(id, Ast.at({__MODULE__, {:suffix, {bank, element}}}, base, m, a))
   end
 
-  defp node(ref, %View{} = view) do
-    case View.count(view) do
+  defp node(id, laid, known) when Place.is_laid(laid) do
+    case Place.count(laid) do
       n when is_integer(n) and n >= 0 ->
-        node(ref, for(i <- 0..(n - 1)//1, do: View.slice(view, i)))
+        node(id, for(i <- 0..(n - 1)//1, do: Place.slice(laid, i, known)), known)
 
       _unplaced ->
-        throw({:refused, {:unliftable_term, %{term: view}}})
+        throw({:refused, {:unliftable_term, %{term: laid}}})
     end
   end
 
-  defp node(ref, scalar) do
+  defp node(_id, value = {:across, _row, _address, _skipped}, _known),
+    do: throw({:refused, {:unliftable_term, %{term: value}}})
+
+  defp node(id, scalar, _known) do
     Ast.conj([
-      Ast.eq(Ref.read(:tag, ref), 1),
-      Ast.eq(Ref.read(:value, ref), Value.scalar(scalar))
+      Ast.eq(Place.read(:tag, id), 1),
+      Ast.eq(Place.read(:value, id), Value.scalar(scalar))
     ])
   end
 
@@ -203,7 +221,8 @@ defmodule Zkfol.Nodes do
       rows: Map.new(Enum.with_index(Alloc.refs(alloc), 1)),
       ids: ids,
       terms: terms,
-      defaults: defaults
+      defaults: defaults,
+      known: known(alloc)
     }
 
     produced =
@@ -271,19 +290,16 @@ defmodule Zkfol.Nodes do
 
   defp generated(ref, _x, ctx), do: Map.get(ctx.defaults, Map.fetch!(ctx.rows, ref), 0)
 
-  defp ground(%Ref{id: id}, x, ctx), do: Map.get(ctx.terms, eval(id, x, ctx), :error)
-  defp ground(%Cons{head: h, tail: t}, x, ctx), do: [ground(h, x, ctx) | ground(t, x, ctx)]
-  defp ground([h | t], x, ctx), do: ground(Cons.new(h, t), x, ctx)
+  defp ground({:node, id}, x, ctx), do: Map.get(ctx.terms, eval(id, x, ctx), :error)
+  defp ground({:pair, h, t}, x, ctx), do: [ground(h, x, ctx) | ground(t, x, ctx)]
+  defp ground([h | t], x, ctx), do: [ground(h, x, ctx) | ground(t, x, ctx)]
   defp ground([], _x, _ctx), do: []
 
-  defp ground(%View{} = view, x, ctx) do
-    len =
-      case View.len(view) do
-        {m, a} -> m * x + a
-        n -> n
-      end
-
-    for i <- 0..(len - 1)//1, do: ground(View.slice(view, i), x, ctx)
+  # A list in a bank ends at column one, so its length is its head column minus one.
+  defp ground(laid, x, ctx) when Place.is_laid(laid) do
+    {:at, base, m, a} = Place.address(laid)
+    len = eval(Ast.add(Ast.mul(base, m), a - 1), x, ctx)
+    for i <- 0..(len - 1)//1, do: ground(Place.slice(laid, i, ctx.known), x, ctx)
   end
 
   defp ground(value, x, ctx), do: eval(Value.scalar(value), x, ctx)

@@ -24,59 +24,55 @@ defmodule Zkfol.Uair do
           result_row: non_neg_integer()
         }
 
+  @typedoc "A cell of the trace: its row and its column."
+  @type cell :: {pos_integer(), pos_integer()}
+
+  @typedoc "A row of the committed columns: a witness row, the column index, or the ones."
+  @type row :: pos_integer() | :x | :ones
+
   @typedoc """
-  What a read is to the trace: a shift back, a pointer through a row, a tie to a named
-  cell, or aimed at an address no shift reaches.
+  What a read is to the program: a shift back, a pointer through a row, a tie to a cell
+  named by its column, or aimed at an address no shift reaches.
   """
   @type kind ::
           {:shift, non_neg_integer()}
           | :pointer
-          | {:tie, {pos_integer(), pos_integer()}}
+          | {:tie, cell()}
           | {:aimed, Ast.address()}
 
-  @typedoc "One cell the statement fixes: its row, its column, and the row its value fills."
-  @type tie :: {pos_integer(), pos_integer(), {:broadcast, pos_integer()}}
+  @typedoc """
+  One op of the program. `up c` pushes column c at the row; `down i` pushes the column
+  of the i-th shift, that shift's rows on; `const` pushes; `add` and `mul` pop two and
+  push.
+  """
+  @type op ::
+          {:up, non_neg_integer()}
+          | {:down, non_neg_integer()}
+          | {:const, integer()}
+          | :add
+          | :mul
 
-  typedstruct module: Group, enforce: true do
-    @typedoc """
-    A group as the selections it makes: its values, and the cells of each selection. A
-    group at the running column makes one a column, so a forged presence at any column
-    meets it.
-    """
-    field(:values, [integer()])
-    field(:selections, [[{pos_integer(), pos_integer()}]])
-  end
+  @typedoc "A column the program reads back, and by how many rows."
+  @type shift :: {non_neg_integer(), pos_integer()}
 
-  typedstruct module: Layout, enforce: true do
-    @typedoc """
-    The committed-column layout: the witness rows in column order, the column each row
-    stands at, the shifts the program reads back through and where each stands among
-    them, and the column X takes when the program reads it.
-    """
-    field(:rows, [pos_integer()])
-    field(:cols, %{pos_integer() => non_neg_integer()})
-    field(:shifts, [{non_neg_integer(), pos_integer()}])
-    field(:down, %{{non_neg_integer(), pos_integer()} => non_neg_integer()})
-    field(:x_col, non_neg_integer() | nil)
-  end
-
-  # 32 bits in byte chunks, so width over chunk stays the power of two the backend takes.
+  # The backend needs width / chunk to be a power of two.
   @word_width 32
   @word_chunk 8
 
   typedstruct enforce: true do
     field(:num_public, non_neg_integer())
-    # The trace length proper: padding rows pass for data.
+    # Columns past `len` are padding.
     field(:len, pos_integer())
     field(:claims, [{String.t(), non_neg_integer()}], default: [])
-    field(:shifts, [{non_neg_integer(), pos_integer()}])
-    field(:program, [{atom(), integer()}])
+    field(:shifts, [shift()])
+    field(:program, [op()])
     field(:degree, non_neg_integer())
     field(:columns, [[integer()]])
     field(:mode, mode(), default: %Plain{})
-    field(:rows, [pos_integer() | :x | :ones], default: [])
+    field(:rows, [row()], default: [])
     field(:word_lookups, [ZincPlus.lookup()], default: [])
     field(:selected_lookups, [ZincPlus.Selected.t()], default: [])
+    field(:permuted_lookups, [ZincPlus.Permuted.t()], default: [])
     field(:point_ties, [ZincPlus.Tie.t()], default: [])
   end
 
@@ -87,126 +83,164 @@ defmodule Zkfol.Uair do
   @doc "I am the cube’s width: covering `len` plus an exempt padding row, never under three."
   @spec num_vars(t() | pos_integer()) :: pos_integer()
   def num_vars(%__MODULE__{len: len}), do: num_vars(len)
-  def num_vars(len) when is_integer(len), do: max(ceil_log2(len + 1), 3)
+  def num_vars(len) when is_integer(len), do: max(length(Integer.digits(len, 2)), 3)
 
-  @doc "I am the UAIR of the statement: columns, claimed rows first, shifts, program."
+  @doc "I run the program at one row of the cube."
+  @spec evaluate(t(), non_neg_integer()) :: integer()
+  def evaluate(uair = %__MODULE__{program: program}, row) do
+    program
+    |> Enum.reduce([], &step(&1, &2, uair, row))
+    |> hd()
+  end
+
+  @spec step(op(), [integer()], t(), non_neg_integer()) :: [integer()]
+  defp step({:const, k}, stack, _, _), do: [k | stack]
+  defp step(:add, [b, a | stack], _, _), do: [a + b | stack]
+  defp step(:mul, [b, a | stack], _, _), do: [a * b | stack]
+  defp step({:up, col}, stack, uair, row), do: [cell(uair, col, row) | stack]
+
+  defp step({:down, i}, stack, uair = %__MODULE__{shifts: shifts}, row) do
+    {col, back} = Enum.at(shifts, i)
+    [cell(uair, col, row + back) | stack]
+  end
+
+  # Past the end of the cube a column reads zero.
+  @spec cell(t(), non_neg_integer(), non_neg_integer()) :: integer()
+  defp cell(%__MODULE__{columns: columns}, col, row),
+    do: columns |> Enum.at(col) |> Enum.at(row, 0)
+
+  @doc "I hold when the program is zero at every row of the cube but the exempt last."
+  @spec holds?(t()) :: boolean()
+  def holds?(uair = %__MODULE__{}) do
+    Enum.all?(0..((1 <<< num_vars(uair)) - 2), &(evaluate(uair, &1) == 0))
+  end
+
+  @doc """
+  I translate a statement into what Zinc+ proves: the witness as committed columns with
+  the claimed rows first, the program over them, and the lookups. The witness grows a
+  row for every term the program cannot read directly.
+  """
   @spec emit(Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
           {:ok, t()} | {:error, Refusal.t()}
   def emit(pred, witness, claims \\ []) do
-    public = claims |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+    len = Interpretation.len(witness)
+    public = for {_name, i, _c} <- claims, uniq: true, do: i
 
-    with :ok <- models(pred, witness),
-         {pred, witness} = materialized(pred, witness),
-         len = Interpretation.len(witness),
-         num_vars = num_vars(len),
-         {:ok, stood} <- stood(pred, len),
-         witness = filled(witness, stood),
-         naturals = natural_rows(pred),
-         permuted = for(g <- stood, {i, _c} <- Enum.concat(g.selections), uniq: true, do: i),
-         kind = &kind(&1, Interpretation.arity(witness), len),
-         {pred, witness, ties} = addressed(stripped(pred), witness, kind, len),
-         through = for({i, _address} = read <- reads(pred), kind.(read) == :pointer, do: i),
-         {pred, witness, public} =
-           twinned(
-             pred,
-             witness,
-             public,
-             through ++ Ast.pointer_reads(pred) ++ permuted ++ naturals
-           ),
-         {:ok, pred, witness, lowering} <- Composed.lower(pred, witness, num_vars),
-         poly = Ast.arithmetize(pred),
-         unread =
-           Composed.value_rows(lowering) ++
-             naturals ++ permuted ++ for({i, _c, _target} <- ties, do: i),
-         refs = refs(poly, kind),
-         {:ok, resolved} <- resolve_claims(claims, witness),
-         :ok <- models(pred, witness) do
-      layout = layout(poly, refs, unread, public)
-      program = poly |> resolve(len, layout, kind) |> postfix()
-
-      {shifts, program, columns} =
-        index_pin(layout, len, num_vars, program, columns(witness, layout.rows, len, num_vars))
-
-      with :ok <- ZincPlus.fits(columns),
-           :ok <- ZincPlus.constants_fit(program) do
-        {:ok,
-         %__MODULE__{
-           num_public: length(public),
-           len: len,
-           claims: resolved,
-           shifts: shifts,
-           program: program,
-           degree: Ast.degree(pred),
-           columns: columns,
-           mode: Composed.emitted(lowering, layout.cols),
-           rows: layout.rows ++ if(layout.x_col, do: [:x, :ones], else: []),
-           word_lookups:
-             for i <- naturals ++ Composed.bounded_rows(lowering) do
-               {Map.fetch!(layout.cols, i), @word_width, @word_chunk}
-             end,
-           selected_lookups: selected(stood, layout.cols, len),
-           point_ties:
-             for {i, c, {:broadcast, row}} <- ties do
-               %ZincPlus.Tie{
-                 column: Map.fetch!(layout.cols, i),
-                 row: len - c,
-                 target: {:broadcast, Map.fetch!(layout.cols, row)}
-               }
-             end
-         }}
-      end
+    with {:ok, values} <- claimed(claims, witness),
+         :ok <- models(pred, witness),
+         {pred, witness} = sorted_copies({pred, witness}) |> bounded_expressions(),
+         obligations = obligations(pred),
+         named = Enum.flat_map(obligations, &Ast.reads/1),
+         {:ok, tables} <- tables(obligations, len),
+         {:ok, pairs} <- pairs(obligations, len),
+         {:ok, witness} <- filled(witness, tables, claims),
+         {pred, witness, ties} = named_cells(stripped(pred), witness),
+         pointed = Enum.flat_map(Ast.pointer_derefs(pred), &Tuple.to_list/1),
+         {pred, witness, public} = twinned(pred, witness, public, pointed ++ named),
+         {:ok, pred, witness, lowering} <- Composed.lower(pred, witness, num_vars(len)),
+         poly = polynomial(pred, len),
+         unread = named ++ Composed.value_rows(lowering) ++ Enum.map(ties, &elem(&1, 0)),
+         rows = layout(poly, public, unread),
+         cols = rows |> Enum.with_index() |> Map.new(),
+         shifts = shifts(poly, cols),
+         program = ops(poly, cols, shifts),
+         columns = columns(witness, rows),
+         :ok <- ZincPlus.fits(columns),
+         :ok <- ZincPlus.constants_fit(program) do
+      {:ok,
+       %__MODULE__{
+         num_public: length(public),
+         len: len,
+         claims: values,
+         shifts: shifts,
+         program: program,
+         degree: Ast.degree(pred),
+         columns: columns,
+         mode: Composed.emitted(lowering, cols),
+         rows: rows,
+         word_lookups:
+           for i <- naturals(obligations) ++ Composed.bounded_rows(lowering) do
+             {cols[i], @word_width, @word_chunk}
+           end,
+         selected_lookups: selected(tables, cols, len),
+         permuted_lookups: permuted(pairs, cols, len),
+         point_ties:
+           for {i, c, row} <- ties do
+             %ZincPlus.Tie{column: cols[i], row: len - c, target: {:broadcast, cols[row]}}
+           end
+       }}
     end
   end
 
   ############################################################
-  #                      Reads and rows                      #
+  #                         The rows                         #
   ############################################################
 
-  @spec kind(Ast.read(), pos_integer(), pos_integer()) :: kind()
-  defp kind({_i, {:at, :x, 1, add}}, _arity, _len) when add <= 0, do: {:shift, -add}
-  defp kind({_i, {:at, {:cell, _j}, 1, 0}}, _arity, _len), do: :pointer
-
-  defp kind({i, {:at, _base, 0, c}}, arity, len) when i in 1..arity//1 and c in 1..len//1,
-    do: {:tie, {i, c}}
-
-  defp kind({_i, address}, _arity, _len), do: {:aimed, address}
-
-  @spec reads(Ast.pred() | Ast.term_t()) :: [Ast.read()]
-  defp reads(node) do
-    node
-    |> Ast.reduce([], fn n, acc -> if read = Ast.read(n), do: [read | acc], else: acc end)
-    |> Enum.reverse()
-  end
-
-  # A value the polynomial cannot read in place gets a committed row of its own.
-  @spec rowed(
-          Ast.pred(),
-          Interpretation.t(),
-          [leaf],
-          (leaf, pos_integer() -> integer()),
-          (Ast.pred(), %{leaf => pos_integer()} -> Ast.pred())
-        ) :: {Ast.pred(), Interpretation.t(), %{leaf => pos_integer()}}
+  @spec rowed(Interpretation.t(), [leaf], (leaf, pos_integer() -> integer())) ::
+          {Interpretation.t(), %{leaf => pos_integer()}}
         when leaf: var
-  defp rowed(pred, witness, leaves, held, rewrite) do
-    rows = leaves |> Enum.with_index(Interpretation.arity(witness) + 1) |> Map.new()
-    stored = for leaf <- leaves, do: for(x <- 1..Interpretation.len(witness), do: held.(leaf, x))
-    {rewrite.(pred, rows), Interpretation.new(Interpretation.rows(witness) ++ stored), rows}
+  defp rowed(witness, leaves, value) do
+    columns = 1..Interpretation.len(witness)
+    rows = Enum.map(leaves, fn leaf -> Enum.map(columns, &value.(leaf, &1)) end)
+
+    {Interpretation.new(Interpretation.rows(witness) ++ rows),
+     Map.new(Enum.with_index(leaves, Interpretation.arity(witness) + 1))}
   end
 
-  # A naturality over an expression takes a row of its own, pinned beside the obligation.
-  @spec materialized(Ast.pred(), Interpretation.t()) :: {Ast.pred(), Interpretation.t()}
-  defp materialized(pred, witness) do
-    terms = pred |> bounded() |> Enum.reject(&Ast.read/1)
+  # A permuted lookup proves the copy is the same multiset, and a natural between each
+  # neighbour proves it is strictly sorted, so the cells are distinct.
+  @spec sorted_copies({Ast.pred(), Interpretation.t()}) :: {Ast.pred(), Interpretation.t()}
+  defp sorted_copies({pred, witness}) do
+    groups = for {:distinct, cells} <- obligations(pred), do: cells
 
-    {pred, witness, _rows} =
-      rowed(pred, witness, terms, &natural_value(&1, witness, &2), fn pred, rows ->
-        Ast.postwalk(pred, fn
-          {:natural, t} when is_map_key(rows, t) ->
-            Ast.conj([Ast.eq(Ast.cell(rows[t]), t), Ast.natural(Ast.cell(rows[t]))])
+    ranks =
+      Enum.flat_map(groups, fn cells -> Enum.map(0..(length(cells) - 1)//1, &{cells, &1}) end)
 
-          node ->
-            node
-        end)
+    {witness, rows} = rowed(witness, ranks, &sorted_value(&1, witness, &2))
+    copy = fn cells -> for {^cells, k} <- ranks, do: Ast.cell(rows[{cells, k}]) end
+
+    pred =
+      Ast.postwalk(pred, fn
+        {:distinct, cells} ->
+          Ast.conj([Ast.permuted(cells, copy.(cells)) | ascending(copy.(cells))])
+
+        node ->
+          node
+      end)
+
+    {pred, witness}
+  end
+
+  # Each neighbour exceeds the last by at least one.
+  @spec ascending([Ast.term_t()]) :: [Ast.pred()]
+  defp ascending(copy) do
+    copy
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.map(fn [a, b] -> Ast.natural(Ast.sub(Ast.sub(b, a), 1)) end)
+  end
+
+  # A cell read off the trace leaves the copy at 0; the lookup then fails, as it should.
+  @spec sorted_value({[Ast.term_t()], non_neg_integer()}, Interpretation.t(), pos_integer()) ::
+          integer()
+  defp sorted_value({cells, k}, witness, x) do
+    values = Enum.map(cells, &Semantics.eval(&1, witness, x))
+    if :error in values, do: 0, else: values |> Enum.sort() |> Enum.at(k)
+  end
+
+  # The Word lookup ranges over a column, so a bounded expression needs one.
+  @spec bounded_expressions({Ast.pred(), Interpretation.t()}) ::
+          {Ast.pred(), Interpretation.t()}
+  defp bounded_expressions({pred, witness}) do
+    terms = for {:natural, t} <- obligations(pred), Ast.read(t) == nil, do: t
+    {witness, rows} = rowed(witness, terms, &natural_value(&1, witness, &2))
+
+    pred =
+      Ast.postwalk(pred, fn
+        {:natural, t} when is_map_key(rows, t) ->
+          Ast.conj([Ast.eq(Ast.cell(rows[t]), t), Ast.natural(Ast.cell(rows[t]))])
+
+        node ->
+          node
       end)
 
     {pred, witness}
@@ -219,168 +253,116 @@ defmodule Zkfol.Uair do
          else: (_ -> 0)
   end
 
-  @spec bounded(Ast.pred()) :: [Ast.term_t()]
-  defp bounded(pred) do
-    pred
-    |> Ast.reduce([], fn
-      {:natural, t}, acc -> [t | acc]
-      _node, acc -> acc
-    end)
-    |> Enum.uniq()
-  end
+  # The program reads only the current column and shifts back. A read at a fixed column
+  # becomes a row holding that value, tied to the cell. A read at any other address
+  # becomes a pointer row holding the column, equated to the address inside the
+  # conjunction that reads it, since on other branches the address may leave the trace.
+  @spec named_cells(Ast.pred(), Interpretation.t()) ::
+          {Ast.pred(), Interpretation.t(), [{pos_integer(), pos_integer(), pos_integer()}]}
+  defp named_cells(pred, witness) do
+    len = Interpretation.len(witness)
 
-  # After `materialized/2` every bounded term names a read.
-  @spec natural_rows(Ast.pred()) :: [pos_integer()]
-  defp natural_rows(pred),
-    do: pred |> bounded() |> Enum.map(&elem(Ast.read(&1), 0)) |> Enum.uniq() |> Enum.sort()
-
-  # A tie's row holds the cell at every column; an aimed row the column, pinned by its branch.
-  @spec addressed(Ast.pred(), Interpretation.t(), (Ast.read() -> kind()), pos_integer()) ::
-          {Ast.pred(), Interpretation.t(), [tie()]}
-  defp addressed(pred, witness, kind, len) do
     leaves =
-      for(read <- reads(pred), {tag, _} = leaf <- [kind.(read)], tag in [:tie, :aimed], do: leaf)
+      reads(pred)
+      |> Enum.map(&kind(&1, len))
+      |> Enum.filter(&match?({tag, _} when tag in [:tie, :aimed], &1))
       |> Enum.uniq()
       |> Enum.sort()
 
-    {pred, witness, rows} =
-      rowed(pred, witness, leaves, &held(&1, witness, &2, len), &readdressed(&1, &2, kind))
+    {witness, rows} = rowed(witness, leaves, &held(&1, witness, &2, len))
+    aimed = for {{:aimed, address}, row} <- rows, into: %{}, do: {row, address}
 
-    {pred, witness, for({{:tie, {i, c}}, row} <- rows, do: {i, c, {:broadcast, row}})}
+    pred =
+      Ast.postwalk(pred, fn
+        {:conj, parts} ->
+          {:conj, parts ++ pins(parts, aimed)}
+
+        node ->
+          with {i, _address} = read <- Ast.read(node),
+               leaf when is_map_key(rows, leaf) <- kind(read, len) do
+            case leaf do
+              {:tie, _cell} -> Ast.cell(rows[leaf])
+              {:aimed, _address} -> Ast.cell(i, rows[leaf])
+            end
+          else
+            _in_place -> node
+          end
+      end)
+
+    ties = for {{:tie, {i, c}}, row} <- rows, do: {i, c, row}
+    {pred, witness, ties}
   end
 
   @spec held(kind(), Interpretation.t(), pos_integer(), pos_integer()) :: integer()
   defp held({:tie, {i, c}}, witness, _x, _len), do: Interpretation.at(witness, i, c)
 
-  # The column an address names, held to the trace: off it, the edge.
+  # Clamped so the row has a value; the pin then fails for that column, as it should.
   defp held({:aimed, address}, witness, x, len),
     do: address |> Semantics.column(witness, x) |> max(1) |> min(len)
 
-  # A row is pinned only in the conjunction reading it: elsewhere its column may leave the trace.
-  @spec readdressed(Ast.pred(), %{kind() => pos_integer()}, (Ast.read() -> kind())) ::
-          Ast.pred()
-  defp readdressed(pred, rows, kind) do
-    taken = for {{:aimed, address}, row} <- rows, into: %{}, do: {row, address}
-
-    Ast.postwalk(pred, fn
-      {:conj, parts} ->
-        {:conj, parts ++ pins(parts, taken)}
-
-      node ->
-        with {i, _address} = read <- Ast.read(node),
-             leaf when is_map_key(rows, leaf) <- kind.(read) do
-          case leaf do
-            {:tie, _cell} -> Ast.cell(rows[leaf])
-            {:aimed, _address} -> Ast.cell(i, rows[leaf])
-          end
-        else
-          _reachable -> node
-        end
-    end)
-  end
-
   @spec pins([Ast.pred()], %{pos_integer() => Ast.address()}) :: [Ast.pred()]
-  defp pins(parts, taken) do
+  defp pins(parts, aimed) do
     for part <- parts,
         not match?({tag, _preds} when tag in [:conj, :disj], part),
         {_i, {:at, {:cell, row}, _mul, _add}} <- reads(part),
-        is_map_key(taken, row),
+        is_map_key(aimed, row),
         uniq: true,
-        do: Ast.eq(Ast.cell(row), Ast.naming(taken[row]))
+        do: Ast.eq(Ast.cell(row), Ast.naming(aimed[row]))
   end
 
-  # A claimed row a lookup or pointer touches hands its claim to a twin: those bind witness only.
+  # Lookups and pointers range over private columns only, so a claimed row they touch
+  # hands its claim to a copy.
   @spec twinned(Ast.pred(), Interpretation.t(), [pos_integer()], [pos_integer()]) ::
           {Ast.pred(), Interpretation.t(), [pos_integer()]}
   defp twinned(pred, witness, public, touched) do
     claimed = Enum.filter(public, &(&1 in touched))
+    {witness, twins} = rowed(witness, claimed, &Interpretation.at(witness, &1, &2))
+    bonds = for {i, twin} <- twins, do: Ast.eq(Ast.cell(twin), Ast.cell(i))
 
-    {pred, witness, twins} =
-      rowed(pred, witness, claimed, &Interpretation.at(witness, &1, &2), &bonded/2)
+    pred =
+      if bonds == [],
+        do: pred,
+        else:
+          pred |> Ast.branches() |> Enum.map(&Ast.conj(Ast.conjuncts(&1) ++ bonds)) |> Ast.disj()
 
     {pred, witness, Enum.map(public, &Map.get(twins, &1, &1))}
   end
 
-  @spec bonded(Ast.pred(), %{pos_integer() => pos_integer()}) :: Ast.pred()
-  defp bonded(pred, twins) when map_size(twins) == 0, do: pred
+  @spec kind(Ast.read(), pos_integer()) :: kind()
+  defp kind({_i, {:at, :x, 1, add}}, _len) when add <= 0, do: {:shift, -add}
+  defp kind({_i, {:at, {:cell, _j}, 1, 0}}, _len), do: :pointer
+  defp kind({i, {:at, _base, 0, c}}, len) when c in 1..len//1, do: {:tie, {i, c}}
+  defp kind({_i, address}, _len), do: {:aimed, address}
 
-  defp bonded(pred, twins) do
-    bonds = for {i, twin} <- twins, do: Ast.eq(Ast.cell(twin), Ast.cell(i))
-    pred |> Ast.branches() |> Enum.map(&Ast.conj(Ast.conjuncts(&1) ++ bonds)) |> Ast.disj()
-  end
-
-  ############################################################
-  #                          Groups                          #
-  ############################################################
-
-  @spec stood(Ast.pred(), pos_integer()) :: {:ok, [Group.t()]} | {:error, Refusal.t()}
-  defp stood(pred, len) do
-    Refusal.map(groups(pred), fn {cells, values} ->
-      with {:ok, selections} <- Refusal.map(1..len, &standing(cells, &1, len)),
-           do: {:ok, %Group{values: values, selections: Enum.uniq(selections)}}
-    end)
-  end
-
-  @spec groups(Ast.pred()) :: [{[Ast.term_t()], [integer()]}]
-  defp groups(pred) do
-    pred
-    |> Ast.reduce([], fn
-      {:permutes, cells, values}, acc -> [{cells, values} | acc]
-      _node, acc -> acc
-    end)
+  @spec nodes(Ast.pred() | Ast.term_t()) :: [Ast.pred() | Ast.term_t()]
+  defp nodes(node) do
+    node
+    |> Ast.reduce([], &[&1 | &2])
     |> Enum.reverse()
+  end
+
+  @spec reads(Ast.pred() | Ast.term_t()) :: [Ast.read()]
+  defp reads(node) do
+    node
+    |> nodes()
+    |> Enum.map(&Ast.read/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  @spec obligations(Ast.pred()) :: [Ast.pred()]
+  defp obligations(pred) do
+    pred
+    |> nodes()
+    |> Enum.filter(&obligation?/1)
     |> Enum.uniq()
   end
 
-  # A selection is public structure, so its address is the column's own and inside the trace.
-  @spec standing([Ast.term_t()], pos_integer(), pos_integer()) ::
-          {:ok, [{pos_integer(), pos_integer()}]} | {:error, Refusal.t()}
-  defp standing(cells, x, len) do
-    Refusal.map(cells, fn cell ->
-      case Ast.read(cell) do
-        {i, {:at, :x, mul, add}} when (mul * x + add) in 1..len//1 -> {:ok, {i, mul * x + add}}
-        _elsewhere -> {:error, {:selection_outside_trace, %{cell: cell, column: x}}}
-      end
-    end)
-  end
+  @spec obligation?(Ast.pred()) :: boolean()
+  defp obligation?({tag, _t}) when tag in [:natural, :distinct], do: true
+  defp obligation?({tag, _cells, _values}) when tag in [:permutes, :permuted], do: true
+  defp obligation?(_pred), do: false
 
-  # A selection fails only where the group's branch does not answer; there its cells are padding.
-  @spec filled(Interpretation.t(), [Group.t()]) :: Interpretation.t()
-  defp filled(witness, stood) do
-    fills =
-      for group <- stood,
-          cells <- group.selections,
-          Enum.sort(for {i, c} <- cells, do: Interpretation.at(witness, i, c)) !=
-            Enum.sort(group.values),
-          {cell, value} <- Enum.zip(cells, group.values),
-          into: %{},
-          do: {cell, value}
-
-    Interpretation.new(
-      for {row, i} <- Enum.with_index(Interpretation.rows(witness), 1) do
-        for {held, c} <- Enum.with_index(row, 1), do: Map.get(fills, {i, c}, held)
-      end
-    )
-  end
-
-  # A cell stands at `len - c` of its column; a table is one group.
-  @spec selected([Group.t()], %{pos_integer() => non_neg_integer()}, pos_integer()) ::
-          [ZincPlus.Selected.t()]
-  defp selected(stood, cols, len) do
-    for {values, selections} <- Enum.group_by(stood, & &1.values, & &1.selections) do
-      selections = Enum.concat(selections)
-      columns = for({i, _c} <- Enum.concat(selections), uniq: true, do: cols[i]) |> Enum.sort()
-      slots = columns |> Enum.with_index() |> Map.new()
-
-      %ZincPlus.Selected{
-        columns: columns,
-        values: values,
-        selections:
-          for(cells <- selections, do: for({i, c} <- cells, do: {slots[cols[i]], len - c}))
-      }
-    end
-  end
-
+  # Obligations are proved by lookups, not by the polynomial.
   @spec stripped(Ast.pred()) :: Ast.pred()
   defp stripped(pred) do
     Ast.postwalk(pred, fn
@@ -389,10 +371,12 @@ defmodule Zkfol.Uair do
     end)
   end
 
-  @spec obligation?(Ast.pred()) :: boolean()
-  defp obligation?({:natural, _t}), do: true
-  defp obligation?({:permutes, _rows, _values}), do: true
-  defp obligation?(_pred), do: false
+  # After `bounded_expressions/2` every natural is over a cell.
+  @spec naturals([Ast.pred()]) :: [pos_integer()]
+  defp naturals(obligations) do
+    bounded = for {:natural, t} <- obligations, do: t
+    bounded |> Enum.map(&elem(Ast.read(&1), 0)) |> Enum.uniq() |> Enum.sort()
+  end
 
   @spec models(Ast.pred(), Interpretation.t()) :: :ok | {:error, Refusal.t()}
   defp models(pred, witness) do
@@ -403,148 +387,215 @@ defmodule Zkfol.Uair do
     )
   end
 
+  @spec claimed([Interpretation.claim()], Interpretation.t()) ::
+          {:ok, [{String.t(), non_neg_integer()}]} | {:error, Refusal.t()}
+  defp claimed(claims, witness) do
+    Refusal.map(claims, fn {name, row, x} ->
+      case Interpretation.fetch(witness, row, x) do
+        {:ok, value} -> {:ok, {name, value}}
+        :error -> {:error, {:claim_outside_witness, %{claim: name, row: row, column: x}}}
+      end
+    end)
+  end
+
+  ############################################################
+  #                        The lookups                       #
+  ############################################################
+
+  @spec tables([Ast.pred()], pos_integer()) ::
+          {:ok, [{[integer()], [[cell()]]}]} | {:error, Refusal.t()}
+  defp tables(obligations, len) do
+    tables = for {:permutes, cells, values} <- obligations, do: {values, cells}
+
+    Refusal.map(tables, fn {values, cells} ->
+      with {:ok, selections} <- Refusal.map(1..len, &standing(cells, &1, len)),
+           do: {:ok, {values, Enum.uniq(selections)}}
+    end)
+  end
+
+  @spec pairs([Ast.pred()], pos_integer()) :: {:ok, [[cell()]]} | {:error, Refusal.t()}
+  defp pairs(obligations, len) do
+    copies = for {:permuted, cells, copy} <- obligations, do: {cells, copy}
+
+    Refusal.flat_map(copies, fn {cells, copy} ->
+      Refusal.flat_map(1..len, fn x ->
+        with {:ok, first} <- standing(cells, x, len),
+             {:ok, second} <- standing(copy, x, len),
+             do: {:ok, [first, second]}
+      end)
+    end)
+  end
+
+  # The backend takes a selection as fixed cells, so the address must not depend on the
+  # witness and must lie in the trace.
+  @spec standing([Ast.term_t()], pos_integer(), pos_integer()) ::
+          {:ok, [cell()]} | {:error, Refusal.t()}
+  defp standing(cells, x, len) do
+    Refusal.map(cells, fn cell ->
+      case Ast.read(cell) do
+        {i, {:at, :x, mul, add}} when (mul * x + add) in 1..len//1 -> {:ok, {i, mul * x + add}}
+        _elsewhere -> {:error, {:selection_outside_trace, %{cell: cell, column: x}}}
+      end
+    end)
+  end
+
+  # The backend checks a selection at every column, inactive branches included, so the
+  # cells of an inactive selection are overwritten with the table. A claimed cell may not be.
+  @spec filled(Interpretation.t(), [{[integer()], [[cell()]]}], [Interpretation.claim()]) ::
+          {:ok, Interpretation.t()} | {:error, Refusal.t()}
+  defp filled(witness, tables, claims) do
+    held = fn {i, c} -> Interpretation.at(witness, i, c) end
+
+    fills =
+      for {values, selections} <- tables,
+          cells <- selections,
+          Enum.sort(Enum.map(cells, held)) != Enum.sort(values),
+          {cell, value} <- Enum.zip(cells, values),
+          into: %{},
+          do: {cell, value}
+
+    changed = fn {_name, i, c} -> Map.get(fills, {i, c}, held.({i, c})) != held.({i, c}) end
+
+    with :ok <-
+           Refusal.refute(claims, changed, fn {name, i, c} ->
+             {:selection_changes_claim, %{claim: name, row: i, column: c}}
+           end) do
+      {:ok,
+       Enum.reduce(fills, witness, fn {{i, c}, value}, w -> Interpretation.put(w, i, c, value) end)}
+    end
+  end
+
+  # One lookup per table, so tables with the same values merge.
+  @spec selected([{[integer()], [[cell()]]}], %{row() => non_neg_integer()}, pos_integer()) ::
+          [ZincPlus.Selected.t()]
+  defp selected(tables, cols, len) do
+    for {values, selections} <- Enum.group_by(tables, &elem(&1, 0), &elem(&1, 1)) do
+      {columns, selections} = slotted(Enum.concat(selections), cols, len)
+      %ZincPlus.Selected{columns: columns, values: values, selections: selections}
+    end
+  end
+
+  @spec permuted([[cell()]], %{row() => non_neg_integer()}, pos_integer()) ::
+          [ZincPlus.Permuted.t()]
+  defp permuted([], _cols, _len), do: []
+
+  defp permuted(pairs, cols, len) do
+    {columns, selections} = slotted(pairs, cols, len)
+    pairs = selections |> Enum.chunk_every(2) |> Enum.map(&List.to_tuple/1)
+    [%ZincPlus.Permuted{columns: columns, pairs: pairs}]
+  end
+
+  # The backend addresses a column by its position in the lookup's sorted column list,
+  # and a trace column c as `len - c`.
+  @spec slotted([[cell()]], %{row() => non_neg_integer()}, pos_integer()) ::
+          {[non_neg_integer()], [[{non_neg_integer(), non_neg_integer()}]]}
+  defp slotted(selections, cols, len) do
+    columns = for {i, _c} <- Enum.concat(selections), uniq: true, do: cols[i]
+    columns = Enum.sort(columns)
+    slots = Map.new(Enum.with_index(columns))
+    place = fn {i, c} -> {slots[cols[i]], len - c} end
+    {columns, Enum.map(selections, &Enum.map(&1, place))}
+  end
+
   ############################################################
   #                        The program                       #
   ############################################################
 
-  # The claimed rows take the first columns; every row read or written follows.
-  @spec layout(Ast.ep(), [{pos_integer(), non_neg_integer()}], [pos_integer()], [pos_integer()]) ::
-          Layout.t()
-  defp layout(poly, refs, unread, public) do
-    referenced = Enum.sort(Enum.uniq(for({row, _offset} <- refs, do: row) ++ unread))
-    rows = public ++ (referenced -- public)
-    cols = rows |> Enum.with_index() |> Map.new()
-    shifts = Enum.sort(for {row, offset} <- refs, offset > 0, uniq: true, do: {cols[row], offset})
-    down = shifts |> Enum.with_index() |> Map.new()
-    x_col = if uses_x?(poly), do: map_size(cols)
-    %Layout{rows: rows, cols: cols, shifts: shifts, down: down, x_col: x_col}
+  # The backend has no column index, so X is a committed column, and the pins are what
+  # keep it equal to the index.
+  @spec polynomial(Ast.pred(), pos_integer()) :: Ast.ep()
+  defp polynomial(pred, len) do
+    poly =
+      pred
+      |> Ast.arithmetize()
+      |> Ast.postwalk(fn
+        :x -> Ast.cell(:x)
+        :len -> len
+        node -> node
+      end)
+
+    if :x in Ast.reads(poly),
+      do: Ast.add(poly, Ast.arithmetize(pinned(len, num_vars(len)))),
+      else: poly
   end
 
-  @spec resolve_claims([Interpretation.claim()], Interpretation.t()) ::
-          {:ok, [{String.t(), non_neg_integer()}]} | {:error, Refusal.t()}
-  defp resolve_claims(claims, witness) do
-    Enum.reduce_while(claims, {:ok, []}, fn {name, row, x}, {:ok, acc} ->
-      case Interpretation.fetch(witness, row, x) do
-        {:ok, value} ->
-          {:cont, {:ok, [{name, value} | acc]}}
+  # With one column the region is empty, so X is pinned to 1 directly.
+  @spec pinned(pos_integer(), pos_integer()) :: Ast.pred()
+  defp pinned(1, _num_vars), do: Ast.eq(Ast.cell(:x), 1)
 
-        :error ->
-          {:halt, {:error, {:claim_outside_witness, %{claim: name, row: row, column: x}}}}
-      end
-    end)
-    |> case do
-      {:ok, resolved} -> {:ok, Enum.reverse(resolved)}
-      error -> error
-    end
+  # `ones` is 1 everywhere including the padding, so `ones` shifted by the padding width
+  # is 1 exactly inside the trace. There X steps by one; outside X is 1.
+  defp pinned(len, num_vars) do
+    x = Ast.cell(:x)
+    ones = Ast.cell(:ones)
+    head = (1 <<< num_vars) - len + 1
+    region = Ast.at(:ones, :x, 1, -head)
+    stepped = Ast.sub(Ast.sub(x, Ast.at(:x, :x, 1, -1)), 1)
+
+    Ast.conj([
+      Ast.eq(ones, 1),
+      Ast.eq(ones, Ast.at(:ones, :x, 1, -1)),
+      Ast.eq(Ast.mul(region, stepped), 0),
+      Ast.eq(Ast.mul(Ast.sub(1, region), Ast.sub(x, 1)), 0)
+    ])
   end
 
-  # The pin's shift is zero-filled, so a forward read has no lowering.
-  @spec refs(Ast.ep(), (Ast.read() -> kind())) :: [{pos_integer(), non_neg_integer()}]
-  defp refs(poly, kind) do
-    for {i, _address} = read <- reads(poly) do
-      {:shift, k} = kind.(read)
-      {i, k}
-    end
+  # Claimed rows first, then every row read or named, sorted, then X and ones.
+  @spec layout(Ast.ep(), [pos_integer()], [pos_integer()]) :: [row()]
+  defp layout(poly, public, unread) do
+    reached = Enum.uniq(Enum.map(reads(poly), &elem(&1, 0)) ++ unread)
+    witness_rows = reached |> Enum.filter(&is_integer/1) |> Enum.sort()
+    public ++ (witness_rows -- public) ++ Enum.filter([:x, :ones], &(&1 in reached))
   end
 
-  @spec resolve(Ast.ep(), pos_integer(), Layout.t(), (Ast.read() -> kind())) :: pin()
-  defp resolve(poly, len, layout, kind) do
+  # After the passes every read of the polynomial is a column at a shift back.
+  @spec shifts(Ast.ep(), %{row() => non_neg_integer()}) :: [shift()]
+  defp shifts(poly, cols) do
+    poly
+    |> reads()
+    |> Enum.map(fn {i, {:at, :x, 1, add}} -> {cols[i], -add} end)
+    |> Enum.reject(fn {_col, back} -> back == 0 end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # Bottom up: by the time a node is reached its children are already their ops, so a
+  # node's ops are those lists followed by its own op.
+  @spec ops(Ast.ep(), %{row() => non_neg_integer()}, [shift()]) :: [op()]
+  defp ops(poly, cols, shifts) do
     Ast.postwalk(poly, fn
-      :len ->
-        len
+      k when is_integer(k) ->
+        [{:const, k}]
 
-      :x ->
-        {:up, layout.x_col}
+      {:cell, i} ->
+        [{:up, cols[i]}]
 
-      node ->
-        with {i, _address} = read <- Ast.read(node) do
-          case kind.(read) do
-            {:shift, 0} -> {:up, layout.cols[i]}
-            {:shift, k} -> {:down, layout.down[{layout.cols[i], k}]}
-          end
-        else
-          nil -> node
-        end
+      {:cell, i, {:at, :x, 1, add}} ->
+        [{:down, Enum.find_index(shifts, &(&1 == {cols[i], -add}))}]
+
+      {:add, left, right} ->
+        left ++ right ++ [:add]
+
+      {:mul, left, right} ->
+        left ++ right ++ [:mul]
     end)
   end
 
-  @spec postfix(pin()) :: [{atom(), integer()}]
-  defp postfix(k) when is_integer(k), do: [{:const, k}]
-  defp postfix({:up, c}), do: [{:up, c}]
-  defp postfix({:down, i}), do: [{:down, i}]
-  defp postfix({:add, a, b}), do: postfix(a) ++ postfix(b) ++ [{:add, 0}]
-  defp postfix({:mul, a, b}), do: postfix(a) ++ postfix(b) ++ [{:mul, 0}]
+  # A column lists x from `len` down to 1; the padding repeats column 1 so a base branch
+  # holds there.
+  @spec columns(Interpretation.t(), [row()]) :: [[integer()]]
+  defp columns(witness, rows) do
+    len = Interpretation.len(witness)
+    padding = (1 <<< num_vars(len)) - len
 
-  @spec uses_x?(Ast.ep()) :: boolean()
-  defp uses_x?(poly) do
-    Ast.reduce(poly, false, fn
-      :x, _acc -> true
-      _node, acc -> acc
+    Enum.map(rows, fn row ->
+      values = Enum.map(len..1//-1, &value(witness, row, &1))
+      values ++ List.duplicate(List.last(values), padding)
     end)
   end
 
-  @typep pin :: Ast.poly({:up, non_neg_integer()} | {:down, non_neg_integer()})
-
-  # X is a free committed column; the pins stop a forge sliding it.
-  @spec index_pin(Layout.t(), pos_integer(), pos_integer(), [{atom(), integer()}], [[integer()]]) ::
-          {[{non_neg_integer(), pos_integer()}], [{atom(), integer()}], [[integer()]]}
-  defp index_pin(%Layout{x_col: nil, shifts: shifts}, _len, _num_vars, program, columns),
-    do: {shifts, program, columns}
-
-  # One column is no region: X is one at every row.
-  defp index_pin(%Layout{x_col: x_col, shifts: shifts}, 1, num_vars, program, columns) do
-    {shifts, program ++ postfix(square(sub({:up, x_col}, 1))) ++ [{:add, 0}],
-     columns ++ [List.duplicate(1, 1 <<< num_vars)]}
-  end
-
-  defp index_pin(%Layout{x_col: x_col, shifts: shifts}, len, num_vars, program, columns) do
-    rows = 1 <<< num_vars
-    ones_col = x_col + 1
-    head = rows - len + 1
-    # The three new shifts sort last, after every witness-column shift.
-    x_step = length(shifts)
-    ones_step = x_step + 1
-    ones_head = x_step + 2
-
-    x = {:up, x_col}
-    ones = {:up, ones_col}
-    region = {:down, ones_head}
-
-    pins = [
-      # ones is constant so its last row, which the head shift reads, is one too.
-      square(sub(ones, 1)),
-      square(sub(ones, {:down, ones_step})),
-      square(Ast.mul(region, sub(sub(x, {:down, x_step}), 1))),
-      square(Ast.mul(sub(1, region), sub(x, 1)))
-    ]
-
-    {shifts ++ [{x_col, 1}, {ones_col, 1}, {ones_col, head}],
-     Enum.reduce(pins, program, fn pin, acc -> acc ++ postfix(pin) ++ [{:add, 0}] end),
-     columns ++ [padded(Enum.to_list(len..1//-1), 1, num_vars), List.duplicate(1, rows)]}
-  end
-
-  @spec sub(pin(), pin()) :: pin()
-  defp sub(a, b), do: Ast.add(a, Ast.mul(b, -1))
-
-  @spec square(pin()) :: pin()
-  defp square(a), do: Ast.mul(a, a)
-
-  # Padded with the base column so every padding row satisfies a base branch.
-  @spec columns(Interpretation.t(), [pos_integer()], pos_integer(), pos_integer()) ::
-          [[non_neg_integer()]]
-  defp columns(witness, rows, len, num_vars) do
-    for i <- rows do
-      values = for x <- len..1//-1, do: Interpretation.at(witness, i, x)
-      padded(values, Interpretation.at(witness, i, 1), num_vars)
-    end
-  end
-
-  @spec padded([integer()], integer(), pos_integer()) :: [integer()]
-  defp padded(values, base, num_vars),
-    do: values ++ List.duplicate(base, (1 <<< num_vars) - length(values))
-
-  # Integer-only, so no float rounding decides the width.
-  @spec ceil_log2(pos_integer()) :: non_neg_integer()
-  defp ceil_log2(n) when n <= 1, do: 0
-  defp ceil_log2(n), do: 1 + ceil_log2(div(n + 1, 2))
+  @spec value(Interpretation.t(), row(), pos_integer()) :: integer()
+  defp value(_witness, :x, x), do: x
+  defp value(_witness, :ones, _x), do: 1
+  defp value(witness, i, x), do: Interpretation.at(witness, i, x)
 end

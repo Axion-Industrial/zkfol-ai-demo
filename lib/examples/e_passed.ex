@@ -6,24 +6,22 @@ defmodule Examples.EPassed do
 
   import ExUnit.Assertions
 
+  alias Examples.EAst
+  alias Examples.EUser
   alias Zkfol.{Al, Alloc, Derivation, Lay, Prover}
-  alias Zkfol.Interpretation
   alias Zkfol.Phi
   alias Zkfol.Pipeline
   alias Zkfol.Semantics
   alias Zkfol.Statement
-  alias Zkfol.Witness
 
   defrel counted(xs) do
-    each(natural, xs)
+    each(xs, natural)
   end
 
   @spec passed_reading() :: Statement.t()
   example passed_reading do
-    plain = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
-
     {:ok, statement, _trace} =
-      Pipeline.run(plain, %Statement{rels: [counted()], args: [[3, 0, 7]]})
+      Pipeline.run(EUser.plain(), %Statement{rels: [counted()], args: [[3, 0, 7]]})
 
     assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
     statement
@@ -35,17 +33,6 @@ defmodule Examples.EPassed do
 
   defrel pick(i, x, v) do
     nth(i, x, v)
-  end
-
-  @doc "A reading handed less than the cells it wants refuses, naming the cell it was handed."
-  @spec a_cell_is_not_the_cells() :: Zkfol.Refusal.t()
-  example a_cell_is_not_the_cells do
-    assert {:error, {:unliftable_term, %{term: {:cell, _ref}, relation: :all_distinct}}} =
-             Phi.lower(narrow(), [narrow()])
-
-    {:error, refusal} = Phi.lower(pick(), [pick()])
-    assert {:unliftable_term, %{term: {:cell, _ref}, relation: :nth}} = refusal
-    refusal
   end
 
   @doc "One compiled read accepts different private indices and values, but rejects wrong answers."
@@ -105,11 +92,7 @@ defmodule Examples.EPassed do
       for {parameter, wrong} <- [{4, 1}, {2, 0}, {2, length(xs) + 1}] do
         {:ok, [{_name, row, column} | _cells]} = Lay.claims(lay, [parameter])
 
-        forged =
-          witness
-          |> Interpretation.rows()
-          |> List.update_at(row - 1, &List.replace_at(&1, column - 1, wrong))
-          |> Interpretation.new()
+        forged = EAst.tamper(witness, row, column, wrong)
 
         refute Semantics.valid?(linked, forged)
         assert {:error, _refusal} = Prover.prove(linked, forged)
@@ -142,7 +125,7 @@ defmodule Examples.EPassed do
   example sums_compose do
     for xs <- [[4, 5], [1, 2], [7, 8, 9]] do
       {:ok, statement, _trace} =
-        Pipeline.run(Examples.EUser.plain(), %Statement{rels: [combined()], args: [xs, :_]})
+        Pipeline.run(EUser.plain(), %Statement{rels: [combined()], args: [xs, :_]})
 
       assert Derivation.root(Statement.derivation(statement), :combined) ==
                {:combined, [xs, 3 + Enum.sum(xs)]}

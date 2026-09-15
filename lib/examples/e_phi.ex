@@ -1,81 +1,301 @@
 defmodule Examples.EPhi do
-  @moduledoc """
-  I expose the compiler's intermediate values. Start with `grid/0`, `row/0`,
-  `empty/0`, `bound/0`, and `constrained/0`: each returns the value the next uses.
-  `walk/0` gives Fibonacci's actual lowering; `walk/2` takes another program.
-  """
+  @moduledoc "I am the lowering's evidence: inlined calls keep their locals, aliases and goal order."
 
   use ExExample
+  use Zkfol.Lang
+
   import ExUnit.Assertions
 
+  alias Examples.EAl
+  alias Examples.EAlloc
   alias Examples.EUser
-  alias Zkfol.Ast
+  alias Zkfol.Al
+  alias Zkfol.Alloc
+  alias Zkfol.Derivation
+  alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
+  alias Zkfol.Lay
   alias Zkfol.Phi
-  alias Zkfol.Phi.{Cons, View, Walk}
   alias Zkfol.Pipeline
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Witness
 
-  @doc "I describe one nine-by-nine bank; no puzzle values are needed to name its cells."
-  @spec grid() :: View.t()
-  example grid do
-    View.bank(for(r <- 1..9, do: {:puzzle, r}), 9)
+  defrel local_factor(x) do
+    natural(q)
+    x = 3 * q
   end
 
-  @doc "I select the first source row, still referring to the grid's own cells."
-  @spec row() :: View.t()
-  example row do
-    View.slice(grid(), 0)
+  defrel local_calls(x, y) do
+    each([x, y], local_factor)
   end
 
-  @doc "I am a walk before any pattern has bound a name or required an equation."
-  @spec empty() :: Walk.t()
-  example empty do
-    %Walk{}
+  defrel repeated_calls(x, y) do
+    local_factor(x)
+    local_factor(x)
+    local_factor(y)
   end
 
-  @doc "I bind [x | xs]: x reads the first cell, xs starts one cell later with one fewer cell."
-  @spec bound() :: Walk.t()
-  example bound do
-    head = {:cons, {:var, :x}, {:var, :xs}}
-    walk = Phi.match([head], [row()], empty())
-    assert walk.env.x == View.cell(grid(), [0, 0])
-    assert walk.env.xs == View.shifted(row(), 1)
-    assert View.count(walk.env.xs) == View.count(row()) - 1
-    assert walk.banks == %{} and walk.slots == [] and walk.eqs == []
-    walk
+  @doc "A clause-local q is filled from the derivation's bindings."
+  @spec factored(pos_integer()) :: Statement.t()
+  example factored(x \\ 6) do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [local_factor()], args: [x]})
+
+    assert {{:local_factor, [x]}, %{x: x, q: div(x, 3)}} in Statement.derivation(statement).bindings
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
   end
 
-  @doc "I repeat x against the second cell: their values must agree, their accesses remain distinct."
-  @spec constrained() :: Walk.t()
-  example constrained do
-    walk = Phi.match([{:var, :x}], [View.cell(grid(), [0, 1])], bound())
-    assert walk.env == bound().env
-    assert walk.eqs == [Ast.eq(bound().env.x, View.cell(grid(), [0, 1]))]
-    assert walk.banks == bound().banks and walk.slots == bound().slots
-    walk
+  @spec factored_pair() :: Statement.t()
+  example factored_pair do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [local_calls(), local_factor()], args: [6, 9]})
+
+    assert [%Alloc.Member{relation: :local_calls}] = Statement.alloc(statement).members
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
   end
 
-  @doc "I run a statement through Witness and Phi and return the lowering it retained."
-  @spec walk(Rel.t() | [Rel.t()], [Statement.datum() | :_]) :: Walk.t()
-  example walk(target \\ EUser.fib(), args \\ [8]) do
+  @doc "A repeated goal is one obligation; each local keeps the call it came from."
+  @spec repeated_factors() :: Statement.t()
+  example repeated_factors do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{
+        rels: [repeated_calls(), local_factor()],
+        args: [6, 9]
+      })
+
+    [%{bindings: bindings}] = Statement.lay(statement).stands
+
+    assert for(
+             {slot, _value} <- bindings,
+             slot.source.binding == {:variable, :q},
+             do: slot.source.calls
+           ) ==
+             [[local_factor: 0], [local_factor: 2]]
+
+    statement
+  end
+
+  defrel wrapped_calls(n, direct, first, second) do
+    held(n, direct)
+    delegated(n + 1, first)
+    delegated(n + 1, second)
+  end
+
+  @spec recursive_relations() :: MapSet.t(atom())
+  example recursive_relations do
+    {:ok, relations} =
+      Zkfol.Lang.reached(wrapped_calls(), [wrapped_calls(), EAlloc.delegated(), EAlloc.held()])
+
+    recursive = Zkfol.Lang.recursive(relations)
+    assert recursive == MapSet.new([:held])
+    recursive
+  end
+
+  @doc "The wrapper leaves no member; both of its calls lay from the one fact they consume."
+  @spec wrapped() :: Statement.t()
+  example wrapped do
+    rels = [wrapped_calls(), EAlloc.delegated(), EAlloc.held()]
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: rels, args: [3, 6, 10, 10]})
+
+    refute Enum.any?(Statement.alloc(statement).members, &(&1.relation == :delegated))
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel division_calls(0, m, x, first, second) do
+    first = mod(x, m)
+    second = mod(x + 1, m)
+  end
+
+  defrel division_calls(1, m, x, first, second) do
+    first = mod(x + 2, m)
+    second = mod(x + 3, m)
+  end
+
+  @doc "The quotients stay local to the calls, and mod needs no member to fill them."
+  @spec divided() :: Statement.t()
+  example divided do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [division_calls()], args: [1, 5, 17, 4, 0]})
+
+    assert [%Alloc.Member{relation: :division_calls}] = Statement.alloc(statement).members
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel selected_list(0, xs, ys) do
+    ys = xs
+  end
+
+  defrel selected_list(1, [_head | tail], ys) do
+    ys = tail
+  end
+
+  defrel selected_head(selector, xs, head) do
+    selected_list(selector, xs, ys)
+    nth(1, ys, head)
+  end
+
+  @doc "Selecting the tail reads its head, not the head of the list handed in."
+  @spec selected_second() :: Statement.t()
+  example selected_second do
+    rels = [selected_head(), selected_list()]
+
+    assert Phi.compile(selected_head(), rels, [0, [10, 20, 30], 10]) ==
+             Phi.compile(selected_head(), rels, [1, [10, 20, 30], 20])
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: rels, args: [1, [10, 20, 30], 20]})
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  @spec aliased() :: Statement.t()
+  example aliased do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [EAl.variable_alias()], args: [7, :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :variable_alias) ==
+             {:variable_alias, [7, 7]}
+
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  defrel record_pair([_first, _second])
+
+  defrel selected_record(1, [row], first, second) do
+    first = second
+    second = row
+  end
+
+  defrel selected_record(n, [row, next | tail], first, second) do
+    n > 1
+    selected_record(n - 1, [next | tail], _first, _second)
+    first = second
+    second = next
+    record_pair(row)
+    record_pair(next)
+  end
+
+  @doc "An output aliased before its record's width is known still opens the record's values."
+  @spec selected_records() :: Lay.t()
+  example selected_records do
+    rels = [selected_record(), record_pair()]
+    records = [[10, 11], [20, 21]]
+    {:ok, pred, alloc} = Phi.compile(selected_record(), rels, [2, :_, :_, :_])
+    {:ok, derivation} = Al.derived(rels, [2, records, :_, :_])
+    lay = Lay.of(derivation, alloc)
+    witness = Lay.witness(lay)
+    assert Semantics.valid?(Alloc.link(pred, alloc), witness)
+
+    for parameter <- [3, 4] do
+      {:ok, claims} = Lay.claims(lay, [parameter])
+
+      assert for(
+               {name, row, column} <- claims,
+               String.ends_with?(name, ".value"),
+               do: Interpretation.at(witness, row, column)
+             ) == List.last(records)
+    end
+
+    lay
+  end
+
+  @doc "I write output = middle * 2 before the equation that establishes middle."
+  @spec equations() :: Rel.t()
+  example equations do
+    %Rel{
+      name: :afterward,
+      arity: 2,
+      clauses: [
+        {[{:var, :input}, {:var, :output}],
+         [
+           {:eq, {:var, :output}, {:mul, {:var, :middle}, 2}},
+           {:eq, {:var, :middle}, {:add, {:var, :input}, 1}}
+         ]}
+      ]
+    }
+  end
+
+  @doc "I derive and lay the same answer in either goal order, on the same predicate and allocation."
+  @spec scheduled_equations() :: Statement.t()
+  example scheduled_equations do
+    relation = equations()
+    [{head, goals}] = relation.clauses
+    reversed = %{relation | clauses: [{head, Enum.reverse(goals)}]}
+    assert {:ok, predicate, allocation} = Phi.compile(relation)
+    assert Phi.compile(reversed) == {:ok, predicate, allocation}
     pipeline = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
-    {:ok, statement, _trace} = Pipeline.run(pipeline, Statement.of(target, args: args))
-    %Walk{} = Statement.lowering(statement)
+
+    statements =
+      for relation <- [relation, reversed] do
+        {:ok, statement, _trace} = Pipeline.run(pipeline, Statement.of(relation, args: [3, :_]))
+
+        assert Zkfol.Derivation.root(Statement.derivation(statement), :afterward) ==
+                 {:afterward, [3, 8]}
+
+        assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+        statement
+      end
+
+    hd(statements)
   end
 
-  @doc "Constructing and peeling structure retains the original cells."
-  @spec constructed_values_share_cells() :: Cons.t()
-  example constructed_values_share_cells do
-    view = View.bank([{:input, 1}], 3)
-    head = View.slice(view, 0)
-    tail = View.shifted(view, 1)
-    assert Cons.new(head, tail) == view
+  defrel ordered_values(x, y) do
+    y = x + 1
+    x = 1
+  end
 
-    cons = Cons.new(Ast.cell({:input, 2}), tail)
-    assert %Cons{} = cons
-    assert {:ok, Ast.cell({:input, 2}), tail, []} == Cons.peel(cons)
-    cons
+  defrel constructed_list([h | t]) do
+    ordered_values(h, last)
+    append([last], [], t)
+  end
+
+  defrel counted_construction(n) do
+    constructed_list(xs)
+    length(xs, n)
+  end
+
+  @doc "The list built across two calls is counted without storing it or its calls."
+  @spec construction() :: Statement.t()
+  example construction do
+    rels = [counted_construction(), constructed_list(), ordered_values()]
+    {:ok, statement, _trace} = Pipeline.run(EUser.plain(), %Statement{rels: rels, args: [:_]})
+
+    assert Derivation.root(Statement.derivation(statement), :counted_construction) ==
+             {:counted_construction, [2]}
+
+    assert Alloc.regions(Statement.alloc(statement)) == [counted_construction: 1, in: 1]
+    statement
+  end
+
+  defrel alternatives(x, x)
+
+  defrel alternatives(x, y) do
+    natural(offset)
+    y = x + offset
+    1 = 2
+  end
+
+  defrel selected(x, y) do
+    alternatives(x, y)
+  end
+
+  @doc "The contradicted alternative is discarded, and its local cell with it."
+  @spec selected_alternative() :: Statement.t()
+  example selected_alternative do
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [selected(), alternatives()], args: [3, :_]})
+
+    assert Derivation.root(Statement.derivation(statement), :selected) == {:selected, [3, 3]}
+    assert Alloc.regions(Statement.alloc(statement)) == [selected: 2, in: 1]
+    statement
   end
 end

@@ -108,6 +108,35 @@ defmodule Examples.EAl do
     y = 3 * x + 1
   end
 
+  @doc "I give two names to the same value, without restricting it to a number."
+  @spec variable_alias() :: Zkfol.Lang.Rel.t()
+  example variable_alias do
+    rel :variable_alias do
+      variable_alias(x, y) do
+        y = x
+      end
+    end
+  end
+
+  @doc "I resolve the alias in either direction for scalars, empty lists and nested lists."
+  @spec aliased_values() :: Zkfol.Derivation.t()
+  example aliased_values do
+    relation = variable_alias()
+
+    derivations =
+      for value <- [7, [], [1, [2, 3]]], args <- [[value, :_], [:_, value]] do
+        {:ok, derivation} = Al.derived(relation, args)
+
+        assert Zkfol.Derivation.root(derivation, relation.name) ==
+                 {relation.name, [value, value]}
+
+        derivation
+      end
+
+    assert {:error, {:no_answer, _}} = Al.derived(relation, [[1], [2]])
+    List.last(derivations)
+  end
+
   @doc "I bind nothing, spelled two ways, so the first count answers."
   @spec no_arguments_lands_on_the_first_count() :: Interpretation.t()
   example no_arguments_lands_on_the_first_count do
@@ -181,32 +210,8 @@ defmodule Examples.EAl do
       assert weighted == Enum.map(Enum.at(uair.columns, pointer), &(len - &1))
     end
 
+    assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :composed_hop)
     uair
-  end
-
-  @doc "The composed reads prove on zinc+'s pointer query, with no emulation in between."
-  @spec composed_hop_proves() :: Zkfol.Prover.Report.t()
-  example composed_hop_proves do
-    {:ok, report, _id} = Prover.prove_uair(composed_hop_emits(), name: :composed_hop)
-
-    assert %Zkfol.Prover.Report{} = report
-    report
-  end
-
-  @doc "I am the pointer forged past the trace: the Word table refuses it at the backend."
-  @spec pointer_off_the_trace_is_refused() :: Refusal.t()
-  example pointer_off_the_trace_is_refused do
-    uair = composed_hop_emits()
-    [%{row: pointer} | _] = uair.mode.reads
-    assert Enum.all?(Enum.at(uair.columns, pointer), &(&1 in 1..uair.len))
-
-    forged = List.update_at(uair.columns, pointer, &List.replace_at(&1, 0, 2 ** 32))
-
-    assert {:error, {:prover_failed, %{said: said}} = refused} =
-             Prover.prove_uair(%{uair | columns: forged}, name: :forged_pointer)
-
-    assert said =~ "Lookup"
-    refused
   end
 
   @doc "I am the pointer forged into the padding: only the region product refuses it."
@@ -254,36 +259,6 @@ defmodule Examples.EAl do
     report
   end
 
-  @doc "A guard is a bound the derivation must meet: past it nothing derives."
-  @spec a_guard_bounds_the_derivation() :: Interpretation.t()
-  example a_guard_bounds_the_derivation do
-    assert Enum.to_list(Zkfol.stream(capped(), [2, :_])) == [[2, 3]]
-    witness = Statement.witness(solved(capped(), [2]))
-
-    assert {:error, {:no_answer, _}} = Zkfol.eval(capped(), [5], [])
-    witness
-  end
-
-  @doc "Two clauses admit the same tuple; the journal names the one that fired."
-  @spec the_fired_clause_is_named_by_the_journal() :: Interpretation.t()
-  example the_fired_clause_is_named_by_the_journal do
-    statement = solved(forked(), [2, 10])
-    witness = Statement.witness(statement)
-
-    assert Interpretation.at(witness, 1, 2) == 10
-    assert Zkfol.Semantics.valid?(Statement.pred(statement), witness)
-    witness
-  end
-
-  @doc "I recur under a modulus; `mod` carries the quotient, so the head is three wide."
-  @spec a_mod_relation_reduces(pos_integer()) :: Interpretation.t()
-  example a_mod_relation_reduces(n \\ 25) do
-    witness = Statement.witness(solved(regsm(), [n]))
-
-    assert Interpretation.at(witness, 2, n) == rem(EUser.fib(n + 1), 7919)
-    witness
-  end
-
   @doc "I take a modulus the clause does not know: m times the quotient is a product of rows."
   @spec a_variable_modulus_reduces() :: Interpretation.t()
   example a_variable_modulus_reduces do
@@ -323,7 +298,7 @@ defmodule Examples.EAl do
     {:ok, derivation} = Al.derived(collatz_next(), [7], [])
     {:error, reason} = Zkfol.Phi.relaid(Zkfol.Statement.of(collatz_next()), derivation)
 
-    assert {:unbound_variable, %{goals: [{:eq, {:var, :x}, {:add, {:mul, 2, {:var, :k}}, 1}}]}} =
+    assert {:unbound_variable, %{goals: [{:eq, {:var, :x}, {:add, {:mul, {:var, :k}, 2}, 1}}]}} =
              reason
 
     assert Refusal.message(reason) =~ "no clause binds"

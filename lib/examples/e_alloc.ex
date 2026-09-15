@@ -6,15 +6,12 @@ defmodule Examples.EAlloc do
 
   import ExUnit.Assertions
 
-  alias Examples.EUser
   alias Zkfol.Al
   alias Zkfol.Alloc
-  alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Lay
   alias Zkfol.Phi
   alias Zkfol.Prover
-  alias Zkfol.Statement
 
   defrel held(0, 0)
 
@@ -23,13 +20,25 @@ defmodule Examples.EAlloc do
     value = previous + n
   end
 
+  defrel delegated(n, value) do
+    held(n, value)
+  end
+
+  defrel choose(0) do
+    nth(1, [1], 2)
+  end
+
+  defrel choose(1)
+
   defrel impossible_after(n, value) do
+    blocked = unknown * []
     held(n, value)
     1 = 2
   end
 
   defrel impossible_before(n, value) do
     1 = 2
+    blocked = unknown * []
     held(n, value)
   end
 
@@ -41,25 +50,44 @@ defmodule Examples.EAlloc do
     z = 0 * a
   end
 
-  @doc "An open scalar predicate proves different answers and refuses a wrong sum."
+  @doc "An impossible lookup clause does not prevent another clause from answering."
+  @spec a_dead_lookup_clause() :: Prover.Report.t()
+  example a_dead_lookup_clause do
+    {:ok, derivation} = Al.derived(choose(), [1])
+    {:ok, pred, alloc} = Phi.compile(choose(), nil, [1])
+    witness = derivation |> Lay.of(alloc) |> Lay.witness()
+    assert {:ok, report, _id} = Prover.prove(Alloc.link(pred, alloc), witness)
+    assert {:error, {:no_answer, _}} = Al.derived(choose(), [0])
+    report
+  end
+
+  @doc "Private scalars share one predicate, directly or through a call; a wrong sum is refused."
   @spec scalar_parameters_share_one_predicate() :: [Prover.Report.t()]
   example scalar_parameters_share_one_predicate do
-    {:ok, pred, alloc} = Phi.compile(sum())
-    linked = Alloc.link(pred, alloc)
-
     reports =
-      for args <- [[3, 4, 7], [8, 5, 13]] do
-        assert {:ok, ^pred, ^alloc} = Phi.compile(sum(), nil, args)
-        {:ok, derivation} = Al.derived(sum(), args)
-        witness = derivation |> Lay.of(alloc) |> Lay.witness()
-        assert {:ok, report = %Prover.Report{}, _id} = Prover.prove(linked, witness)
-        report
-      end
+      Enum.flat_map(
+        [{sum(), [[3, 4, 7], [8, 5, 13]]}, {delegated(), [[8, 36], [9, 45]]}],
+        fn {rel, answers} ->
+          {:ok, pred, alloc} = Phi.compile(rel)
 
+          for args <- answers do
+            assert {:ok, ^pred, ^alloc} = Phi.compile(rel, nil, args)
+            {:ok, derivation} = Al.derived(rel, args)
+            witness = derivation |> Lay.of(alloc) |> Lay.witness()
+
+            assert {:ok, report = %Prover.Report{}, _id} =
+                     Prover.prove(Alloc.link(pred, alloc), witness)
+
+            report
+          end
+        end
+      )
+
+    {:ok, pred, alloc} = Phi.compile(sum())
     fact = {:sum, [8, 5, 14]}
     derivation = %Zkfol.Derivation{facts: [fact], clauses: [{fact, 0}]}
     forged = derivation |> Lay.of(alloc) |> Lay.witness()
-    assert {:error, _refusal} = Prover.prove(linked, forged)
+    assert {:error, _refusal} = Prover.prove(Alloc.link(pred, alloc), forged)
     reports
   end
 
@@ -91,32 +119,5 @@ defmodule Examples.EAlloc do
       refute Zkfol.Semantics.valid?(linked, Interpretation.new([[1]]))
       alloc
     end
-  end
-
-  @spec fibonacci_alloc() :: Alloc.t()
-  example fibonacci_alloc do
-    alloc = Statement.alloc(EUser.fibonacci(6))
-
-    assert Alloc.refs(alloc) == [{:fib, {:param, :v}}, {:in, :fib}]
-    assert Alloc.rows(alloc, :fib) == 1..1
-    assert Alloc.rows(alloc, :in) == 2..2
-    alloc
-  end
-
-  @spec linking_resolves_names_to_rows() :: Ast.pred()
-  example linking_resolves_names_to_rows do
-    phi = Ast.eq(Ast.cell({:in, :fib}), Ast.add(Ast.cell({:fib, {:param, :v}}), 1))
-    linked = Alloc.link(phi, fibonacci_alloc())
-
-    assert {:eq, {:cell, 2}, {:add, {:cell, 1}, 1}} = linked
-    linked
-  end
-
-  @spec claim_on_a_member_opens_its_presence() :: [Interpretation.claim()]
-  example claim_on_a_member_opens_its_presence do
-    {:ok, claims} = Lay.claims(Statement.lay(EUser.fibonacci(6)), [{:fib, :v}])
-
-    assert claims == [{"fib.v", 1, 6}, {"in", 2, 6}]
-    claims
   end
 end

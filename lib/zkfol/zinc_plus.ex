@@ -31,6 +31,19 @@ defmodule Zkfol.ZincPlus do
     field(:selections, [[{non_neg_integer(), non_neg_integer()}]])
   end
 
+  typedstruct module: Permuted, enforce: true do
+    @typedoc """
+    One Permuted lookup group: the columns it spans and its pairs of selections, each pair
+    holding one multiset. Nothing prescribes the values.
+    """
+    field(:columns, [non_neg_integer()])
+
+    field(
+      :pairs,
+      [{[{non_neg_integer(), non_neg_integer()}], [{non_neg_integer(), non_neg_integer()}]}]
+    )
+  end
+
   typedstruct module: Tie, enforce: true do
     @typedoc """
     One cell the statement fixes: its column, its row, and the column its private value
@@ -58,6 +71,8 @@ defmodule Zkfol.ZincPlus do
     field(:word_lookups, [Zkfol.ZincPlus.lookup()], default: [])
     # A group proves only if every selection holds the multiset.
     field(:selected_lookups, [Zkfol.ZincPlus.Selected.t()], default: [])
+    # A group proves only if each pair of selections holds one multiset.
+    field(:permuted_lookups, [Zkfol.ZincPlus.Permuted.t()], default: [])
     field(:point_ties, [Zkfol.ZincPlus.Tie.t()], default: [])
     field(:reads, [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}], default: [])
     field(:num_vars, pos_integer())
@@ -101,10 +116,11 @@ defmodule Zkfol.ZincPlus do
           num_cols: Uair.num_cols(uair),
           num_public: uair.num_public,
           shifts: uair.shifts,
-          program: uair.program,
+          program: Enum.map(uair.program, &wire/1),
           cells: cells(uair, values),
           word_lookups: uair.word_lookups,
           selected_lookups: uair.selected_lookups,
+          permuted_lookups: uair.permuted_lookups,
           point_ties: uair.point_ties,
           reads: reads,
           num_vars: Uair.num_vars(uair)
@@ -125,6 +141,11 @@ defmodule Zkfol.ZincPlus do
       value -> {:value_exceeds_cell, %{value: value}}
     end)
   end
+
+  # The NIF reads every op as an atom and an integer; add and mul carry an unread zero.
+  @spec wire(Uair.op()) :: {atom(), integer()}
+  defp wire({op, arg}), do: {op, arg}
+  defp wire(op) when is_atom(op), do: {op, 0}
 
   @doc "I hold every program constant inside the i64 the interpreter reads."
   @spec constants_fit([{atom(), integer()}]) :: :ok | {:error, Refusal.t()}

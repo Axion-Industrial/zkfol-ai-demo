@@ -49,6 +49,12 @@ defmodule Zkfol.Semantics do
       {:permutes, cells, values} ->
         defined(cells, fn -> if Enum.sort(cells) == Enum.sort(values), do: 0, else: 1 end)
 
+      {:distinct, cells} ->
+        defined(cells, fn -> if length(Enum.uniq(cells)) == length(cells), do: 0, else: 1 end)
+
+      {:permuted, cells, copy} ->
+        defined(cells ++ copy, fn -> if Enum.sort(cells) == Enum.sort(copy), do: 0, else: 1 end)
+
       {:eq, a, b} ->
         defined([a, b], fn -> (a - b) * (a - b) end)
 

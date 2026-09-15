@@ -24,8 +24,10 @@ defmodule Zkfol.Lang do
         goal ::= name(t, ...) | var(t, ...) | t = t | reify(goal)
 
     Scoped, a var is the clause's own and `name(t, ...)` a relation in scope with what it
-    fixes.
+    fixes. Names work like any normal Elixir name.
     """
+
+    @type name :: atom() | {module(), atom()}
 
     @typedoc "What a term stands on: a name, the empty sequence, a bracket, a partial call, len."
     @type leaf ::
@@ -33,13 +35,13 @@ defmodule Zkfol.Lang do
             | nil
             | :len
             | {:cons, t(), t()}
-            | {:papply, atom(), [t()]}
+            | {:papply, name(), [t()]}
 
     @typedoc "A surface term: Figure 1's polynomial over my leaves."
     @type t :: Zkfol.Ast.poly(leaf())
 
     @typedoc "A goal of a clause body: a call, an equation, or an equation as a term."
-    @type goal :: {:call, atom() | {:var, atom()}, [t()]} | {:eq, t(), t()} | {:reify, goal()}
+    @type goal :: {:call, name() | {:var, atom()}, [t()]} | {:eq, t(), t()} | {:reify, goal()}
 
     @doc "I am the immediate children of a node: none for a leaf."
     @spec children(term()) :: [term()]
@@ -66,10 +68,22 @@ defmodule Zkfol.Lang do
         |> Enum.reverse()
 
     @doc "I am the relation a term passes and the arguments it fixes, nil where it passes none."
-    @spec passed(t(), MapSet.t()) :: {atom(), [t()]} | nil
+    @spec passed(t(), MapSet.t()) :: {name(), [t()]} | nil
     def passed({:papply, name, prefix}, _bound), do: {name, prefix}
     def passed({:var, name}, bound), do: if(not MapSet.member?(bound, name), do: {name, []})
     def passed(_term, _bound), do: nil
+
+    @doc "I am the elements a closed bracket lists; a bracket open past a name lists none for sure."
+    @spec closed(term()) :: [term()] | nil
+    def closed(nil), do: []
+    def closed({:var, _name}), do: nil
+
+    def closed({:cons, head, tail}) do
+      case closed(tail) do
+        nil -> nil
+        rest -> [head | rest]
+      end
+    end
 
     @doc "I say whether a term is a sequence: a bracket or the empty one."
     @spec sequence?(term()) :: boolean()
@@ -96,26 +110,27 @@ defmodule Zkfol.Lang do
       field(:arity, non_neg_integer())
       field(:clauses, [{[term()], [term()]}])
       field(:home, module() | nil, default: nil, enforce: false)
-      # `phi` specializes a call's lowering; `al` is the goal AL posts beyond these clauses.
+      # `phi` specializes lowering. `al` posts an additional constraint; a `:definition`
+      # can also replace the clauses when asking for answers without a source derivation.
       field(:phi, {module(), atom()} | nil, default: nil, enforce: false)
-      field(:al, Macro.t() | nil, default: nil, enforce: false)
+      field(:al, Macro.t() | {:definition, Macro.t()} | nil, default: nil, enforce: false)
     end
 
     @doc "I am the callees my clauses name; a head-bound name is a passed relation, not a callee."
-    @spec calls(t()) :: [atom()]
+    @spec calls(t()) :: [Term.name()]
     def calls(%__MODULE__{clauses: clauses}),
       do:
         for(
           {head, body} <- clauses,
           bound = MapSet.new(Term.names(head)),
           {:call, q, _args} <- body,
-          is_atom(q) and not MapSet.member?(bound, q),
+          not match?({:var, _}, q) and not (is_atom(q) and MapSet.member?(bound, q)),
           uniq: true,
           do: q
         )
 
     @doc "I am the names my clauses hand to a call: a relation where one answers to them."
-    @spec passes(t()) :: [atom()]
+    @spec passes(t()) :: [Term.name()]
     def passes(%__MODULE__{clauses: clauses}),
       do:
         for(
@@ -128,7 +143,7 @@ defmodule Zkfol.Lang do
           do: name
         )
 
-    @spec passing(Term.t(), MapSet.t()) :: [atom()]
+    @spec passing(Term.t(), MapSet.t()) :: [Term.name()]
     defp passing(arg, bound) do
       case Term.passed(arg, bound) do
         {name, fixed} -> [name | Enum.flat_map(fixed, &passing(&1, bound))]
@@ -146,12 +161,12 @@ defmodule Zkfol.Lang do
   end
 
   @doc "I am one clause: a bare head is a fact, a block body conjoins goals."
-  defmacro defrel(head), do: store(head, [])
-  defmacro defrel(head, do: block), do: store(head, lines(block))
+  defmacro defrel(head), do: store(head, [], __CALLER__)
+  defmacro defrel(head, do: block), do: store(head, lines(block), __CALLER__)
 
   @doc "I build a relation where a function runs, `^` splicing the scope's values in."
   defmacro rel(name, do: block) do
-    clauses = for form <- lines(block), do: rel_clause(name, form)
+    clauses = for form <- lines(block), do: rel_clause(name, aliased(form, __CALLER__))
     arity = clauses |> hd() |> elem(0) |> length()
 
     quote do
@@ -191,10 +206,21 @@ defmodule Zkfol.Lang do
     renamed
   end
 
-  @spec store(Macro.t(), [Macro.t()]) :: Macro.t()
-  defp store(head, body) do
+  @spec aliased(Macro.t(), Macro.Env.t()) :: Macro.t()
+  defp aliased(ast, env) do
+    Macro.prewalk(ast, fn
+      {{:., dot, [alias, name]}, meta, args} when is_atom(name) ->
+        {{:., dot, [Macro.expand(alias, env), name]}, meta, args}
+
+      node ->
+        node
+    end)
+  end
+
+  @spec store(Macro.t(), [Macro.t()], Macro.Env.t()) :: Macro.t()
+  defp store(head, body, env) do
     {name, _meta, args} = head
-    {args, body} = anonymous({List.wrap(args), body})
+    {args, body} = anonymous(aliased({List.wrap(args), body}, env))
     clause = {Enum.map(args, &term/1), goals(body)}
 
     quote do
@@ -264,8 +290,8 @@ defmodule Zkfol.Lang do
   defp term([{:|, _meta, [head, tail]}]), do: {:cons, term(head), term(tail)}
   defp term([head | tail]), do: {:cons, term(head), term(tail)}
   defp term({name, _meta, ctx}) when is_atom(name) and is_atom(ctx), do: {:var, name}
-  defp term({:+, _meta, [a, b]}), do: {:add, term(a), term(b)}
-  defp term({:*, _meta, [a, b]}), do: {:mul, term(a), term(b)}
+  defp term({:+, _meta, [a, b]}), do: sum(term(a), term(b))
+  defp term({:*, _meta, [a, b]}), do: product(term(a), term(b))
 
   defp term({:**, _meta, [a, q]}) when is_integer(q) and q > 0,
     do: Enum.reduce(2..q//1, term(a), fn _k, acc -> {:mul, acc, term(a)} end)
@@ -280,6 +306,18 @@ defmodule Zkfol.Lang do
 
   defp term({name, _meta, args}) when is_atom(name) and is_list(args),
     do: {:papply, name, Enum.map(args, &term/1)}
+
+  defp term({{:., _dot, [mod, name]}, _meta, args}) when is_atom(mod) and is_list(args),
+    do: {:papply, {mod, name}, Enum.map(args, &term/1)}
+
+  # A constant rides right, so every reader of a sum or product sees one form.
+  @spec sum(Term.t(), Term.t()) :: Term.t()
+  defp sum(q, t) when is_integer(q) and not is_integer(t), do: {:add, t, q}
+  defp sum(t, u), do: {:add, t, u}
+
+  @spec product(Term.t(), Term.t()) :: Term.t()
+  defp product(q, t) when is_integer(q) and not is_integer(t), do: {:mul, t, q}
+  defp product(t, u), do: {:mul, t, u}
 
   # The index names the existential a call of the library stands on, one per site.
   @spec goals([Macro.t()]) :: [term()]
@@ -300,6 +338,9 @@ defmodule Zkfol.Lang do
   defp goal({name, _meta, args}, _k) when is_atom(name) and is_list(args),
     do: {:call, name, Enum.map(args, &term/1)}
 
+  defp goal({{:., _dot, [mod, name]}, _meta, args}, _k) when is_atom(mod) and is_list(args),
+    do: {:call, {mod, name}, Enum.map(args, &term/1)}
+
   defp goal(form, _k),
     do: raise(ArgumentError, "a goal is an equation or a call, not #{Macro.to_string(form)}")
 
@@ -313,8 +354,8 @@ defmodule Zkfol.Lang do
   defp hole(tag, k), do: {:var, :"_#{tag}#{k}"}
 
   @doc """
-  I am the relations `root` reaches, in call order, each pulled from the list, its home,
-  `Zkfol.FOL` or `Zkfol.Prims`, and scoped once.
+  I am the relations `root` reaches, in call order, each pulled from the list, its module,
+  its home, `Zkfol.FOL` or `Zkfol.Prims`, and scoped once.
   """
   @spec reached(Rel.t(), [Rel.t()]) :: {:ok, [Rel.t()]} | {:error, Refusal.t()}
   def reached(root = %Rel{}, rels) do
@@ -322,6 +363,31 @@ defmodule Zkfol.Lang do
            gather([{root.name, root.home, true}], Map.new(rels, &{&1.name, &1}), []) do
       scope = MapSet.new(reached, & &1.name)
       {:ok, for(rel <- reached, do: scoped(rel, scope))}
+    end
+  end
+
+  @doc """
+  I return the recursive relation names in a resolved program.
+
+  Calls and passed relations form a directed graph. A relation is recursive when it
+  belongs to a cycle; calling a recursive relation does not itself make a caller recursive.
+  """
+  @spec recursive([Rel.t()]) :: MapSet.t(atom())
+  def recursive(rels) do
+    graph = :digraph.new()
+
+    try do
+      for rel <- rels, do: :digraph.add_vertex(graph, rel.name)
+
+      for rel <- rels,
+          callee <- Rel.calls(rel) ++ Rel.passes(rel),
+          :digraph.vertex(graph, callee) != false do
+        :digraph.add_edge(graph, rel.name, callee)
+      end
+
+      graph |> :digraph_utils.cyclic_strong_components() |> List.flatten() |> MapSet.new()
+    after
+      :digraph.delete(graph)
     end
   end
 
@@ -337,6 +403,8 @@ defmodule Zkfol.Lang do
   end
 
   @spec scoped(term(), MapSet.t(), MapSet.t()) :: term()
+  defp scoped({:call, {_mod, q}, args}, bound, scope), do: scoped({:call, q, args}, bound, scope)
+
   defp scoped({:call, q, args}, bound, scope) do
     callee = if is_atom(q) and MapSet.member?(bound, q), do: {:var, q}, else: q
     {:call, callee, for(arg <- args, do: scoped(arg, bound, scope))}
@@ -345,6 +413,9 @@ defmodule Zkfol.Lang do
   defp scoped({:var, q} = var, bound, scope) do
     if MapSet.member?(scope, q) and not MapSet.member?(bound, q), do: {:papply, q, []}, else: var
   end
+
+  defp scoped({:papply, {_mod, q}, fixed}, bound, scope),
+    do: scoped({:papply, q, fixed}, bound, scope)
 
   defp scoped({:papply, q, fixed}, bound, scope),
     do: {:papply, q, for(arg <- fixed, do: scoped(arg, bound, scope))}
@@ -384,7 +455,11 @@ defmodule Zkfol.Lang do
       for(
         {names, needed?} <- [{Rel.calls(rel), true}, {Rel.passes(rel), false}],
         name <- names,
-        do: {name, home, needed?}
+        do:
+          case name do
+            {mod, name} -> {name, mod, needed?}
+            name -> {name, home, needed?}
+          end
       )
 
   @spec pulled(atom(), [module() | nil]) :: Rel.t() | nil

@@ -9,8 +9,10 @@ defmodule Examples.EForgery do
   import ExUnit.Assertions
 
   alias Examples.EAl
+  alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
+  alias Examples.EPhi
   alias Examples.EUser
   alias Zkfol.Alloc
   alias Zkfol.Alloc.Slot
@@ -41,19 +43,18 @@ defmodule Examples.EForgery do
       power: EUser.power(),
       paired: EUser.shared_index(),
       doubled: EUser.doubles(),
-      reshaped: EUser.reshaped(),
+      reshaped: emitted(EUser.both(), [[1, 2, 3], :_]),
       twice_read: emitted(EUser.twice_read(), [[1, 2, 3], :_]),
       chained: EUser.chained_walks(),
       handed: EUser.strided_handoff(),
       tacked: EUser.tacked_bank(),
       indexed: EUser.indexed_cell(),
-      mapped: EUser.mapped_bank(),
-      appended: EUser.appended(),
-      remainder: EUser.remainder(),
+      mapped: emitted(EUser.bumped(), [:_]),
+      appended: emitted(EUser.joined(), [[1, 2], [3, 4], :_]),
+      remainder: emitted(EUser.dropped(), [3, [1, 2, 3, 4], :_]),
       zero_based: EUser.zero_based(),
       row_sums: EUser.row_sums(),
       diagonal: emitted(EUser.diagonal(), [[[3, 4], [5, 6]], :_]),
-      checked: EUser.checked_rows(),
       kernel: EDoubling.rewritten_fibonacci(),
       doubled_fun: emitted(EUser.doubled_fun(), [[1, 2, 3], :_]),
       hop: emitted(EAl.hop_rel(), [5]),
@@ -63,7 +64,15 @@ defmodule Examples.EForgery do
       forked: emitted(EAl.forked(), [2, 10]),
       parities: emitted([EAl.odd(), EAl.even()], [5, :_]),
       aimed: emitted([EAl.summed(), EAl.both()], [1, :_]),
-      factorial: emitted(EFacts.factorial(), [5])
+      factorial: emitted(EFacts.factorial(), [5]),
+      local_factor: EPhi.factored(),
+      local_calls: EPhi.factored_pair(),
+      repeated_calls: EPhi.repeated_factors(),
+      wrapped: EPhi.wrapped(),
+      divided: EPhi.divided(),
+      aliased: EPhi.aliased(),
+      construction: EPhi.construction(),
+      alternative: EPhi.selected_alternative()
     ]
   end
 
@@ -123,7 +132,7 @@ defmodule Examples.EForgery do
           from = Interpretation.at(witness, i, x),
           to <- moves(from, i in bits),
           move = {cell, from, to},
-          forged = moved(witness, cell, to) do
+          forged = EAst.tamper(witness, i, x, to) do
         # The predicate judges everywhere: the read index can miss a column a move breaks.
         believed = Semantics.valid?(pred, forged)
 
@@ -343,14 +352,6 @@ defmodule Examples.EForgery do
   @spec cells(Interpretation.t()) :: [{pos_integer(), pos_integer()}]
   defp cells(witness) do
     for i <- 1..Interpretation.arity(witness), x <- 1..Interpretation.len(witness), do: {i, x}
-  end
-
-  @spec moved(Interpretation.t(), {pos_integer(), pos_integer()}, integer()) :: Interpretation.t()
-  defp moved(witness, {i, x}, value) do
-    witness
-    |> Interpretation.rows()
-    |> List.update_at(i - 1, &List.replace_at(&1, x - 1, value))
-    |> Interpretation.new()
   end
 
   @spec inside?(Interpretation.t(), {pos_integer(), integer() | :error}) :: boolean()

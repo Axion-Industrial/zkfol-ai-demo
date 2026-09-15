@@ -11,12 +11,9 @@ defmodule Examples.EDoubling do
   alias Zkfol.Doubling
   alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
-  alias Zkfol.Phi
   alias Zkfol.Pipeline
-  alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.Statement
-  alias Zkfol.Uair
 
   @mod 7919
 
@@ -30,10 +27,7 @@ defmodule Examples.EDoubling do
 
     assert claimed(statement) == EUser.fib(n)
 
-    assert Enum.all?(
-             1..Interpretation.len(witness),
-             &Semantics.holds?(Statement.pred(statement), witness, &1)
-           )
+    assert Semantics.valid?(Statement.pred(statement), witness)
 
     statement
   end
@@ -64,28 +58,10 @@ defmodule Examples.EDoubling do
 
     assert claimed(statement) == fib_mod(n, mod)
 
-    assert Enum.all?(
-             1..Interpretation.len(witness),
-             &Semantics.holds?(Statement.pred(statement), witness, &1)
-           )
+    assert Semantics.valid?(Statement.pred(statement), witness)
 
     statement
   end
-
-  @doc "Body order is no contract: the kernel's equations ahead of its calls lower the same."
-  @spec either_order_of_the_kernel() :: Ast.pred()
-  example either_order_of_the_kernel do
-    [kernel] = rewritten_fibonacci().rels
-    ahead = %{kernel | clauses: for({head, body} <- kernel.clauses, do: {head, equations(body)})}
-
-    assert ahead.clauses != kernel.clauses
-    assert {:ok, phi} = Phi.lower(kernel, [kernel])
-    assert Phi.lower(ahead, [ahead]) == {:ok, phi}
-    phi
-  end
-
-  @spec equations([Zkfol.Lang.Term.goal()]) :: [Zkfol.Lang.Term.goal()]
-  defp equations(body), do: Enum.sort_by(body, &(elem(&1, 0) != :eq))
 
   @spec one_predicate_for_every_n() :: Ast.pred()
   example one_predicate_for_every_n do
@@ -98,37 +74,109 @@ defmodule Examples.EDoubling do
     Statement.pred(small)
   end
 
-  @spec a_free_count_passes_the_try() :: Statement.t()
-  example a_free_count_passes_the_try do
-    source = %Statement{rels: [EUser.fib()], args: [:_, 21]}
+  @doc "Fibonacci finds a missing input, accepts its answer, and refuses another."
+  @spec fibonacci_questions() :: Statement.t()
+  example fibonacci_questions do
+    for n <- [1, 2, 8] do
+      answer = EUser.fib(n)
+      source = Statement.of(EUser.fib(), args: [n, answer])
+      assert {:ok, rewritten, _} = Pipeline.run(Pipeline.default(), source)
+      assert Semantics.valid?(Statement.pred(rewritten), Statement.witness(rewritten))
 
-    {:ok, statement, _trace} = Pipeline.run(Pipeline.default(), source)
+      assert {:error, _pass, {:no_answer, _}, _} =
+               Pipeline.run(Pipeline.default(), %{source | args: [n, answer + 1]})
+    end
+
+    {:ok, statement, _trace} =
+      Pipeline.run(Pipeline.default(), Statement.of(EUser.fib(), args: [:_, 21]))
+
     witness = Statement.witness(statement)
-
     assert Interpretation.len(witness) == 8
     assert Interpretation.at(witness, 1, 8) == 21
     statement
   end
 
-  @spec unclaimed_position_keeps_n_private() :: map()
-  example unclaimed_position_keeps_n_private do
-    source = %Statement{rels: [EUser.fib()], args: [100]}
+  @doc "Guards, shared variables and modular quotients keep the same answer with or without rewriting."
+  @spec constrained_recurrences() :: [Statement.t()]
+  example constrained_recurrences do
+    guarded =
+      Zkfol.Lang.rel :guarded do
+        guarded(1, 1)
+        guarded(2, 1)
 
-    {:ok, rewritten, _trace} = Pipeline.run(doubling(), source)
-    {:ok, statement} = Statement.opened(rewritten, [:r])
+        guarded(n, v) do
+          n > 10
+          guarded(n - 1, a)
+          guarded(n - 2, b)
+          v = a + b
+        end
+      end
 
-    {:ok, uair} =
-      Uair.emit(
-        Statement.pred(statement),
-        Statement.witness(statement),
-        Statement.claims(statement)
-      )
+    constrained =
+      Zkfol.Lang.rel :constrained do
+        constrained(1, 1)
+        constrained(2, 1)
 
-    assert uair.num_public == 2
-    {:ok, report, _id} = Prover.prove_uair(uair, name: :private_n)
-    assert [{_result, value}, {"in", 1}] = report.claims
-    assert value == EUser.fib(100)
-    report
+        constrained(n, v) do
+          n > 2
+          v = 999
+          constrained(n - 1, a)
+          constrained(n - 2, b)
+          v = a + b
+        end
+      end
+
+    shared =
+      Zkfol.Lang.rel :shared do
+        shared(1, 1)
+        shared(2, 1)
+
+        shared(n, v) do
+          n > 2
+          shared(n - 1, a)
+          shared(n - 2, a)
+          v = a + a
+        end
+      end
+
+    difference =
+      Zkfol.Lang.rel :difference do
+        difference(1, 0)
+        difference(2, 2)
+
+        difference(n, r) do
+          n > 2
+          difference(n - 1, a)
+          difference(n - 2, b)
+          r = mod(a - b, 2)
+        end
+      end
+
+    for rel <- [guarded, constrained, shared, difference] do
+      source = Statement.of(rel, args: [4])
+      assert Doubling.run(source, []) == {:ok, source}
+      assert {:error, _pass, {:no_answer, _}, _} = Pipeline.run(EUser.plain(), source)
+      assert {:error, _pass, {:no_answer, _}, _} = Pipeline.run(Pipeline.default(), source)
+      source
+    end
+  end
+
+  @doc "An optimizer declines custom meanings on the root, a helper or a helper's callee."
+  @spec recurrence_meanings() :: [Statement.t()]
+  example recurrence_meanings do
+    fib = EUser.fib()
+    zero = Zkfol.Lang.rel(:natural, do: natural(0))
+    denied = quote(do: 1 > 2)
+
+    for rels <- [
+          [%{fib | al: denied}],
+          [fib, %{Zkfol.Prims.gt() | al: denied}],
+          [fib, zero]
+        ] do
+      source = Statement.of(rels, args: [8, 21])
+      assert Doubling.run(source, []) == {:ok, source}
+      source
+    end
   end
 
   @spec doubling() :: Pipeline.t()

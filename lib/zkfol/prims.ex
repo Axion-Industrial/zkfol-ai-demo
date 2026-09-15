@@ -53,9 +53,35 @@ defmodule Zkfol.Prims do
   end
 
   # AL narrows a free grid by `all_dif`; pairwise slack has no bound and exhausts the heap.
+  # The clauses define it for a list the lowering cannot read as cells: each element is
+  # absent from the rest.
   @phi {Zkfol.Ast, :distinct}
-  @al quote(do: all_dif(cells))
-  defrel all_distinct(cells)
+  @al {:definition, quote(do: all_dif(cells))}
+  defrel all_distinct(cells) do
+    pairwise(cells)
+  end
+
+  defrel pairwise([])
+
+  defrel pairwise([x | xs]) do
+    absent(x, xs)
+    pairwise(xs)
+  end
+
+  defrel absent(_x, [])
+
+  defrel absent(x, [y | ys]) do
+    neq(x, y, _s)
+    absent(x, ys)
+  end
+
+  # The values are the circuit's own: one prescribed lookup, no copy.
+  @phi {Zkfol.Ast, :permutation}
+  defrel permutation(n, cells) do
+    length(cells, n)
+    each(cells, between(1, n))
+    all_distinct(cells)
+  end
 
   # Evaluation only: a free cell takes each value of its domain in turn.
   @al quote(do: label(x))

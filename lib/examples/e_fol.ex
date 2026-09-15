@@ -8,19 +8,19 @@ defmodule Examples.EFol do
 
   alias Examples.ESudoku
   alias Examples.EUser
+  alias Zkfol.Al
   alias Zkfol.Alloc
-  alias Zkfol.FOL
-  alias Zkfol.Phi
+  alias Zkfol.Ast
+  alias Zkfol.Derivation
   alias Zkfol.Pipeline
   alias Zkfol.Prover
-  alias Zkfol.Refusal
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
-  alias Zkfol.Witness
 
   defrel counted(xs) do
     length(xs, n)
-    each(between(1, n), xs)
+    each(xs, between(1, n))
   end
 
   defrel joined(zs) do
@@ -29,7 +29,7 @@ defmodule Examples.EFol do
 
   defrel columns_apart(x) do
     column(x, cols)
-    each(all_distinct, cols)
+    each(cols, permutation(9))
   end
 
   defrel literal_columns(cs) do
@@ -39,7 +39,11 @@ defmodule Examples.EFol do
   defrel there_and_back(x) do
     column(x, cs)
     column(cs, back)
-    each(all_distinct, back)
+    each(back, permutation(9))
+  end
+
+  defrel bumped(ys) do
+    Zkfol.FOL.map([1, 2, 3], Examples.EUser.succ(), ys)
   end
 
   defrel rising([_last])
@@ -49,12 +53,29 @@ defmodule Examples.EFol do
     rising([b | t])
   end
 
-  @spec ranged() :: Statement.t()
-  example ranged do
-    plain = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
+  @doc "A call or a passed relation written with its module is that module's."
+  @spec qualified_map() :: Statement.t()
+  example qualified_map do
+    [{_head, [{:call, {Zkfol.FOL, :map}, [_, {:papply, {EUser, :succ}, []} | _]}]}] =
+      bumped().clauses
+
+    assert Enum.take(Zkfol.stream(bumped(), [:_]), 1) == [[[2, 3, 4]]]
 
     {:ok, statement, _trace} =
-      Pipeline.run(plain, %Statement{rels: [counted()], args: [[3, 1, 2]]})
+      Pipeline.run(EUser.plain(), %Statement{rels: [bumped()], args: [:_]})
+
+    assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
+
+  @spec ranged() :: Statement.t()
+  example ranged do
+    assert Enum.to_list(Zkfol.stream(counted(), [[3, 1, 2]])) == [[[3, 1, 2]]]
+    assert Enum.to_list(Zkfol.stream(counted(), [[0, 1, 2]])) == []
+    assert Enum.to_list(Zkfol.stream(counted(), [[4, 1, 2]])) == []
+
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [counted()], args: [[3, 1, 2]]})
 
     assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
     statement
@@ -64,19 +85,28 @@ defmodule Examples.EFol do
   example concatenation do
     assert Enum.take(Zkfol.stream(joined(), [:_]), 1) == [[[1, 2, 3]]]
 
-    plain = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
-    {:ok, statement, _trace} = Pipeline.run(plain, %Statement{rels: [joined()], args: [:_]})
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [joined()], args: [:_]})
+
     statement
   end
 
-  @doc "The transpose is one relation over any list of lists, with one answer."
-  @spec transpose() :: [[pos_integer()]]
-  example transpose do
-    grid = [[1, 2, 3], [4, 5, 6]]
-    cols = ESudoku.columns(grid)
+  @doc "I infer a permutation's size from its list; a missing value cannot form a permutation."
+  @spec permutation_size() :: Derivation.t()
+  example permutation_size do
+    relation = Zkfol.Prims.permutation()
+    {:ok, derivation} = Al.derived(relation, [:_, [3, 1, 2]])
+    assert Derivation.root(derivation, :permutation) == {:permutation, [3, [3, 1, 2]]}
 
-    assert Enum.take(Zkfol.stream(FOL.column(), [grid, :_]), 2) == [[grid, cols]]
-    cols
+    for {n, cells} <- [{3, [1, 2]}, {2, [1, 2, 3]}, {1, []}, {-1, []}] do
+      assert {:error, {:no_answer, _detail}} = Al.derived(relation, [n, cells])
+      predicate = Ast.permutation(n, cells)
+      assert Semantics.eval(predicate, 1, 1, fn _row, _column -> :error end) != 0
+    end
+
+    assert {:ok, _empty} = Al.derived(relation, [0, []])
+    assert Semantics.eval(Ast.permutation(0, []), 1, 1, fn _row, _column -> :error end) == 0
+    derivation
   end
 
   @doc "A row of the bank is a column of the grid, so the transpose lays no bank of its own."
@@ -87,26 +117,6 @@ defmodule Examples.EFol do
 
     assert Alloc.regions(Statement.alloc(statement)) == ["columns_apart x": 9, in: 2]
     statement
-  end
-
-  @doc "Nine groups over the bank's rows are nine selections, and no Word table."
-  @spec looked_up_columns() :: Uair.t()
-  example looked_up_columns do
-    statement = transposed_columns()
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-
-    assert [%{values: values, selections: selections}] = uair.selected_lookups
-    assert values == Enum.to_list(1..9)
-    assert length(selections) == 9
-    assert uair.word_lookups == []
-    uair
-  end
-
-  @doc "The nine lookups are the proof, and they verify."
-  @spec columns_proved() :: Prover.Report.t()
-  example columns_proved do
-    {:ok, report, _id} = Prover.prove_uair(looked_up_columns(), name: :columns_apart)
-    report
   end
 
   @doc "An index into a bank opens the nine values at that column; the groups stay private."
@@ -126,18 +136,6 @@ defmodule Examples.EFol do
 
     {:ok, report, _id} = Prover.prove_uair(uair, name: :opened_column)
     report
-  end
-
-  @doc "The lookup is the whole claim: a repeated value is refused by the verifier alone."
-  @spec a_repeated_column_is_no_proof() :: Refusal.t()
-  example a_repeated_column_is_no_proof do
-    uair = looked_up_columns()
-    repeated = List.update_at(uair.columns, 0, &List.replace_at(&1, 1, hd(&1)))
-
-    assert {:error, {:verifier_rejected, _said} = refused} =
-             Prover.prove_uair(%{uair | columns: repeated}, name: :repeated_column)
-
-    refused
   end
 
   @doc "A reading is cells like any other, so a call handed one reads it again, laying nothing."
@@ -164,13 +162,19 @@ defmodule Examples.EFol do
     names
   end
 
-  @doc "Concrete data is read, not walked: only the root stands."
-  @spec laid_transpose() :: [atom()]
+  @doc "A literal transpose computes its output; its source needs no bank or called member."
+  @spec laid_transpose() :: Statement.t()
   example laid_transpose do
-    {:ok, _pred, alloc} = Phi.compile(literal_columns(), [literal_columns()], [:_])
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [literal_columns()], args: [:_]})
 
-    assert Alloc.names(alloc) == [:literal_columns]
-    refute :column in Alloc.names(alloc)
-    Alloc.names(alloc)
+    alloc = Statement.alloc(statement)
+    assert Alloc.names(alloc) == [:literal_columns, :"literal_columns cs"]
+    assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+
+    assert {:ok, %Prover.Report{}, _id} =
+             Prover.prove(Statement.pred(statement), Statement.witness(statement))
+
+    statement
   end
 end

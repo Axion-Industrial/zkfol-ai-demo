@@ -71,36 +71,8 @@ defmodule Zkfol.Refusal do
       {:restructure,
        "the route stopped at #{inspect(stage)}, before the lowering: nothing to prove or emit"}
 
-  defp said({:not_an_index_relation, %{relation: name, arity: arity}}),
-    do: {:restructure, "#{name}/#{arity} is not a relation between an index and one value"}
-
-  defp said({:facts_not_consecutive, %{indices: indices}}),
-    do:
-      {:restructure,
-       "an order-2 recurrence needs facts at two consecutive indices, got #{inspect(indices)}"}
-
-  defp said({:fact_not_ground, %{fact: fact}}),
-    do: {:restructure, "a base fact is a ground index and value, got #{inspect(fact)}"}
-
-  defp said({:step_clauses, %{clauses: n}}),
-    do: {:restructure, "#{n} step clauses; need exactly one"}
-
-  defp said({:step_head_not_indexed, %{head: head}}),
-    do: {:restructure, "the step head is an index and a value, not #{inspect(head)}"}
-
-  defp said({:step_beyond_history, %{extra: vars}}),
-    do: {:restructure, "the step combines more than the history: #{inspect(vars)}"}
-
-  defp said({:step_needs_an_equation, _detail}),
-    do: {:restructure, "the step needs one equation defining its value"}
-
-  defp said({:not_order_two, %{offsets: offsets}}),
-    do:
-      {:restructure,
-       "an order-2 recurrence calls itself once and twice back, got #{inspect(offsets)}"}
-
-  defp said({:step_not_linear, %{term: term}}),
-    do: {:restructure, "the step is not a linear combination of the history: #{inspect(term)}"}
+  defp said({:not_a_recurrence, %{relation: name}}),
+    do: {:restructure, "#{name} is not an order-2 linear recurrence"}
 
   defp said({:no_relations, _detail}),
     do: {:restructure, "the statement carries no relations; supply its witness instead"}
@@ -174,6 +146,12 @@ defmodule Zkfol.Refusal do
 
   defp said({:beyond_the_rows, %{sequence: seq}}),
     do: {:out_of_range, "a claim on the sequence #{seq} reaches beyond the cells it holds"}
+
+  defp said({:selection_changes_claim, %{claim: name, row: row, column: x}}),
+    do:
+      {:restructure,
+       "the unconditional selection would change #{name} at (#{row}, #{x}); " <>
+         "this opening needs a conditional lookup"}
 
   defp said({:selection_outside_trace, %{cell: cell, column: x}}),
     do: {:out_of_range, "no selection names #{inspect(cell)} at column #{x}: outside the trace"}

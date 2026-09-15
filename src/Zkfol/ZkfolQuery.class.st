@@ -63,7 +63,7 @@ ZkfolQuery >> gtProgramFor: aView [
 	<gtView>
 	<gtBeamView>
 	| program |
-	program := self evaluateOrNil: 'Zkfol.Al.program(' , self resolve , '.ask.branch.id)'.
+	program := self evaluateOrNil: 'Zkfol.Al.program(' , self resolve , '.ask)'.
 	(program isKindOf: ALObject) ifFalse: [ ^ aView empty ].
 	^ aView forward
 		title: 'Program';

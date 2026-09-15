@@ -50,12 +50,7 @@ defmodule Examples.EAst do
   end
 
   @doc "I am `witness` with the cell at row `i`, column `x`, made `value`."
-  @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), non_neg_integer()) ::
+  @spec tamper(Interpretation.t(), pos_integer(), pos_integer(), integer()) ::
           Interpretation.t()
-  def tamper(witness, i, x, value) do
-    witness
-    |> Interpretation.rows()
-    |> List.update_at(i - 1, &List.replace_at(&1, x - 1, value))
-    |> Interpretation.new()
-  end
+  def tamper(witness, i, x, value), do: Interpretation.put(witness, i, x, value)
 end

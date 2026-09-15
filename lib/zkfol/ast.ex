@@ -14,8 +14,11 @@ defmodule Zkfol.Ast do
           | {:add, poly(leaf), poly(leaf)}
           | {:mul, poly(leaf), poly(leaf)}
 
-  @typedoc "A row reference: a bare row post-link, or {symbol, which} before Alloc numbers it."
-  @type row_ref :: pos_integer() | {atom(), term()}
+  @typedoc """
+  A row reference: a bare row post-link, {symbol, which} before Alloc numbers it, or a
+  named row the emission adds beside the witness.
+  """
+  @type row_ref :: pos_integer() | atom() | {atom(), term()}
 
   @typedoc "What an address counts from: my own column, or the one a row holds."
   @type address_base :: :x | {:cell, row_ref()}
@@ -37,12 +40,16 @@ defmodule Zkfol.Ast do
   @typedoc "Figure 1's terms: `t:ep/0` plus reify, closed under + and ×."
   @type term_t :: poly(ep_leaf() | {:reify, pred()})
 
-  @type pred ::
-          {:eq, term_t(), term_t()}
-          | {:conj, [pred()]}
-          | {:disj, [pred()]}
-          | {:natural, term_t()}
-          | {:permutes, [term_t()], [integer()]}
+  @type pred(t) ::
+          {:eq, t, t}
+          | {:conj, [pred(t)]}
+          | {:disj, [pred(t)]}
+          | {:natural, t}
+          | {:permutes, [t], [integer()]}
+          | {:distinct, [t]}
+          | {:permuted, [t], [t]}
+
+  @type pred :: pred(term_t())
 
   @doc "I am the index variable X: the current column."
   @spec x() :: term_t()
@@ -89,6 +96,23 @@ defmodule Zkfol.Ast do
   @spec column(address(), integer()) :: integer()
   def column({:at, _base, mul, add}, base), do: mul * base + add
 
+  @doc "I substitute a call's address for X in an address; nested pointer reads cannot be expressed."
+  @spec reframe(address(), address()) :: address() | nil
+  def reframe({:at, :x, m, a}, {:at, base, scale, offset}),
+    do: address(base, m * scale, m * offset + a)
+
+  def reframe(_address, _call), do: nil
+
+  @doc "I recover an address in the callee's coordinates, when its scale divides exactly."
+  @spec unframe(address() | nil, address()) :: address() | nil
+  def unframe({:at, :x, 0, a}, {:at, :x, _scale, _offset}), do: address(:x, 0, a)
+
+  def unframe({:at, :x, m, a}, {:at, :x, scale, offset})
+      when scale != 0 and rem(m, scale) == 0,
+      do: address(:x, div(m, scale), a - div(m, scale) * offset)
+
+  def unframe(_address, _call), do: nil
+
   @doc "I am t + u, born canonical: constants fold and ride right, through a sum's own, zero vanishes."
   @spec add(poly(l), poly(l)) :: poly(l) when l: var
   def add(q, r) when is_integer(q) and is_integer(r), do: q + r
@@ -97,6 +121,10 @@ defmodule Zkfol.Ast do
   def add({:add, t, q}, r) when is_integer(q) and is_integer(r), do: add(t, q + r)
   def add(q, t) when is_integer(q), do: {:add, t, q}
   def add(t, u), do: {:add, t, u}
+
+  @doc "I am t - u: `add/2` of the negation."
+  @spec sub(poly(l), poly(l)) :: poly(l) when l: var
+  def sub(t, u), do: add(t, mul(u, -1))
 
   @doc "I am t * u, born canonical: constants fold and ride right, zero and one vanish."
   @spec mul(poly(l), poly(l)) :: poly(l) when l: var
@@ -113,7 +141,7 @@ defmodule Zkfol.Ast do
   def reify(phi), do: {:reify, phi}
 
   @doc "I am t = u, born canonical: a constant rides right, as in a sum."
-  @spec eq(term_t(), term_t()) :: pred()
+  @spec eq(t, t) :: pred(t) when t: var
   def eq(q, u) when is_integer(q) and not is_integer(u), do: {:eq, u, q}
   def eq(t, u), do: {:eq, t, u}
 
@@ -138,19 +166,31 @@ defmodule Zkfol.Ast do
 
   def nth(_index, cells, _value), do: throw({:refused, {:unliftable_term, %{term: cells}}})
 
-  @doc "I am distinct(cells): the cells hold 1..n exactly, `permutes/2` over them."
+  @doc "I am distinct(cells): the cells hold pairwise different values, no polynomial."
   @spec distinct([term_t()]) :: pred()
   def distinct(cells) when not is_list(cells),
     do: throw({:refused, {:unliftable_term, %{term: cells}}})
 
-  def distinct(cells), do: permutes(cells, Enum.to_list(1..length(cells)//1))
+  def distinct(cells), do: {:distinct, cells}
+
+  @doc "I am permutation(n, cells): the cells hold 1..n exactly, `permutes/2` over them."
+  @spec permutation(term_t(), [term_t()]) :: pred()
+  def permutation(n, cells) when is_integer(n) and is_list(cells) do
+    if n == length(cells), do: permutes(cells, Enum.to_list(1..n//1)), else: eq(0, 1)
+  end
+
+  def permutation(_n, cells), do: throw({:refused, {:unliftable_term, %{term: cells}}})
+
+  @doc "I am permuted(cells, copy): the two hold one multiset, whatever it is."
+  @spec permuted([term_t()], [term_t()]) :: pred()
+  def permuted(cells, copy), do: {:permuted, cells, copy}
 
   @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
-  @spec natural(term_t()) :: pred()
+  @spec natural(t) :: pred(t) when t: var
   def natural(t), do: {:natural, t}
 
   @doc "I am permutes(cells, values): the cells hold `values` as a multiset, no polynomial."
-  @spec permutes([term_t()], [integer()]) :: pred()
+  @spec permutes([t], [integer()]) :: pred(t) when t: var
   def permutes(cells, values), do: {:permutes, cells, values}
 
   @doc """
@@ -161,7 +201,7 @@ defmodule Zkfol.Ast do
   def arithmetize(pred) do
     postwalk(pred, fn
       {:eq, t, u} ->
-        difference = add(t, mul(u, -1))
+        difference = sub(t, u)
         mul(difference, difference)
 
       # A conjunction wholly discharged by obligations arithmetizes to zero.
@@ -195,7 +235,7 @@ defmodule Zkfol.Ast do
   true, falsity where a constant decides it false, `pred` itself where
   nothing is decided.
   """
-  @spec folded(pred()) :: [pred()]
+  @spec folded(pred(t)) :: [pred(t)] when t: var
   def folded({:natural, q}) when is_integer(q), do: if(q >= 0, do: [], else: [eq(0, 1)])
 
   def folded({:eq, a, b}) when is_integer(a) and is_integer(b),
@@ -223,6 +263,11 @@ defmodule Zkfol.Ast do
   defp map_children({:permutes, cells, values}, fun),
     do: {:permutes, Enum.map(cells, fun), values}
 
+  defp map_children({:distinct, cells}, fun), do: {:distinct, Enum.map(cells, fun)}
+
+  defp map_children({:permuted, cells, copy}, fun),
+    do: {:permuted, Enum.map(cells, fun), Enum.map(copy, fun)}
+
   defp map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
   defp map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
   defp map_children(leaf, _fun), do: leaf
@@ -237,6 +282,8 @@ defmodule Zkfol.Ast do
   def children({:reify, phi}), do: [phi]
   def children({:natural, t}), do: [t]
   def children({:permutes, cells, _values}), do: cells
+  def children({:distinct, cells}), do: cells
+  def children({:permuted, cells, copy}), do: cells ++ copy
   def children({tag, preds}) when tag in [:conj, :disj], do: preds
   def children(_leaf), do: []
 

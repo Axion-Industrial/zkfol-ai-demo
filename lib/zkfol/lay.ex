@@ -16,6 +16,7 @@ defmodule Zkfol.Lay do
   use TypedStruct
 
   alias Zkfol.Alloc
+  alias Zkfol.Alloc.Source
   alias Zkfol.Alloc.Bank
   alias Zkfol.Alloc.Member
   alias Zkfol.Alloc.Site
@@ -30,7 +31,8 @@ defmodule Zkfol.Lay do
           fact: Derivation.fact(),
           member: atom(),
           column: pos_integer(),
-          uses: [use()]
+          uses: [use()],
+          bindings: [{Slot.t(), term()}]
         }
 
   @typedoc "One consumption: the site that made it, and the fact it took."
@@ -57,16 +59,41 @@ defmodule Zkfol.Lay do
     lay = %__MODULE__{alloc: alloc, derivation: derivation, stands: []}
 
     case Derivation.root(derivation, root.relation) do
-      nil -> lay
-      fact -> descend([{fact, root.name, {:free, 1}}], lay)
+      nil ->
+        lay
+
+      fact ->
+        index = %{
+          members: Map.new(alloc.members, &{&1.name, &1}),
+          clauses: Map.new(derivation.clauses),
+          bindings: Map.new(derivation.bindings),
+          arguments:
+            Map.new(derivation.facts, fn fact = {_relation, args} ->
+              {fact, List.to_tuple(args)}
+            end),
+          consumed:
+            Map.new(derivation.consumed, fn {fact, calls} ->
+              {fact,
+               calls
+               |> Enum.group_by(&elem(&1, 0))
+               |> Map.new(fn {relation, facts} -> {relation, List.to_tuple(facts)} end)}
+            end)
+        }
+
+        descend(:queue.from_list([{fact, root.name, {:free, 1}}]), lay, index, %{}, MapSet.new())
     end
   end
 
   @doc "I am my matrix; an unread cell pads zero, or one on an address row."
   @spec witness(t()) :: Interpretation.t()
-  def witness(%__MODULE__{alloc: alloc, stands: stands} = lay) do
+  def witness(%__MODULE__{alloc: alloc, stands: stands}) do
     defaults = Alloc.defaults(alloc)
-    cells = Map.new(Enum.flat_map(stands, &laid(&1, lay)))
+    positions = positions(stands, alloc)
+
+    cells =
+      Map.new(Enum.flat_map(stands, &laid(&1, alloc, positions)), fn {at, value} ->
+        {at, Derivation.free_to_zero(value)}
+      end)
 
     cells =
       case Alloc.member(alloc, Zkfol.Nodes) do
@@ -123,13 +150,15 @@ defmodule Zkfol.Lay do
           }
         ]
   def arrows(lay = %__MODULE__{alloc: alloc}) do
+    positions = positions(lay.stands, alloc)
+
     for stand <- lay.stands,
         {%Site{callee: callee, address: address}, _fact} = use <- stand.uses do
       %{
         ptr: Alloc.aimed(alloc, address),
         from_row: Alloc.presence(alloc, stand.member),
         from: stand.column,
-        to: standing(lay, stand, use),
+        to: standing(positions, stand, use),
         to_row: Alloc.presence(alloc, callee)
       }
     end
@@ -218,8 +247,9 @@ defmodule Zkfol.Lay do
   # The slot `parameter` names, or the one standing `parameter`-th; a bank has none to open.
   @spec slot(Member.t() | Bank.t(), parameter()) :: Slot.t() | nil
   defp slot(%Member{slots: slots}, parameter) do
-    Enum.find_value(Enum.with_index(slots, 1), fn {slot, k} ->
-      parameter in [slot.name, k] && slot
+    Enum.find(slots, fn slot ->
+      slot.name == parameter or
+        (is_integer(parameter) and slot.source == %Source{binding: {:argument, parameter - 1}})
     end)
   end
 
@@ -274,46 +304,93 @@ defmodule Zkfol.Lay do
   end
 
   @spec bank_values(Slot.t(), Member.t(), t()) :: {[term()], pos_integer()} | nil
-  defp bank_values(slot, %Member{name: name, slots: slots}, %__MODULE__{} = lay) do
-    with %{fact: {_relation, tuple}, column: x} <- Enum.find(lay.stands, &(&1.member == name)),
-         cells when is_list(cells) <- Enum.at(tuple, Enum.find_index(slots, &(&1 == slot))),
+  defp bank_values(slot, %Member{name: name}, %__MODULE__{} = lay) do
+    with %{bindings: bindings, column: x} <- Enum.find(lay.stands, &(&1.member == name)),
+         {^slot, cells} when is_list(cells) <- List.keyfind(bindings, slot, 0),
          do: {cells, x},
          else: (_unheld -> nil)
   end
 
-  @spec descend([{Derivation.fact(), atom(), aim()}], t()) :: t()
-  defp descend([], lay = %__MODULE__{stands: stands}), do: %{lay | stands: Enum.reverse(stands)}
+  @spec descend(:queue.queue(), t(), map(), map(), MapSet.t()) :: t()
+  defp descend(queue, lay, index, occupied, seen) do
+    case :queue.out(queue) do
+      {:empty, _queue} ->
+        %{lay | stands: Enum.reverse(lay.stands)}
 
-  defp descend([{{_relation, tuple} = fact, name, aim} | rest], lay = %__MODULE__{}) do
-    %__MODULE__{alloc: alloc, derivation: derivation, stands: stands} = lay
-    member = %Member{sites: sites} = Alloc.member(alloc, name)
-    taken = MapSet.new(for stand <- stands, stand.member == name, do: stand.column)
-    column = placed(aim, member, tuple, taken)
+      {{:value, {{_relation, tuple} = fact, name, aim}}, rest} ->
+        member = index.members[name]
+        {column, taken} = placed(aim, member, tuple, Map.get(occupied, name, %{}))
+        key = {name, fact, column}
 
-    if Enum.any?(stands, &(&1.fact == fact and &1.member == name and &1.column == column)) do
-      descend(rest, lay)
-    else
-      calls = Map.get(sites, Derivation.clause(derivation, fact), [])
-      uses = consumed(calls, Derivation.consumed(derivation, fact), alloc)
-      stand = %{fact: fact, member: name, column: column, uses: uses}
+        if MapSet.member?(seen, key) do
+          descend(rest, lay, index, occupied, seen)
+        else
+          calls = Map.get(member.sites, Map.get(index.clauses, fact), [])
 
-      reached =
-        for {%Site{callee: callee, address: address}, took} <- uses,
-            do: {took, callee, aimed(address, column)}
+          uses =
+            for site <- calls,
+                took <- consumed(site.source, fact, index.consumed),
+                do: {site, took}
 
-      descend(rest ++ reached, %{lay | stands: [stand | stands]})
+          bindings =
+            for slot = %Slot{source: source = %Source{}} <- member.slots,
+                source.clause == nil or source.clause == index.clauses[fact],
+                took <- consumed(source.calls, fact, index.consumed),
+                do: {slot, source_value(source.binding, took, index)}
+
+          stand = %{fact: fact, member: name, column: column, uses: uses, bindings: bindings}
+          {next, taken} = vacant(column + 1, taken)
+          occupied = Map.put(occupied, name, Map.put(taken, column, next))
+
+          queue =
+            Enum.reduce(uses, rest, fn {%Site{callee: callee, address: address}, took}, q ->
+              :queue.in({took, callee, aimed(address, column)}, q)
+            end)
+
+          descend(
+            queue,
+            %{lay | stands: [stand | lay.stands]},
+            index,
+            occupied,
+            MapSet.put(seen, key)
+          )
+        end
     end
   end
 
-  # Inlining erases sites, not source calls: join by the occurrence in the original clause.
-  @spec consumed([Site.t()], [Derivation.fact()], Alloc.t()) :: [use()]
-  defp consumed(sites, facts, alloc = %Alloc{}) do
-    by_relation = Enum.group_by(facts, &elem(&1, 0))
+  @spec source_value(
+          {:argument, non_neg_integer()} | {:variable, atom()},
+          Derivation.fact(),
+          map()
+        ) :: term()
+  defp source_value({:argument, k}, fact, index), do: elem(index.arguments[fact], k)
+  defp source_value({:variable, name}, fact, index), do: Map.fetch!(index.bindings[fact], name)
 
-    for site = %Site{callee: callee, occurrence: occurrence} <- sites,
-        %Member{relation: relation} = Alloc.member(alloc, callee),
-        fact <- Enum.slice(Map.get(by_relation, relation, []), occurrence, 1),
-        do: {site, fact}
+  # A call's source path follows the derivation through any wrappers that were inlined.
+  @spec consumed([{atom(), non_neg_integer()}], Derivation.fact(), map()) :: [Derivation.fact()]
+  defp consumed([], fact, _index), do: [fact]
+
+  defp consumed([{relation, occurrence} | rest], fact, index) do
+    calls = index |> Map.get(fact, %{}) |> Map.get(relation, {})
+
+    if occurrence < tuple_size(calls),
+      do: consumed(rest, elem(calls, occurrence), index),
+      else: []
+  end
+
+  @spec positions([stand()], Alloc.t()) :: map()
+  defp positions(stands, alloc) do
+    pointed =
+      for %Member{sites: sites} <- alloc.members,
+          calls <- Map.values(sites),
+          %Site{callee: callee, address: {:at, {:cell, _ptr}, _mul, _add}} <- calls,
+          into: MapSet.new(),
+          do: callee
+
+    for stand <- Enum.reverse(stands),
+        MapSet.member?(pointed, stand.member),
+        into: %{},
+        do: {{stand.member, stand.fact}, stand.column}
   end
 
   @spec aimed(Ast.address(), pos_integer()) :: aim()
@@ -321,24 +398,20 @@ defmodule Zkfol.Lay do
   defp aimed({:at, {:cell, _ptr}, _mul, _add}, column), do: {:free, column}
 
   # A fact two sites consumed stands under each, at the column each names.
-  @spec standing(t(), stand(), use()) :: pos_integer()
-  defp standing(
-         %__MODULE__{stands: stands},
-         stand,
-         {%Site{callee: callee, address: address}, fact}
-       ) do
+  @spec standing(map(), stand(), use()) :: pos_integer()
+  defp standing(positions, stand, {%Site{callee: callee, address: address}, fact}) do
     with {:free, _near} <- aimed(address, stand.column),
-         do: Enum.find_value(stands, 1, &(&1.fact == fact and &1.member == callee and &1.column))
+         do: Map.get(positions, {callee, fact}, 1)
   end
 
   # A fact no site addressed stands where its steps put its count, else at a vacant column.
-  @spec placed(aim(), Member.t(), [term()], MapSet.t()) :: pos_integer()
-  defp placed(column, _member, _tuple, _taken) when is_integer(column), do: column
+  @spec placed(aim(), Member.t(), [term()], map()) :: {pos_integer(), map()}
+  defp placed(column, _member, _tuple, taken) when is_integer(column), do: {column, taken}
 
   defp placed({:free, near}, %Member{steps: steps}, tuple, taken) do
     with {j, origin} <- steps,
          count when is_integer(count) <- count_of(Enum.at(tuple, j)),
-         do: count - origin,
+         do: {count - origin, taken},
          else: (_uncounted -> vacant(near, taken))
   end
 
@@ -347,49 +420,75 @@ defmodule Zkfol.Lay do
   defp count_of(cells) when is_list(cells), do: length(cells)
   defp count_of(_open), do: nil
 
-  @spec vacant(pos_integer(), MapSet.t()) :: pos_integer()
-  defp vacant(column, used),
-    do: if(MapSet.member?(used, column), do: vacant(column + 1, used), else: column)
+  # Each occupied position points toward a vacancy; searches compress the traversed path.
+  @spec vacant(pos_integer(), map()) :: {pos_integer(), map()}
+  defp vacant(column, used) do
+    case Map.fetch(used, column) do
+      :error ->
+        {column, used}
 
-  @spec laid(stand(), t()) :: [{{pos_integer(), pos_integer()}, term()}]
-  defp laid(stand = %{member: name, column: x}, lay = %__MODULE__{alloc: alloc}) do
-    %Member{slots: slots} = Alloc.member(alloc, name)
-    {_relation, tuple} = stand.fact
+      {:ok, next} ->
+        {free, used} = vacant(next, used)
+        {free, Map.put(used, column, free)}
+    end
+  end
 
+  @spec laid(stand(), Alloc.t(), map()) :: [{{pos_integer(), pos_integer()}, term()}]
+  defp laid(stand = %{member: name, column: x}, alloc, positions) do
     chosen =
       for {%Site{address: address}, _fact} = use <- stand.uses,
           row = Alloc.aimed(alloc, address),
-          do: {{row, x}, standing(lay, stand, use)}
+          do: {{row, x}, standing(positions, stand, use)}
 
     [{{Alloc.presence(alloc, name), x}, 1}] ++
-      Enum.flat_map(Enum.zip(tuple, slots), &spread(&1, x, alloc)) ++ chosen
+      Enum.flat_map(stand.bindings, &spread(&1, x, alloc)) ++ chosen
   end
 
   # The allocation determines placement: scalar, term identity, bank, or no storage.
-  @spec spread({term(), Slot.t()}, pos_integer(), Alloc.t()) ::
+  @spec spread({Slot.t(), term()}, pos_integer(), Alloc.t()) ::
           [{{pos_integer(), pos_integer()}, term()}]
-  defp spread({value, %Slot{allocation: {:cell, ref}}}, x, alloc),
+  # A closure is {method, object, fixed arguments...}; the fixed arguments go to the rows.
+  defp spread({%Slot{allocation: {:rel, _name, rows}}, closure}, x, alloc) do
+    fixed = closure |> Tuple.to_list() |> Enum.drop(2)
+    for {value, row} <- Enum.zip(fixed, rows), do: {{Alloc.row(alloc, row), x}, value}
+  end
+
+  defp spread({%Slot{allocation: {:cell, ref}}, value}, x, alloc),
     do: [{{Alloc.row(alloc, ref), x}, value}]
 
-  defp spread({value, %Slot{allocation: {:node, ref}}}, x, alloc),
+  defp spread({%Slot{allocation: {:node, ref}}, value}, x, alloc),
     do: [{{Alloc.row(alloc, ref), x}, {:node, value}}]
 
-  defp spread({values, %Slot{allocation: {:bank, bank, _}} = slot}, x, alloc)
+  # A held bank is laid ending at column one, so its head is at column length + 1. The
+  # pointer cell on the member's column holds that column.
+  defp spread({slot = %Slot{allocation: {:bank, bank, address}}, values}, x, alloc)
        when is_list(values) do
     rows = Alloc.slot_rows(alloc, slot)
-    suffix = {Zkfol.Nodes, {:suffix, bank}}
-    suffix_row = if suffix in Alloc.refs(alloc), do: Alloc.row(alloc, suffix)
 
-    Enum.flat_map(Enum.with_index(values), fn {value, p} ->
-      column = Ast.column(at(slot, p), x)
+    suffix_rows =
+      for ref = {Zkfol.Nodes, {:suffix, {^bank, _element}}} <- Alloc.refs(alloc),
+          do: Alloc.row(alloc, ref)
 
-      cells =
-        for {cell, row} <- Enum.zip(row_values(value, length(rows)), rows),
-            do: {{Alloc.row(alloc, row), column}, cell}
+    {pointer, base} =
+      case address do
+        {:at, {:cell, ref}, _m, _a} ->
+          {[{{Alloc.row(alloc, ref), x}, length(values) + 1}], length(values) + 1}
 
-      nodes = if suffix_row, do: [{{suffix_row, column}, {:node, Enum.drop(values, p)}}], else: []
-      [{{Alloc.presence(alloc, bank), column}, 1} | cells ++ nodes]
-    end)
+        {:at, :x, _m, _a} ->
+          {[], x}
+      end
+
+    pointer ++
+      Enum.flat_map(Enum.with_index(values), fn {value, p} ->
+        column = Ast.column(at(slot, p), base)
+
+        cells =
+          for {cell, row} <- Enum.zip(row_values(value, length(rows)), rows),
+              do: {{Alloc.row(alloc, row), column}, cell}
+
+        nodes = for row <- suffix_rows, do: {{row, column}, {:node, Enum.drop(values, p)}}
+        [{{Alloc.presence(alloc, bank), column}, 1} | cells ++ nodes]
+      end)
   end
 
   defp spread(_unallocated, _x, _alloc), do: []
