@@ -21,6 +21,7 @@ defmodule Zkfol.Phi do
   - `relaid/2`: the derivation laid as the statement's witness.
   - `compile/3`: the predicate and the allocation it stands on.
   - `lower/2`: that predicate, linked.
+  - `match/3`: match patterns against symbolic accesses, continuing an inspectable walk.
   """
 
   @behaviour Zkfol.Pipeline
@@ -40,6 +41,7 @@ defmodule Zkfol.Phi do
   alias Zkfol.Phi.View
   alias Zkfol.Phi.Value
   alias Zkfol.Phi.Walk
+  alias Zkfol.Phi.Walk.Clause
   alias Zkfol.Refusal
   alias Zkfol.Statement
 
@@ -76,8 +78,13 @@ defmodule Zkfol.Phi do
     # What the run established of the root itself: the arguments, every hole filled.
     {_name, args} = Derivation.root(derivation, root.name) || {root.name, []}
 
-    with {:ok, pred, alloc} <- compile(root, rels, args) do
-      stage = %Statement.Solved{pred: Alloc.link(pred, alloc), lay: Lay.of(derivation, alloc)}
+    with {:ok, pred, alloc, walk} <- lowered(root, rels, args) do
+      stage = %Statement.Solved{
+        pred: Alloc.link(pred, alloc),
+        lay: Lay.of(derivation, alloc),
+        lowering: walk
+      }
+
       {:ok, %{statement | stage: stage}}
     end
   end
@@ -92,13 +99,32 @@ defmodule Zkfol.Phi do
   @spec compile(Rel.t(), [Rel.t()] | nil, [term()]) ::
           {:ok, Ast.pred(), Alloc.t()} | {:error, Refusal.t()}
   def compile(root = %Rel{}, rels \\ nil, args \\ []) do
+    with {:ok, pred, alloc, _walk} <- lowered(root, rels, args), do: {:ok, pred, alloc}
+  end
+
+  @doc """
+  I match source patterns against symbolic accesses, retaining their bindings, equations,
+  and storage requirements. The returned walk can receive the next patterns; `:dead`
+  means this clause is impossible. Patterns and accesses have equal length.
+  """
+  @spec match([term()], [Value.t()], Walk.t()) :: Walk.t() | :dead
+  def match(patterns, values, walk \\ %Walk{})
+  def match([], [], walk), do: walk
+
+  def match([pattern | patterns], [value | values], walk) do
+    with walk = %Walk{} <- unify(pattern, value, walk), do: match(patterns, values, walk)
+  end
+
+  @spec lowered(Rel.t(), [Rel.t()] | nil, [term()]) ::
+          {:ok, Ast.pred(), Alloc.t(), Walk.t()} | {:error, Refusal.t()}
+  defp lowered(root, rels, args) do
     with {:ok, [root | _rest] = reached} <- Lang.reached(root, rels || [root]) do
       compiled(root, Map.new(reached, &{&1.name, &1}), args)
     end
   end
 
   @spec compiled(Rel.t(), %{atom() => Rel.t()}, [term()]) ::
-          {:ok, Ast.pred(), Alloc.t()} | {:error, Refusal.t()}
+          {:ok, Ast.pred(), Alloc.t(), Walk.t()} | {:error, Refusal.t()}
   defp compiled(root = %Rel{}, scope, args) do
     # A handed scalar is data: its count may place (rule 4), its value never substitutes.
     handed =
@@ -139,7 +165,7 @@ defmodule Zkfol.Phi do
       )
 
     {pred, members} = Zkfol.Nodes.lower(pred, walk.members)
-    {:ok, pred, Alloc.numbered(members, name)}
+    {:ok, pred, Alloc.numbered(members, name), walk}
   catch
     {:refused, refusal} -> {:error, refusal}
   end
@@ -183,14 +209,21 @@ defmodule Zkfol.Phi do
     }
 
     clauses = compile_clauses(rel, member, binds, %Walk{banks: seeded}, ctx)
-    live = for clause = %Walk{} <- clauses, do: clause
-    branches = for clause <- live, do: Ast.conj(clause.eqs)
+    live = for %Clause{compiled: walk = %Walk{}} <- clauses, do: walk
+
+    branches =
+      for clause <- live,
+          do: Ast.conj([Ast.eq({:cell, {:in, name}}, 1) | Enum.reverse(clause.eqs)])
+
     {binds, slots, banks} = allocate_parameters(binds, refs, seeded, live)
 
     sites =
       Map.new(Enum.with_index(clauses), fn
-        {%Walk{sites: sites}, k} -> {k, for({_i, site} <- Enum.sort(sites), do: site)}
-        {:dead, k} -> {k, []}
+        {%Clause{compiled: %Walk{sites: sites}}, k} ->
+          {k, for({_i, site} <- Enum.sort(sites), do: site)}
+
+        {%Clause{compiled: :dead}, k} ->
+          {k, []}
       end)
 
     local = live |> Enum.flat_map(& &1.slots) |> Enum.sort_by(&elem(&1.allocation, 1))
@@ -204,7 +237,8 @@ defmodule Zkfol.Phi do
 
     walk = %Walk{
       members: [member | banks] ++ Enum.flat_map(live, & &1.members),
-      predicates: [said | Enum.flat_map(live, & &1.predicates)]
+      predicates: [said | Enum.flat_map(live, & &1.predicates)],
+      clauses: clauses
     }
 
     {name, binds, walk}
@@ -505,17 +539,29 @@ defmodule Zkfol.Phi do
 
   # A clause retains its equations, bindings and sites together; impossible clauses stay dead.
   @spec compile_clauses(Rel.t(), Member.t(), [value()], Walk.t(), ctx()) ::
-          [Walk.t() | :dead]
+          [Clause.t()]
   defp compile_clauses(%Rel{clauses: clauses}, %Member{name: name}, binds, seeded, ctx) do
     {walks, _taken} =
       Enum.map_reduce(Enum.with_index(clauses), ctx.taken, fn {{head, body}, k}, taken ->
-        with walk = %Walk{} <- unify_all(head, binds, seeded),
-             walk = %Walk{} <- compile_goals(body, walk, %{ctx | site: [k], taken: taken}) do
-          eqs = [Ast.eq({:cell, {:in, name}}, 1) | Enum.reverse(walk.eqs)]
-          {%{walk | eqs: eqs}, Enum.into(Alloc.names(walk.members), taken)}
-        else
-          :dead -> {:dead, taken}
-        end
+        matched = match(head, binds, seeded)
+
+        {compiled, taken} =
+          with walk = %Walk{} <- matched,
+               walk = %Walk{} <- compile_goals(body, walk, %{ctx | site: [k], taken: taken}) do
+            {walk, Enum.into(Alloc.names(walk.members), taken)}
+          else
+            :dead -> {:dead, taken}
+          end
+
+        {%Clause{
+           member: name,
+           head: head,
+           body: body,
+           accesses: binds,
+           before: seeded,
+           matched: matched,
+           compiled: compiled
+         }, taken}
       end)
 
     walks
@@ -611,7 +657,7 @@ defmodule Zkfol.Phi do
 
     candidates =
       for {{head, body}, k} <- Enum.with_index(callee.clauses),
-          inner = %Walk{} <- [unify_all(head, values, %Walk{})] do
+          inner = %Walk{} <- [match(head, values, %Walk{})] do
         if strategy == :residual,
           do: :residual,
           else: inline_clause(callee.name, {k, head, body, inner}, args, walk, within)
@@ -729,7 +775,7 @@ defmodule Zkfol.Phi do
       outputs = for pattern <- head, do: resolve(pattern, walk.env)
       free = walk.eqs == [] and not Enum.any?(outputs, &arithmetic?/1)
 
-      case unify_all(args, outputs, Walk.constrain(caller, Enum.reverse(walk.eqs))) do
+      case match(args, outputs, Walk.constrain(caller, Enum.reverse(walk.eqs))) do
         walk = %Walk{} -> {if(free, do: :substitution, else: :constrained), walk}
         :dead -> :residual
       end
@@ -755,7 +801,7 @@ defmodule Zkfol.Phi do
     present = Ast.eq(Value.frame({:cell, {:in, name}}, frame), 1)
 
     with walk = %Walk{} <-
-           unify_all(
+           match(
              args,
              for(bind <- binds, do: Value.frame(bind, frame)),
              Walk.constrain(caller, [present])
@@ -776,7 +822,8 @@ defmodule Zkfol.Phi do
           predicates: walk.predicates ++ made.predicates,
           eqs: Enum.reverse(made.eqs, walk.eqs),
           sites: walk.sites ++ [{k, site}],
-          slots: walk.slots ++ pointers
+          slots: walk.slots ++ pointers,
+          clauses: walk.clauses ++ made.clauses
       }
     end
   end
@@ -938,13 +985,6 @@ defmodule Zkfol.Phi do
   ############################################################
   #                        Unifying                          #
   ############################################################
-
-  @spec unify_all([term()], [value()], Walk.t()) :: Walk.t() | :dead
-  defp unify_all([], [], walk), do: walk
-
-  defp unify_all([pattern | patterns], [value | values], walk) do
-    with walk = %Walk{} <- unify(pattern, value, walk), do: unify_all(patterns, values, walk)
-  end
 
   @spec unify(term(), value(), Walk.t()) :: Walk.t() | :dead
   defp unify(value, value, walk), do: walk
