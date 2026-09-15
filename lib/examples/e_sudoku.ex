@@ -115,21 +115,13 @@ defmodule Examples.ESudoku do
     uair
   end
 
-  @doc "The twenty-seven claims are one group and the proof is that group."
-  @spec families_proved() :: Prover.Report.t()
-  example families_proved do
-    {:ok, report, _id} = Prover.prove_uair(families_selected(), name: :families)
-    report
-  end
-
   @doc "Different private grids prove on the same allocation; every family shares one puzzle bank."
   @spec private_grids_share_one_allocation() :: [Prover.Report.t()]
   example private_grids_share_one_allocation do
     {:ok, pred, alloc} = Zkfol.Phi.compile(families(), nil, act())
     assert [%Bank{depth: 9}] = Enum.filter(alloc.members, &is_struct(&1, Bank))
-    relabelled = for row <- @solution, do: for(n <- row, do: rem(n, 9) + 1)
 
-    for grid <- [@solution, relabelled] do
+    for grid <- [@solution, relabelled()] do
       assert {:ok, ^pred, ^alloc} = Zkfol.Phi.compile(families(), nil, [grid])
       {:ok, derivation} = Zkfol.Al.derived(families(), [grid])
       witness = derivation |> Zkfol.Lay.of(alloc) |> Zkfol.Lay.witness()
@@ -266,53 +258,39 @@ defmodule Examples.ESudoku do
     families16(x)
   end
 
-  @doc "Every clue reads a named cell, so each is a tie and nothing owes a Word."
-  @spec clued_selected() :: Uair.t()
-  example clued_selected do
+  @doc "Every clue reads a named cell; orders nine and sixteen share one selected group apiece."
+  @spec clued_selected(9 | 16) :: Uair.t()
+  example clued_selected(order \\ 9) do
+    {relation, args} = if order == 9, do: {clued(), act()}, else: {clued16(), act16()}
+
     {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [clued()], args: act()})
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-
-    assert uair.word_lookups == []
-    assert uair.mode == %Uair.Plain{}
-    assert [%{selections: selections}] = uair.selected_lookups
-    assert length(selections) == 27
-    assert Enum.all?(uair.point_ties, &match?(%{target: {:broadcast, _}}, &1))
-    assert length(uair.point_ties) == 17
-    assert Uair.num_cols(uair) == 30
-    assert length(uair.program) == 363
-    uair
-  end
-
-  @doc "Seventeen clues over a proved grid, at the price of the group and a column a read."
-  @spec clued_proved() :: Prover.Report.t()
-  example clued_proved do
-    {:ok, report, _id} = Prover.prove_uair(clued_selected(), name: :clued)
-    report
-  end
-
-  @doc "The sixteen-order grid the same `puzzle` names: one selected group and no Word."
-  @spec clued16_selected() :: Uair.t()
-  example clued16_selected do
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [clued16()], args: act16()})
+      Pipeline.run(EUser.plain(), %Statement{rels: [relation], args: args})
 
     {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
 
     assert uair.word_lookups == []
     assert uair.mode == %Uair.Plain{}
     assert [%{values: values, selections: selections}] = uair.selected_lookups
-    assert values == Enum.to_list(1..16)
-    assert length(selections) == 48
+    assert values == Enum.to_list(1..order)
+    assert length(selections) == 3 * order
+    assert Enum.all?(uair.point_ties, &match?(%{target: {:broadcast, _}}, &1))
+
+    if order == 9 do
+      assert length(uair.point_ties) == 17
+      assert Uair.num_cols(uair) == 30
+      assert length(uair.program) == 363
+    end
+
     uair
   end
 
-  @doc "Order sixteen proves through the selected group."
-  @spec clued16_proved() :: Prover.Report.t()
-  example clued16_proved do
-    {:ok, report, _id} = Prover.prove_uair(clued16_selected(), name: :clued16)
-    report
+  @doc "Both grid sizes prove their clues through the selected group."
+  @spec clued_proved([9 | 16]) :: [Prover.Report.t()]
+  example clued_proved(orders \\ [9, 16]) do
+    for order <- orders do
+      {:ok, report, _id} = Prover.prove_uair(clued_selected(order), name: :clued)
+      report
+    end
   end
 
   @doc "The forty-eight order-sixteen families over the grid's own cells, one selected group."
@@ -330,15 +308,19 @@ defmodule Examples.ESudoku do
     report
   end
 
-  @doc "A grid not under the clues is refused by the proof, not only the derivation."
+  @doc "Relabelled digits still form a Sudoku; the clue ties alone refuse that grid."
   @spec a_clue_unmet_is_no_proof() :: Refusal.t()
   example a_clue_unmet_is_no_proof do
     uair = clued_selected()
-    %{column: column, row: row} = tie = hd(uair.point_ties)
     [%{columns: columns}] = uair.selected_lookups
 
-    assert tie.column in columns
-    unmet = List.update_at(uair.columns, column, &List.update_at(&1, row, fn v -> v + 1 end))
+    unmet =
+      for {cells, column} <- Enum.with_index(uair.columns) do
+        if column in columns, do: Enum.map(cells, &(10 - &1)), else: cells
+      end
+
+    assert {:ok, %Prover.Report{}, _id} =
+             Prover.prove_uair(%{uair | columns: unmet, point_ties: []})
 
     assert {:error, {:verifier_rejected, _said} = refused} =
              Prover.prove_uair(%{uair | columns: unmet}, name: :clue_unmet)

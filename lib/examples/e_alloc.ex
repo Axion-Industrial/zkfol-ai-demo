@@ -138,30 +138,23 @@ defmodule Examples.EAlloc do
     cons
   end
 
+  @doc "The allocation links Fibonacci's answer and opens that answer with its presence."
   @spec fibonacci_alloc() :: Alloc.t()
   example fibonacci_alloc do
-    alloc = Statement.alloc(EUser.fibonacci(6))
+    statement = EUser.fibonacci(6)
+    alloc = Statement.alloc(statement)
+    witness = Statement.witness(statement)
+    answer = Ast.eq(Ast.cell({:fib, {:param, :v}}), EUser.fib(6))
+    assert Zkfol.Semantics.holds?(Alloc.link(answer, alloc), witness, 6)
 
-    assert Alloc.refs(alloc) == [{:fib, {:param, :v}}, {:in, :fib}]
-    assert Alloc.rows(alloc, :fib) == 1..1
-    assert Alloc.rows(alloc, :in) == 2..2
+    {:ok, claims} = Lay.claims(Statement.lay(statement), [{:fib, :v}])
+
+    opened =
+      Map.new(claims, fn {name, row, column} ->
+        {name, Interpretation.at(witness, row, column)}
+      end)
+
+    assert opened == %{"fib.v" => EUser.fib(6), "in" => 1}
     alloc
-  end
-
-  @spec linking_resolves_names_to_rows() :: Ast.pred()
-  example linking_resolves_names_to_rows do
-    phi = Ast.eq(Ast.cell({:in, :fib}), Ast.add(Ast.cell({:fib, {:param, :v}}), 1))
-    linked = Alloc.link(phi, fibonacci_alloc())
-
-    assert {:eq, {:cell, 2}, {:add, {:cell, 1}, 1}} = linked
-    linked
-  end
-
-  @spec claim_on_a_member_opens_its_presence() :: [Interpretation.claim()]
-  example claim_on_a_member_opens_its_presence do
-    {:ok, claims} = Lay.claims(Statement.lay(EUser.fibonacci(6)), [{:fib, :v}])
-
-    assert claims == [{"fib.v", 1, 6}, {"in", 2, 6}]
-    claims
   end
 end

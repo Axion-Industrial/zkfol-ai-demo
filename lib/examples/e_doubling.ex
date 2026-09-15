@@ -30,10 +30,7 @@ defmodule Examples.EDoubling do
 
     assert claimed(statement) == EUser.fib(n)
 
-    assert Enum.all?(
-             1..Interpretation.len(witness),
-             &Semantics.holds?(Statement.pred(statement), witness, &1)
-           )
+    assert Semantics.valid?(Statement.pred(statement), witness)
 
     statement
   end
@@ -64,10 +61,7 @@ defmodule Examples.EDoubling do
 
     assert claimed(statement) == fib_mod(n, mod)
 
-    assert Enum.all?(
-             1..Interpretation.len(witness),
-             &Semantics.holds?(Statement.pred(statement), witness, &1)
-           )
+    assert Semantics.valid?(Statement.pred(statement), witness)
 
     statement
   end
