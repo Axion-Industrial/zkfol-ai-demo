@@ -4,6 +4,7 @@ Class {
 	#instVars : [
 		'labels',
 		'evals',
+		'holds',
 		'terms',
 		'trees',
 		'sources',
@@ -26,7 +27,8 @@ ZkfolJudgement class >> onFeed: aDictionary [
 			trees: (aDictionary at: #trees ifAbsent: [ nil ])
 			sources: (aDictionary at: #sources ifAbsent: [ nil ])
 			rows: (aDictionary at: #rows ifAbsent: [ nil ])
-			witness: (aDictionary at: #witness ifAbsent: [ nil ]);
+			witness: (aDictionary at: #witness ifAbsent: [ nil ])
+			holds: (aDictionary at: #holds);
 		yourself
 ]
 
@@ -91,8 +93,7 @@ ZkfolJudgement >> evals [
 { #category : 'views' }
 ZkfolJudgement >> gtEquationsFor: aView [
 	"Each branch as the paper writes it: the formula whose squared sum
-	 the grid scores. A column holds when some branch's sum reaches
-	 zero there."
+	 the grid scores. The oracle judges the whole predicate at each column."
 	<gtView>
 	terms ifNil: [ ^ aView empty ].
 	^ aView columnedList
@@ -117,15 +118,12 @@ ZkfolJudgement >> gtHeatmapFor: aView [
 ZkfolJudgement >> asElement [
 	"Branches down, trace columns across, one verdict per column, in
 	 the one grid vocabulary the Lay beneath me speaks. The heatmap
-	 alone: the laid witness is the Lay's to show, beside me. Disjunction is
-	 a product: a column holds when some branch zeroes it. Green
-	 answers, white declines beside an answer, red only where nobody
+	 alone: the laid witness is the Lay's to show, beside me.
+	 The oracle supplies the whole-predicate verdict. Green answers, white declines beside an answer, red only where nobody
 	 answers. A branch label carries its formula as a tooltip; a cell
 	 unfolds its equations; a header or verdict judges its column."
-	| numCols holds rows header footer |
+	| numCols rows header footer |
 	numCols := evals first size.
-	holds := (1 to: numCols) collect: [ :x |
-		evals anySatisfy: [ :branchEvals | (branchEvals at: x) = 0 ] ].
 	header := ZkfolElements gridRow.
 	header addChild: (BlElement new size: (self labelWidth + 2) @ 16; yourself).
 	1 to: numCols do: [ :x |
@@ -184,14 +182,15 @@ ZkfolJudgement >> rowLabels [
 ]
 
 { #category : 'accessing' }
-ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms trees: aTreeMatrix sources: someSources rows: someRowLabels witness: witnessColumns [
+ZkfolJudgement >> setLabels: someLabels evals: aMatrix terms: someTerms trees: aTreeMatrix sources: someSources rows: someRowLabels witness: witnessColumns holds: verdicts [
 	labels := someLabels.
 	evals := aMatrix.
 	terms := someTerms.
 	trees := aTreeMatrix.
 	sources := someSources.
 	rowLabels := someRowLabels.
-	witness := witnessColumns
+	witness := witnessColumns.
+	holds := verdicts
 ]
 
 { #category : 'accessing' }

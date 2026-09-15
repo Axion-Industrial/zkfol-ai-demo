@@ -93,7 +93,7 @@ defmodule Zkfol.Face do
   defp fact_row({name, tuple}), do: [name | tuple]
 
   @doc "I am the judgement as a table: a row per branch, a column per witness column."
-  @judgement_keys ~w(labels evals terms trees sources rows regions arrows aims witness)a
+  @judgement_keys ~w(holds labels evals terms trees sources rows regions arrows aims witness)a
 
   @spec judgement(Statement.t()) :: %{atom() => term()}
   def judgement(statement = %Statement{stage: %Solved{lay: lay}}) do
@@ -106,6 +106,7 @@ defmodule Zkfol.Face do
     conjuncts = Enum.map(branches, &conjuncts_of/1)
 
     Map.merge(lay(lay), %{
+      holds: for(x <- 1..len, do: Semantics.holds?(Statement.pred(statement), witness, x)),
       labels: labels(statement, length(branches)),
       evals: for(b <- branches, do: for(x <- 1..len, do: Semantics.eval(b, witness, x))),
       terms: for(goals <- conjuncts, do: Enum.map(goals, &phi_text/1)),
