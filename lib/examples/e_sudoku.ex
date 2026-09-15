@@ -72,6 +72,11 @@ defmodule Examples.ESudoku do
     sudoku(x, 3)
   end
 
+  defrel solved16(x) do
+    puzzle(2, x)
+    sudoku(x, 4)
+  end
+
   defrel sudoku(xs, blocks) do
     length(xs, n)
     n = blocks ** 2
