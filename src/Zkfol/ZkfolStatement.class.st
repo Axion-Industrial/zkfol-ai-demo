@@ -81,6 +81,7 @@ ZkfolStatement >> interestingObjects [
 	 the one list my own Objects view shows and the receipt reads off
 	 its final stage, so neither maintains the other's."
 	^ {
+		'lowering' -> [ self evaluateOrNil: 'Zkfol.Statement.lowering(' , self resolve , ')' ].
 		'lay' -> [ self lay ].
 		'allocation' -> [ self alloc ].
 		'derivation' -> [ self derivation ] }

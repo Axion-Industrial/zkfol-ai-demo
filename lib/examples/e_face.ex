@@ -189,12 +189,21 @@ defmodule Examples.EFace do
 
   @spec the_stage_carries_its_derivation() :: %{atom() => term()}
   example the_stage_carries_its_derivation do
-    feed = Face.derivation(EUser.fibonacci())
+    statement = EUser.fibonacci()
+    feed = Face.derivation(statement)
 
     assert %{fact: [:fib, 8, 21], consumes: [[:gt, 8, 2, 5], [:fib, 7, 13], [:fib, 6, 8]]} =
              List.last(feed.rows)
 
-    assert %GtBridge.Phlow.ColumnedList{} = Face.derivation_view(EUser.fibonacci(), Builder)
+    assert %GtBridge.Phlow.ColumnedList{} = Face.derivation_view(statement, Builder)
+    lowering = statement |> Face.lowering_view(Builder) |> ColumnedList.as_dict()
+    [_, _, recursive] = lowering.rawItems
+    assert recursive.before.env == %{}
+    assert Enum.sort(Map.keys(recursive.matched.env)) == [:v, :x]
+    assert Map.has_key?(recursive.compiled.env, :v1) and Map.has_key?(recursive.compiled.env, :v2)
+    steps = recursive |> Face.steps_view(Builder) |> ColumnedList.as_dict()
+    assert List.last(steps.rawItems) == recursive.compiled
+    assert {:ok, _json} = Jexon.to_json(lowering)
     feed
   end
 
