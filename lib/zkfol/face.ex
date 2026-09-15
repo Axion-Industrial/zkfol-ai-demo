@@ -625,7 +625,8 @@ defmodule Zkfol.Face do
   defp clause_text(name, head, body),
     do: call_text(name, head) <> " do " <> Enum.map_join(body, "; ", &goal_text/1) <> " end"
 
-  @spec call_text(atom(), [term()]) :: String.t()
+  @spec call_text(Zkfol.Lang.Term.name(), [term()]) :: String.t()
+  defp call_text({mod, name}, args), do: call_text(:"#{inspect(mod)}.#{name}", args)
   defp call_text(name, args), do: "#{name}(#{Enum.map_join(args, ", ", &surface_text/1)})"
 
   @spec goal_text(term()) :: String.t()
@@ -638,7 +639,7 @@ defmodule Zkfol.Face do
 
   @spec surface_leaf(term()) :: String.t()
   defp surface_leaf({:var, name}), do: to_string(name)
-  defp surface_leaf({:papply, name, []}), do: to_string(name)
+  defp surface_leaf({:papply, name, []}), do: call_text(name, [])
   defp surface_leaf({:papply, name, args}), do: call_text(name, args)
   defp surface_leaf({:reify, goal}), do: "reify(" <> goal_text(goal) <> ")"
   defp surface_leaf(_pinned), do: "^"
