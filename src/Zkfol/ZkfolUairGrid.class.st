@@ -150,12 +150,12 @@ ZkfolUairGrid >> failingChains [
 	"Every composed read that contradicts itself, at every position."
 	| chains |
 	chains := OrderedCollection new.
-	1 to: self displayedPositions do: [ :p |
+	1 to: self fullWidth do: [ :p |
 		chains addAll: ((self derefChainsAt: p) select: [ :c |
 			c agrees not
 				and: [ c valueRow notNil
 				and: [ c resultRow notNil
-				and: [ c target between: 1 and: self displayedPositions ] ] ] ]) ].
+				and: [ c target between: 1 and: self fullWidth ] ] ] ]) ].
 	^ chains
 ]
 
