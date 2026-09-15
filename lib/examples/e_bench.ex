@@ -5,7 +5,6 @@ defmodule Examples.EBench do
 
   alias Examples.EDoubling
   alias Examples.EUser
-  alias Zkfol.Interpretation
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Statement
@@ -13,56 +12,33 @@ defmodule Examples.EBench do
 
   @spec measured_power(non_neg_integer()) :: map()
   example measured_power(exponent \\ 32) do
-    witness = Statement.witness(EUser.power(exponent))
-    measurement("power 2^#{exponent}", Statement.pred(EUser.power(exponent)), witness)
+    measurement("power 2^#{exponent}", EUser.power(exponent))
   end
 
   @doc "The trace wall in the pinned prover bounds the padded rows, so the default stays small."
   @spec measured_fibonacci(pos_integer()) :: map()
   example measured_fibonacci(n \\ 32) do
-    witness = Statement.witness(EUser.fibonacci(n))
-    measurement("fibonacci n=#{n}", Statement.pred(EUser.fibonacci()), witness)
+    measurement("fibonacci n=#{n}", EUser.fibonacci(n))
   end
 
   @spec measured_registers_fibonacci(pos_integer()) :: map()
   example measured_registers_fibonacci(n \\ 32) do
-    witness = Statement.witness(EUser.registers(n))
-    measurement("fibonacci n=#{n}, registers", Statement.pred(EUser.registers(n)), witness)
+    measurement("fibonacci n=#{n}, registers", EUser.registers(n))
   end
 
   @spec measured_registers_fibonacci_mod(pos_integer()) :: map()
   example measured_registers_fibonacci_mod(n \\ 1000) do
-    statement = EUser.registers_mod(n)
-
-    measurement(
-      "fibonacci n=#{n}, registers mod 7919",
-      Statement.pred(statement),
-      Statement.witness(statement)
-    )
+    measurement("fibonacci n=#{n}, registers mod 7919", EUser.registers_mod(n))
   end
 
   @spec measured_doubled_fibonacci(pos_integer()) :: map()
   example measured_doubled_fibonacci(n \\ 10_000) do
-    statement = EDoubling.rewritten_fibonacci(n)
-
-    measurement(
-      "fibonacci n=#{n}, doubled",
-      Statement.pred(statement),
-      Statement.witness(statement),
-      Statement.claims(statement)
-    )
+    measurement("fibonacci n=#{n}, doubled", EDoubling.rewritten_fibonacci(n))
   end
 
   @spec measured_doubled_fibonacci_mod(pos_integer(), pos_integer()) :: map()
   example measured_doubled_fibonacci_mod(n \\ 10_000, mod \\ 7919) do
-    statement = EDoubling.rewritten_fibonacci_mod(n, mod)
-
-    measurement(
-      "fibonacci n=#{n} mod #{mod}, doubled",
-      Statement.pred(statement),
-      Statement.witness(statement),
-      Statement.claims(statement)
-    )
+    measurement("fibonacci n=#{n} mod #{mod}, doubled", EDoubling.rewritten_fibonacci_mod(n, mod))
   end
 
   @spec measured_hop(pos_integer()) :: map()
@@ -70,11 +46,7 @@ defmodule Examples.EBench do
     {:ok, statement, _trace} =
       Pipeline.run(Pipeline.default(), %Statement{rels: [Examples.EAl.hop_rel()], args: [n]})
 
-    measurement(
-      "hop n=#{n}, pointer query",
-      Statement.pred(statement),
-      Statement.witness(statement)
-    )
+    measurement("hop n=#{n}, pointer query", statement)
   end
 
   @doc "I am the fib table: one function four ways, reduced and not, rewritten and not."
@@ -107,16 +79,22 @@ defmodule Examples.EBench do
     ]
   end
 
-  @doc "I prove `phi` under `witness` and keep the numbers; the rss peak resets at entry."
-  @spec measurement(String.t(), Zkfol.Ast.pred(), Interpretation.t(), [Interpretation.claim()]) ::
-          map()
-  def measurement(statement, phi, witness, claims \\ []) do
+  @doc "I prove a solved statement and keep the numbers; the rss peak resets at entry."
+  @spec measurement(String.t(), Statement.t()) :: map()
+  def measurement(name, statement) do
     rss_baseline_mb = reset_peak_rss()
-    {:ok, uair} = Uair.emit(phi, witness, claims)
-    {:ok, report, _id} = Prover.prove_uair(uair, name: statement, timeout: :infinity)
+
+    {:ok, uair} =
+      Uair.emit(
+        Statement.pred(statement),
+        Statement.witness(statement),
+        Statement.claims(statement)
+      )
+
+    {:ok, report, _id} = Prover.prove_uair(uair, name: name, timeout: :infinity)
 
     %{
-      statement: statement,
+      statement: name,
       backend: report.backend,
       prove_ms: report.prove_ms,
       verify_ms: report.verify_ms,

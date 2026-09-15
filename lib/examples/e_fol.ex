@@ -16,7 +16,6 @@ defmodule Examples.EFol do
   alias Zkfol.Refusal
   alias Zkfol.Statement
   alias Zkfol.Uair
-  alias Zkfol.Witness
 
   defrel counted(xs) do
     length(xs, n)
@@ -51,10 +50,8 @@ defmodule Examples.EFol do
 
   @spec ranged() :: Statement.t()
   example ranged do
-    plain = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
-
     {:ok, statement, _trace} =
-      Pipeline.run(plain, %Statement{rels: [counted()], args: [[3, 1, 2]]})
+      Pipeline.run(EUser.plain(), %Statement{rels: [counted()], args: [[3, 1, 2]]})
 
     assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
     statement
@@ -64,8 +61,9 @@ defmodule Examples.EFol do
   example concatenation do
     assert Enum.take(Zkfol.stream(joined(), [:_]), 1) == [[[1, 2, 3]]]
 
-    plain = %Pipeline{passes: [{Witness, []}, {Phi, []}]}
-    {:ok, statement, _trace} = Pipeline.run(plain, %Statement{rels: [joined()], args: [:_]})
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [joined()], args: [:_]})
+
     statement
   end
 
@@ -100,13 +98,6 @@ defmodule Examples.EFol do
     assert length(selections) == 9
     assert uair.word_lookups == []
     uair
-  end
-
-  @doc "The nine lookups are the proof, and they verify."
-  @spec columns_proved() :: Prover.Report.t()
-  example columns_proved do
-    {:ok, report, _id} = Prover.prove_uair(looked_up_columns(), name: :columns_apart)
-    report
   end
 
   @doc "An index into a bank opens the nine values at that column; the groups stay private."
