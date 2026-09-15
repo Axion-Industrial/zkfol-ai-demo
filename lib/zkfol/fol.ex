@@ -1,13 +1,11 @@
 defmodule Zkfol.FOL do
   @moduledoc """
-  I am the standard relations: the helpers every program leans on,
-  resolved by name wherever `use Zkfol.Lang` writes a clause, after the
-  program's own and before the prims.
+  I represent the standard library for FOL.
 
   ### Public API
 
-  - `each/0`: `each(r, xs)`, `r` holding of every cell.
-  - `map/0`: `map(r, xs, ys)`, `ys` the image of `xs` under `r`.
+  - `each/0`: `each(xs, r)`, `r` holding of every cell.
+  - `map/0`: `map(xs, r, ys)`, `ys` the image of `xs` under `r`.
   - `length/0`: `length(xs, n)`.
   - `between/0`: `between(lo, hi, x)`.
   - `append/0`: `append(xs, ys, zs)`.
@@ -20,24 +18,24 @@ defmodule Zkfol.FOL do
 
   use Zkfol.Lang
 
-  defrel each(_r, [])
+  defrel each([], _r)
 
-  defrel each(r, [h | t]) do
-    r(h)
-    each(r, t)
+  defrel each([x | xs], r) do
+    r(x)
+    each(xs, r)
   end
 
-  defrel map(_r, [], [])
+  defrel map([], _r, [])
 
-  defrel map(r, [h | t], [g | s]) do
-    r(h, g)
-    map(r, t, s)
+  defrel map([x | xs], r, [y | ys]) do
+    r(x, y)
+    map(xs, r, ys)
   end
 
   defrel length([], 0)
 
-  defrel length([_ | t], n) do
-    length(t, m)
+  defrel length([_ | xs], n) do
+    length(xs, m)
     n = m + 1
   end
 

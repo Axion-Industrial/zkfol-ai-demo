@@ -36,27 +36,21 @@ defmodule Examples.EFacts do
     v = a * b
   end
 
-  @doc "I read the modulus off the structure, the coefficients those of the unreduced recurrence."
-  @spec a_reduced_step_carries_its_modulus() :: Facts.t()
-  example a_reduced_step_carries_its_modulus do
-    {:ok, descriptor} = Facts.recurrence(reduced())
-    {:ok, unreduced} = Facts.recurrence(EUser.fib())
+  @spec recurrences() :: [Facts.t()]
+  example recurrences do
+    {:ok, reduced} = Facts.of(reduced())
+    {:ok, fib} = Facts.of(EUser.fib())
 
-    assert %{p: 1, q: 1, mod: 1000} = Map.from_struct(descriptor)
-    assert %{p: 1, q: 1, mod: nil, initial: [{1, 1}, {2, 1}]} = Map.from_struct(unreduced)
-    descriptor
+    assert reduced == %Facts{base: [{1, 1}, {2, 1}], coefficients: {1, 1}, modulus: 1000}
+    assert fib == %{reduced | modulus: nil}
+    [reduced, fib]
   end
 
-  @doc "Outside the order-two class, each shape refuses by its own name."
-  @spec refusals_outside_the_class() :: [Refusal.t()]
-  example refusals_outside_the_class do
-    {:error, order} = Facts.recurrence(factorial())
-    {:error, step} = Facts.recurrence(entangled())
-    {:error, arity} = Facts.recurrence(EUser.regs())
-
-    assert {:not_order_two, %{offsets: [-1]}} = order
-    assert {:step_not_linear, %{term: _term}} = step
-    assert {:not_an_index_relation, %{arity: 3}} = arity
-    [order, step, arity]
+  @spec refusals() :: [Refusal.t()]
+  example refusals do
+    for rel <- [factorial(), entangled(), EUser.regs()] do
+      assert {:error, {:not_a_recurrence, %{relation: _}} = refusal} = Facts.of(rel)
+      refusal
+    end
   end
 end

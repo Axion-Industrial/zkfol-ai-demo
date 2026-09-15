@@ -186,51 +186,20 @@ defmodule Examples.EUser do
     v = a + d
   end
 
-  defrel each([], _r, 0)
-
-  defrel each([c | t], r, n) do
-    r(c)
-    each(t, r, m)
-    n = m + 1
-  end
-
-  defrel row_ok([a, b]) do
-    a < b
-  end
-
-  defrel checked(n) do
-    each([[3, 4], [5, 6]], row_ok, n)
-  end
-
   defrel succ(x, y) do
     y = x + 1
   end
 
-  defrel map([], _r, [])
-
-  defrel map([h | t], r, [g | s]) do
-    r(h, g)
-    map(t, r, s)
-  end
-
   defrel bumped(ys) do
-    map([1, 2, 3], succ, ys)
+    Zkfol.FOL.map([1, 2, 3], succ, ys)
   end
 
-  defrel between(lo, hi, x) do
-    x >= lo
-    x <= hi
-  end
-
-  defrel every(_r, [])
-
-  defrel every(r, [h | t]) do
-    r(h)
-    every(r, t)
+  defrel small_rows(rs) do
+    Zkfol.FOL.each(rs, Zkfol.FOL.between(1, 4))
   end
 
   defrel cells_ok(rs) do
-    every(every(between(1, 4)), rs)
+    Zkfol.FOL.each(rs, small_rows())
   end
 
   @spec fibonacci(pos_integer()) :: Statement.t()
@@ -463,17 +432,6 @@ defmodule Examples.EUser do
     end
   end
 
-  @doc "A cell of a bank is a bank: the dimension is the rows the passed relation spends."
-  @spec checked_rows() :: Statement.t()
-  example checked_rows do
-    statement = Log.Ran.final_stage(Zkfol.emit(checked(), args: [:_]))
-
-    assert Enum.take(Zkfol.stream(checked(), [:_]), 1) == [[2]]
-    assert Alloc.names(Statement.alloc(statement)) == [:checked]
-    assert Statement.bank(statement, :checked) == [[2]]
-    statement
-  end
-
   @doc "A passed relation fixing a passed relation: the inner walks stand on the bank's cells."
   @spec nested_pass() :: Statement.t()
   example nested_pass do
@@ -485,7 +443,7 @@ defmodule Examples.EUser do
 
     {:ok, _pred, alloc} = Phi.compile(cells_ok(), [cells_ok()], [grid])
 
-    assert Alloc.names(alloc) == [:cells_ok, :"cells_ok rs", :every]
+    assert Alloc.names(alloc) == [:cells_ok, :"cells_ok rs", :each]
 
     statement = Log.Ran.final_stage(ran)
     assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))

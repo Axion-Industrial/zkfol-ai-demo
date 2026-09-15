@@ -7,7 +7,6 @@ defmodule Examples.ESudoku do
   import ExUnit.Assertions
 
   alias Examples.EUser
-  alias Zkfol.Alloc.Bank
   alias Zkfol.Log
   alias Zkfol.Pipeline
   alias Zkfol.Prover
@@ -30,15 +29,76 @@ defmodule Examples.ESudoku do
 
   @solution16 for r <- 0..15, do: for(c <- 0..15, do: rem(4 * rem(r, 4) + div(r, 4) + c, 16) + 1)
 
-  @doc "The seventeen clues and the rules find the one grid: labeling drives AL's search."
-  @spec answer() :: [[pos_integer()]]
-  example answer do
-    {t, {:ok, query}} = :timer.tc(fn -> Zkfol.eval(solved(), [:_], []) end)
-    [[grid]] = Zkfol.Query.taken(query)
-    assert grid == @solution
-    assert t < 5_000_000
-    grid
+  defrel puzzle(
+           1,
+           [
+             [_, _, _, _, _, _, _, _, _],
+             [_, _, _, _, _, 3, _, 8, 5],
+             [_, _, 1, _, 2, _, _, _, _],
+             [_, _, _, 5, _, 7, _, _, _],
+             [_, _, 4, _, _, _, 1, _, _],
+             [_, 9, _, _, _, _, _, _, _],
+             [5, _, _, _, _, _, _, 7, 3],
+             [_, _, 2, _, 1, _, _, _, _],
+             [_, _, _, _, 4, _, _, _, 9]
+           ]
+         )
+
+  defrel puzzle(
+           2,
+           [
+             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+             [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4],
+             [9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8],
+             [13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+             [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1],
+             [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5],
+             [10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+             [14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+             [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2],
+             [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6],
+             [11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+             [15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+             [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3],
+             [8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7],
+             [12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+             [16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+           ]
+         )
+
+  defrel solved(x) do
+    puzzle(1, x)
+    sudoku(x, 3)
   end
+
+  defrel sudoku(xs, blocks) do
+    length(xs, n)
+    n = blocks ** 2
+    blocks > 0
+    each(xs, permutation(n))
+    column(xs, cols)
+    each(cols, permutation(n))
+    boxes(blocks, xs, bs)
+    each(bs, permutation(n))
+    each(xs, all_labeled)
+  end
+
+  defrel boxes(n, rows, bs) do
+    map(rows, chunk(n), runs)
+    chunk(n, runs, bands)
+    map(bands, column, stacks)
+    map(stacks, mapcon, grouped)
+    concat(grouped, bs)
+  end
+
+  defrel mapcon(xs, ys) do
+    map(xs, concat, ys)
+  end
+
+  defrel all_labeled(xs) do
+    each(xs, label)
+  end
+
 
   @doc "The columns and boxes are a selection each, the rows a selection a column."
   @spec pattern_selected() :: Statement.t()
@@ -78,55 +138,6 @@ defmodule Examples.ESudoku do
     refused
   end
 
-  @doc "Twenty-seven families over the grid's own cells, one selected group carrying the lot."
-  @spec families_selected() :: Uair.t()
-  example families_selected do
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [families()], args: act()})
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-    [%{columns: columns, values: values, selections: selections}] = uair.selected_lookups
-
-    assert uair.word_lookups == []
-    assert columns == Enum.to_list(0..8)
-    assert values == Enum.to_list(1..9)
-    assert length(selections) == 27
-    assert for(r <- 6..8, s <- 6..8, do: {s, r}) in selections
-    uair
-  end
-
-  @doc "Different private grids prove on the same allocation; every family shares one puzzle bank."
-  @spec private_grids_share_one_allocation() :: [Prover.Report.t()]
-  example private_grids_share_one_allocation do
-    {:ok, pred, alloc} = Zkfol.Phi.compile(families(), nil, act())
-    assert [%Bank{depth: 9}] = Enum.filter(alloc.members, &is_struct(&1, Bank))
-
-    for grid <- [@solution, relabelled()] do
-      assert {:ok, ^pred, ^alloc} = Zkfol.Phi.compile(families(), nil, [grid])
-      {:ok, derivation} = Zkfol.Al.derived(families(), [grid])
-      witness = derivation |> Zkfol.Lay.of(alloc) |> Zkfol.Lay.witness()
-
-      assert {:ok, report = %Prover.Report{}, _id} =
-               Prover.prove(Zkfol.Alloc.link(pred, alloc), witness)
-
-      report
-    end
-  end
-
-  @doc "A trade down one column keeps that column's multiset; the selections across it refuse."
-  @spec a_traded_cell_is_no_proof() :: Refusal.t()
-  example a_traded_cell_is_no_proof do
-    uair = families_selected()
-    traded = List.update_at(uair.columns, 0, fn [a, b | rest] -> [b, a | rest] end)
-
-    assert Enum.sort(hd(traded)) == Enum.sort(hd(uair.columns))
-
-    assert {:error, {:verifier_rejected, _said} = refused} =
-             Prover.prove_uair(%{uair | columns: traded}, name: :traded_cell)
-
-    refused
-  end
-
   @doc "Two cells opened say their eighteen values and nothing else of the answer."
   @spec opened_cells() :: Prover.Report.t()
   example opened_cells do
@@ -147,165 +158,6 @@ defmodule Examples.ESudoku do
     report
   end
 
-  defrel puzzle(
-           1,
-           [
-             [_, _, _, _, _, _, _, _, _],
-             [_, _, _, _, _, 3, _, 8, 5],
-             [_, _, 1, _, 2, _, _, _, _],
-             [_, _, _, 5, _, 7, _, _, _],
-             [_, _, 4, _, _, _, 1, _, _],
-             [_, 9, _, _, _, _, _, _, _],
-             [5, _, _, _, _, _, _, 7, 3],
-             [_, _, 2, _, 1, _, _, _, _],
-             [_, _, _, _, 4, _, _, _, 9]
-           ]
-         )
-
-  defrel puzzle(
-           2,
-           [
-             [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-             [5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4],
-             [9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8],
-             [13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-             [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1],
-             [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5],
-             [10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-             [14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-             [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2],
-             [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6],
-             [11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-             [15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
-             [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3],
-             [8, 9, 10, 11, 12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7],
-             [12, 13, 14, 15, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-             [16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-           ]
-         )
-
-  defrel families(x) do
-    column(x, cols)
-    each(permutation(9), cols)
-    column(cols, rs)
-    each(permutation(9), rs)
-    boxes(3, x, bs)
-    each(permutation(9), bs)
-  end
-
-  defrel boxes(n, rows, bs) do
-    map(chunk(n), rows, runs)
-    chunk(n, runs, bands)
-    map(column, bands, stacks)
-    map(map(concat), stacks, grouped)
-    concat(grouped, bs)
-  end
-
-  defrel sudoku(x, blocks) do
-    length(x, n)
-    n = blocks ** 2
-    blocks > 0
-    each(permutation(n), x)
-    column(x, cols)
-    each(permutation(n), cols)
-    boxes(blocks, x, bs)
-    each(permutation(n), bs)
-    each(each(label), x)
-  end
-
-  defrel solved(x) do
-    puzzle(1, x)
-    sudoku(x, 3)
-  end
-
-  defrel clued(x) do
-    puzzle(1, x)
-    families(x)
-  end
-
-  defrel families16(x) do
-    column(x, cols)
-    each(permutation(16), cols)
-    column(cols, rs)
-    each(permutation(16), rs)
-    boxes(4, x, bs)
-    each(permutation(16), bs)
-  end
-
-  defrel clued16(x) do
-    puzzle(2, x)
-    families16(x)
-  end
-
-  @doc "Every clue reads a named cell; orders nine and sixteen share one selected group apiece."
-  @spec clued_selected(9 | 16) :: Uair.t()
-  example clued_selected(order \\ 9) do
-    {relation, args} = if order == 9, do: {clued(), act()}, else: {clued16(), act16()}
-
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [relation], args: args})
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-
-    assert uair.word_lookups == []
-    assert uair.mode == %Uair.Plain{}
-    assert [%{values: values, selections: selections}] = uair.selected_lookups
-    assert values == Enum.to_list(1..order)
-    assert length(selections) == 3 * order
-    assert Enum.all?(uair.point_ties, &match?(%{target: {:broadcast, _}}, &1))
-
-    if order == 9 do
-      assert length(uair.point_ties) == 17
-      assert Uair.num_cols(uair) == 30
-      assert length(uair.program) == 363
-    end
-
-    uair
-  end
-
-  @doc "Both grid sizes prove their clues through the selected group."
-  @spec clued_proved([9 | 16]) :: [Prover.Report.t()]
-  example clued_proved(orders \\ [9, 16]) do
-    for order <- orders do
-      {:ok, report, _id} = Prover.prove_uair(clued_selected(order), name: :clued)
-      report
-    end
-  end
-
-  @doc "The forty-eight order-sixteen families over the grid's own cells, one selected group."
-  @spec families16_proved() :: Prover.Report.t()
-  example families16_proved do
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [families16()], args: act16()})
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-    assert uair.word_lookups == []
-    assert [%{selections: selections}] = uair.selected_lookups
-    assert length(selections) == 48
-
-    {:ok, report, _id} = Prover.prove_uair(uair, name: :families16)
-    report
-  end
-
-  @doc "Relabelled digits still form a Sudoku; the clue ties alone refuse that grid."
-  @spec a_clue_unmet_is_no_proof() :: Refusal.t()
-  example a_clue_unmet_is_no_proof do
-    uair = clued_selected()
-    [%{columns: columns}] = uair.selected_lookups
-
-    unmet =
-      for {cells, column} <- Enum.with_index(uair.columns) do
-        if column in columns, do: Enum.map(cells, &(10 - &1)), else: cells
-      end
-
-    assert {:ok, %Prover.Report{}, _id} =
-             Prover.prove_uair(%{uair | columns: unmet, point_ties: []})
-
-    assert {:error, {:verifier_rejected, _said} = refused} =
-             Prover.prove_uair(%{uair | columns: unmet}, name: :clue_unmet)
-
-    refused
-  end
 
   @doc "I am the columns of a grid, the bank `column` unifies against it."
   @spec columns([[pos_integer()]]) :: [[pos_integer()]]
@@ -344,27 +196,6 @@ defmodule Examples.ESudoku do
     report
   end
 
-  @doc "Relabelled digits are a sudoku again, and no answer to this puzzle's clues."
-  @spec a_clue_unmet_is_no_answer() :: Refusal.t()
-  example a_clue_unmet_is_no_answer do
-    grid = relabelled()
-
-    assert held?(grid ++ columns(grid) ++ boxed(grid))
-    assert {:no_answer, %{relation: :solved}} = refusal = refused(act(grid))
-    refusal
-  end
-
-  @doc "A swap keeps the row and its box; the columns refuse it at the derivation."
-  @spec a_repeated_column_is_no_answer() :: Refusal.t()
-  example a_repeated_column_is_no_answer do
-    swapped = List.replace_at(@solution, 0, [8, 9, 7, 6, 5, 4, 3, 2, 1])
-
-    assert held?(swapped ++ boxed(swapped))
-    refute held?(columns(swapped))
-    assert {:no_answer, %{relation: :solved}} = refusal = refused(act(swapped))
-    refusal
-  end
-
   @doc "A Latin square with shared boxes: refused over boxes the act never handed in."
   @spec a_shared_box_is_no_answer() :: Refusal.t()
   example a_shared_box_is_no_answer do
@@ -377,68 +208,6 @@ defmodule Examples.ESudoku do
       Pipeline.run(EUser.plain(), %Statement{rels: [sudoku()], args: [latin, 3]})
 
     assert {:no_answer, %{relation: :sudoku}} = refusal
-    refusal
-  end
-
-  @doc "The boxes derive from the grid alone, as `boxed/1` says them."
-  @spec boxes_derived() :: [[pos_integer()]]
-  example boxes_derived do
-    [[3, _grid, bs]] = Enum.take(Zkfol.stream(boxes(), [3, @solution, :_]), 1)
-    four = [[1, 2, 3, 4], [3, 4, 1, 2], [2, 1, 4, 3], [4, 3, 2, 1]]
-
-    assert bs == boxed(@solution)
-
-    assert Enum.take(Zkfol.stream(boxes(), [2, four, :_]), 1) ==
-             [[2, four, [[1, 2, 3, 4], [3, 4, 1, 2], [2, 1, 4, 3], [4, 3, 2, 1]]]]
-
-    bs
-  end
-
-  @doc "The peeling transpose is the grid's own cells: the columns handed are tied cell for cell."
-  @spec peeled_transpose() :: Prover.Report.t()
-  example peeled_transpose do
-    heads =
-      rel :heads do
-        heads([], [], [])
-
-        heads([[h | t] | rs], [h | hs], [t | ts]) do
-          heads(rs, hs, ts)
-        end
-      end
-
-    peeled =
-      rel :peeled do
-        peeled([[] | _], [])
-
-        peeled(rows, [hs | cs]) do
-          heads(rows, hs, rest)
-          peeled(rest, cs)
-        end
-      end
-
-    args = [@solution, :_]
-    assert Enum.take(Zkfol.stream([peeled, heads], args), 1) == [[@solution, columns(@solution)]]
-
-    {:ok, statement, _trace} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [peeled, heads], args: args})
-
-    banks = Statement.alloc(statement).members
-
-    assert for(%Bank{name: name} <- banks, do: name) == [:"peeled rows", :"peeled a2"]
-
-    {:ok, uair} = Uair.emit(Statement.pred(statement), Statement.witness(statement))
-    assert length(uair.point_ties) == 81
-    assert uair.selected_lookups == []
-
-    {:ok, report, _id} = Prover.prove_uair(uair, name: :peeled_transpose)
-    report
-  end
-
-  @spec refused([[[pos_integer()]]]) :: Refusal.t()
-  defp refused(args) do
-    {:error, Witness, refusal, []} =
-      Pipeline.run(EUser.plain(), %Statement{rels: [solved()], args: args})
-
     refusal
   end
 

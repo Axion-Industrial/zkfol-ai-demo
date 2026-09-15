@@ -23,7 +23,9 @@ defmodule Zkfol.Phi.Walk do
   """
 
   use TypedStruct
+  use GtBridge.View
 
+  alias GtBridge.Phlow.ColumnedList
   alias Zkfol.Alloc.Bank
   alias Zkfol.Alloc.Member
   alias Zkfol.Alloc.Site
@@ -35,6 +37,9 @@ defmodule Zkfol.Phi.Walk do
   defmodule Clause do
     @moduledoc "I retain one compiled clause's inputs and the walks before and after its rules."
     use TypedStruct
+    use GtBridge.View
+    alias GtBridge.Phlow.ColumnedList
+
 
     typedstruct enforce: true do
       field(:member, atom())
@@ -44,6 +49,31 @@ defmodule Zkfol.Phi.Walk do
       field(:before, Zkfol.Phi.Walk.t())
       field(:matched, Zkfol.Phi.Walk.t() | :dead)
       field(:compiled, Zkfol.Phi.Walk.t() | :dead)
+    end
+
+    defview inputs_view(%Zkfol.Phi.Walk.Clause{head: head, accesses: accesses}, builder) do
+      builder.columned_list()
+      |> ColumnedList.title("Inputs")
+      |> ColumnedList.priority(1)
+      |> ColumnedList.items(Enum.zip(head, accesses))
+      |> ColumnedList.column("Pattern", fn {pattern, _access} ->
+        Zkfol.Face.surface_text(pattern)
+      end)
+      |> ColumnedList.column("Access", fn {_pattern, access} -> Zkfol.Face.inspected(access) end)
+      |> ColumnedList.send(fn {_pattern, access} -> access end)
+    end
+
+    defview steps_view(clause = %Zkfol.Phi.Walk.Clause{}, builder) do
+      builder.columned_list()
+      |> ColumnedList.title("Steps")
+      |> ColumnedList.priority(2)
+      |> ColumnedList.items([
+        {"Before head", clause.before},
+        {"After head", clause.matched},
+        {"After body", clause.compiled}
+      ])
+      |> ColumnedList.column("Step", fn {name, _state} -> name end)
+      |> ColumnedList.send(fn {_name, state} -> state end)
     end
   end
 
@@ -254,4 +284,52 @@ defmodule Zkfol.Phi.Walk do
 
   defp presence(walk, view, required),
     do: constrain(walk, [Ast.eq(View.presence(view), required)])
+
+  ############################################################
+  #                            Views                         #
+  ############################################################
+
+  defview predicates_view(%Zkfol.Phi.Walk{predicates: predicates}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Predicates")
+    |> ColumnedList.priority(5)
+    |> ColumnedList.items(predicates)
+    |> ColumnedList.column("Predicate", &Zkfol.Face.phi_text/1)
+  end
+
+  defview bindings_view(walk = %Zkfol.Phi.Walk{env: env}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Bindings")
+    |> ColumnedList.priority(2)
+    |> ColumnedList.items(
+      for {name, _access} <- Enum.sort(env), do: {name, Zkfol.Phi.Walk.fetch(walk, name)}
+    )
+    |> ColumnedList.column("Name", fn {name, _access} -> inspect(name) end)
+    |> ColumnedList.column("Access", fn {_name, access} -> Zkfol.Face.inspected(access) end)
+    |> ColumnedList.send(fn {_name, access} -> access end)
+  end
+
+  defview equations_view(%Zkfol.Phi.Walk{eqs: eqs}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Equations")
+    |> ColumnedList.priority(3)
+    |> ColumnedList.items(Enum.reverse(eqs))
+    |> ColumnedList.column("Equation", &Zkfol.Face.phi_text/1)
+  end
+
+  defview storage_view(walk = %Zkfol.Phi.Walk{}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Storage")
+    |> ColumnedList.priority(4)
+    |> ColumnedList.items([
+      {"Owned banks", Zkfol.Phi.Walk.banks(walk)},
+      {"Element shapes", walk.shapes},
+      {"Parameters", walk.parameters},
+      {"Slots", walk.slots},
+      {"Members", walk.members}
+    ])
+    |> ColumnedList.column("What", fn {name, _value} -> name end)
+    |> ColumnedList.column("Value", fn {_name, value} -> Zkfol.Face.inspected(value) end)
+    |> ColumnedList.send(fn {_name, value} -> value end)
+  end
 end

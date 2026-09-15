@@ -20,7 +20,7 @@ defmodule Examples.EFol do
 
   defrel counted(xs) do
     length(xs, n)
-    each(between(1, n), xs)
+    each(xs, between(1, n))
   end
 
   defrel joined(zs) do
@@ -29,7 +29,7 @@ defmodule Examples.EFol do
 
   defrel columns_apart(x) do
     column(x, cols)
-    each(permutation(9), cols)
+    each(cols, permutation(9))
   end
 
   defrel literal_columns(cs) do
@@ -39,11 +39,11 @@ defmodule Examples.EFol do
   defrel there_and_back(x) do
     column(x, cs)
     column(cs, back)
-    each(permutation(9), back)
+    each(back, permutation(9))
   end
 
   defrel bumped(ys) do
-    Zkfol.FOL.map(Examples.EUser.succ(), [1, 2, 3], ys)
+    Zkfol.FOL.map([1, 2, 3], Examples.EUser.succ(), ys)
   end
 
   defrel rising([_last])
@@ -56,7 +56,7 @@ defmodule Examples.EFol do
   @doc "A call or a passed relation written with its module is that module's."
   @spec qualified_map() :: Statement.t()
   example qualified_map do
-    [{_head, [{:call, {Zkfol.FOL, :map}, [{:papply, {EUser, :succ}, []} | _]}]}] =
+    [{_head, [{:call, {Zkfol.FOL, :map}, [_, {:papply, {EUser, :succ}, []} | _]}]}] =
       bumped().clauses
 
     assert Enum.take(Zkfol.stream(bumped(), [:_]), 1) == [[[2, 3, 4]]]

@@ -54,7 +54,6 @@ defmodule Examples.EForgery do
       zero_based: EUser.zero_based(),
       row_sums: EUser.row_sums(),
       diagonal: emitted(EUser.diagonal(), [[[3, 4], [5, 6]], :_]),
-      checked: EUser.checked_rows(),
       kernel: EDoubling.rewritten_fibonacci(),
       doubled_fun: emitted(EUser.doubled_fun(), [[1, 2, 3], :_]),
       hop: emitted(EAl.hop_rel(), [5]),
