@@ -215,6 +215,10 @@ defmodule Examples.EUser do
     s = r + a + b
   end
 
+  defrel remaining_rows([[_, _] | t], s) do
+    rows(t, s)
+  end
+
   defrel diagonal([[a, _], [_, d]], v) do
     v = a + d
   end
@@ -592,20 +596,36 @@ defmodule Examples.EUser do
     statement
   end
 
-  @doc "The same predicate reads two-row matrices of different lengths without a shape hint."
-  @spec rows_without_a_shape_hint() :: [Interpretation.t()]
-  example rows_without_a_shape_hint do
-    {:ok, pred, alloc} = Phi.compile(rows())
+  @doc "One predicate reads matrices of different lengths, including a tail handed to another relation."
+  @spec rows_without_a_shape_hint(Rel.t()) :: [Interpretation.t()]
+  example rows_without_a_shape_hint(relation \\ rows()) do
+    {:ok, pred, alloc} = Phi.compile(relation)
     pred = Alloc.link(pred, alloc)
-    assert Alloc.regions(alloc) == [rows: 1, "rows a1": 2, in: 2]
+    assert [%Alloc.Bank{depth: 2}] = Enum.filter(alloc.members, &is_struct(&1, Alloc.Bank))
 
     for grid <- [[[3, 4], [5, 6]], [[1, 2], [3, 4], [5, 6]]] do
-      {:ok, derivation} = Zkfol.Al.derived(rows(), [grid, :_])
-      witness = derivation |> Zkfol.Lay.of(alloc) |> Zkfol.Lay.witness()
+      {:ok, derivation} = Zkfol.Al.derived(relation, [grid, :_])
+      lay = Zkfol.Lay.of(derivation, alloc)
+      witness = Zkfol.Lay.witness(lay)
       assert Semantics.valid?(pred, witness)
       assert {:ok, %Prover.Report{}, _id} = Prover.prove(pred, witness)
+      {:ok, [{_name, row, column} | _]} = Zkfol.Lay.claims(lay, [2])
+
+      forged =
+        witness
+        |> Interpretation.rows()
+        |> List.update_at(row - 1, &List.update_at(&1, column - 1, fn answer -> answer + 1 end))
+        |> Interpretation.new()
+
+      refute Semantics.valid?(pred, forged)
       witness
     end
+  end
+
+  @doc "The skipped record teaches the shared tail its width before another relation reads it."
+  @spec a_record_tail_keeps_its_shape() :: [Interpretation.t()]
+  example a_record_tail_keeps_its_shape do
+    rows_without_a_shape_hint(remaining_rows())
   end
 
   @doc "A cell of a bank is a bank: the dimension is the rows the passed relation spends."

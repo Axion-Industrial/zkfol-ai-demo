@@ -377,8 +377,10 @@ defmodule Zkfol.Lay do
   defp spread({values, %Slot{allocation: {:bank, bank, _}} = slot}, x, alloc)
        when is_list(values) do
     rows = Alloc.slot_rows(alloc, slot)
-    suffix = {Zkfol.Nodes, {:suffix, bank}}
-    suffix_row = if suffix in Alloc.refs(alloc), do: Alloc.row(alloc, suffix)
+
+    suffix_rows =
+      for ref = {Zkfol.Nodes, {:suffix, {^bank, _element}}} <- Alloc.refs(alloc),
+          do: Alloc.row(alloc, ref)
 
     Enum.flat_map(Enum.with_index(values), fn {value, p} ->
       column = Ast.column(at(slot, p), x)
@@ -387,7 +389,7 @@ defmodule Zkfol.Lay do
         for {cell, row} <- Enum.zip(row_values(value, length(rows)), rows),
             do: {{Alloc.row(alloc, row), column}, cell}
 
-      nodes = if suffix_row, do: [{{suffix_row, column}, {:node, Enum.drop(values, p)}}], else: []
+      nodes = for row <- suffix_rows, do: {{row, column}, {:node, Enum.drop(values, p)}}
       [{{Alloc.presence(alloc, bank), column}, 1} | cells ++ nodes]
     end)
   end
