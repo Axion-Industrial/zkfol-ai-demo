@@ -236,6 +236,7 @@ defmodule Zkfol.Phi do
 
         cond do
           tagged?(clauses, k) or is_struct(form, Ref) or
+            (step != nil and counter == nil and extent != nil) or
             (is_list(form) and not bankable?(form)) or
               (extent == :open and (form == :fresh or match?({:fresh, _}, form))) ->
             %Ref{id: Ast.cell(ref)}
@@ -867,6 +868,7 @@ defmodule Zkfol.Phi do
   # A cell of the caller's cannot stand a callee's rows: the callee holds its own and equates.
   @spec liftable(value()) :: value()
   defp liftable(%Ref{} = ref), do: ref
+  defp liftable(%View{col: {base, _m, _a}} = view) when base != :x, do: Ref.of(view)
   defp liftable(%View{} = view), do: view
   defp liftable(%Cons{} = cons), do: Ref.of(cons)
   defp liftable(form) when is_list(form) or is_integer(form) or form == :fresh, do: form

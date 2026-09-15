@@ -25,6 +25,10 @@ defmodule Examples.EAlloc do
     value = previous + n
   end
 
+  defrel delegated(n, value) do
+    held(n, value)
+  end
+
   defrel impossible_after(n, value) do
     held(n, value)
     1 = 2
@@ -43,25 +47,33 @@ defmodule Examples.EAlloc do
     z = 0 * a
   end
 
-  @doc "An open scalar predicate proves different answers and refuses a wrong sum."
+  @doc "Private scalars share one predicate, directly or through a call; a wrong sum is refused."
   @spec scalar_parameters_share_one_predicate() :: [Prover.Report.t()]
   example scalar_parameters_share_one_predicate do
-    {:ok, pred, alloc} = Phi.compile(sum())
-    linked = Alloc.link(pred, alloc)
-
     reports =
-      for args <- [[3, 4, 7], [8, 5, 13]] do
-        assert {:ok, ^pred, ^alloc} = Phi.compile(sum(), nil, args)
-        {:ok, derivation} = Al.derived(sum(), args)
-        witness = derivation |> Lay.of(alloc) |> Lay.witness()
-        assert {:ok, report = %Prover.Report{}, _id} = Prover.prove(linked, witness)
-        report
-      end
+      Enum.flat_map(
+        [{sum(), [[3, 4, 7], [8, 5, 13]]}, {delegated(), [[8, 36], [9, 45]]}],
+        fn {rel, answers} ->
+          {:ok, pred, alloc} = Phi.compile(rel)
 
+          for args <- answers do
+            assert {:ok, ^pred, ^alloc} = Phi.compile(rel, nil, args)
+            {:ok, derivation} = Al.derived(rel, args)
+            witness = derivation |> Lay.of(alloc) |> Lay.witness()
+
+            assert {:ok, report = %Prover.Report{}, _id} =
+                     Prover.prove(Alloc.link(pred, alloc), witness)
+
+            report
+          end
+        end
+      )
+
+    {:ok, pred, alloc} = Phi.compile(sum())
     fact = {:sum, [8, 5, 14]}
     derivation = %Zkfol.Derivation{facts: [fact], clauses: [{fact, 0}]}
     forged = derivation |> Lay.of(alloc) |> Lay.witness()
-    assert {:error, _refusal} = Prover.prove(linked, forged)
+    assert {:error, _refusal} = Prover.prove(Alloc.link(pred, alloc), forged)
     reports
   end
 
