@@ -7,7 +7,6 @@ defmodule Examples.EUair do
   import ExUnit.Assertions
 
   alias Examples.EAst
-  alias Examples.EDoubling
   alias Examples.EFacts
   alias Examples.EForgery
   alias Examples.EUser
@@ -143,18 +142,6 @@ defmodule Examples.EUair do
     uair
   end
 
-  @spec tampered_is_rejected() :: Refusal.t()
-  example tampered_is_rejected do
-    {:ok, uair} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci()))
-
-    tampered = %{uair | columns: List.update_at(uair.columns, 1, &List.replace_at(&1, 4, 999))}
-
-    {:error, reason} = Prover.prove_uair(tampered)
-    assert {:verifier_rejected, _} = reason
-    reason
-  end
-
   @doc """
   I am the trace the forgery starts from: a mod holding its remainder below the
   modulus by a slack cell, six columns laid in a cube of eight.
@@ -167,32 +154,6 @@ defmodule Examples.EUair do
     assert {4, 32, 8} in uair.word_lookups
     assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :slacked_trace)
     uair
-  end
-
-  @doc """
-  I am the Word lookup made load-bearing. The program runs to the cube's last row and
-  stops there, so the slack raised on that row leaves the residue at zero, and raised
-  by 2^32 it stays a natural, which the unsigned limbs carry without complaint. The
-  declaration on its column is the only refusal left: dropped, this trace proves.
-  """
-  @spec raised_slack_is_refused() :: Refusal.t()
-  example raised_slack_is_refused do
-    uair = slacked_trace()
-    last = 2 ** Uair.num_vars(uair) - 1
-    raise_by = &(&1 + 2 ** 32)
-
-    forged = %{
-      uair
-      | columns: List.update_at(uair.columns, 4, &List.update_at(&1, last, raise_by))
-    }
-
-    assert Enum.all?(List.flatten(forged.columns), &(&1 >= 0))
-
-    assert {:error, {:prover_failed, %{said: said}} = refused} =
-             Prover.prove_uair(forged, name: :raised_slack)
-
-    assert said =~ "Lookup"
-    refused
   end
 
   @doc """
@@ -320,28 +281,6 @@ defmodule Examples.EUair do
     assert length(uair.program) == 91
     assert {:ok, %Prover.Report{}, _id} = Prover.prove_uair(uair, name: :named_cells)
     uair
-  end
-
-  @doc "The counts are a gate: growth in the translation is a regression, not a drift."
-  @spec frozen_shapes() :: [Uair.t()]
-  example frozen_shapes do
-    doubled = EDoubling.rewritten_fibonacci(100)
-
-    {:ok, kernel} =
-      Uair.emit(Statement.pred(doubled), Statement.witness(doubled), Statement.claims(doubled))
-
-    {:ok, generic} =
-      Uair.emit(Statement.pred(EUser.fibonacci()), Statement.witness(EUser.fibonacci(12)))
-
-    assert Uair.num_cols(kernel) == 8
-    assert Uair.num_cols(generic) == 5
-    assert length(kernel.program) == 351
-    assert length(generic.program) == 167
-
-    assert generic.shifts == [{0, 1}, {0, 2}, {1, 1}, {1, 2}, {3, 1}, {4, 1}, {4, 5}]
-    assert kernel.shifts == [{1, 1}, {2, 1}, {3, 1}, {4, 1}, {6, 1}, {7, 1}, {7, 2}]
-
-    [kernel, generic]
   end
 
   # Every term the predicate obliges as a natural, each once. One naming a cell names

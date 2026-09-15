@@ -62,7 +62,7 @@ defmodule Zkfol.Phi.Value do
   @spec affine(t()) :: {integer(), integer()} | nil
   def affine(:x), do: {1, 0}
   def affine(q) when is_integer(q), do: {0, q}
-  def affine({:count, q, _form}), do: affine(q)
+  def affine({:count, _q, form}), do: affine(form)
 
   def affine({:add, a, b}) do
     with {m, k} <- affine(a), {0, q} <- affine(b), do: {m, k + q}, else: (_apart -> nil)

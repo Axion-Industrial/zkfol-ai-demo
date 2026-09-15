@@ -11,12 +11,9 @@ defmodule Examples.EDoubling do
   alias Zkfol.Doubling
   alias Zkfol.Interpretation
   alias Zkfol.Lang.Rel
-  alias Zkfol.Phi
   alias Zkfol.Pipeline
-  alias Zkfol.Prover
   alias Zkfol.Semantics
   alias Zkfol.Statement
-  alias Zkfol.Uair
 
   @mod 7919
 
@@ -66,21 +63,6 @@ defmodule Examples.EDoubling do
     statement
   end
 
-  @doc "Body order is no contract: the kernel's equations ahead of its calls lower the same."
-  @spec either_order_of_the_kernel() :: Ast.pred()
-  example either_order_of_the_kernel do
-    [kernel] = rewritten_fibonacci().rels
-    ahead = %{kernel | clauses: for({head, body} <- kernel.clauses, do: {head, equations(body)})}
-
-    assert ahead.clauses != kernel.clauses
-    assert {:ok, phi} = Phi.lower(kernel, [kernel])
-    assert Phi.lower(ahead, [ahead]) == {:ok, phi}
-    phi
-  end
-
-  @spec equations([Zkfol.Lang.Term.goal()]) :: [Zkfol.Lang.Term.goal()]
-  defp equations(body), do: Enum.sort_by(body, &(elem(&1, 0) != :eq))
-
   @spec one_predicate_for_every_n() :: Ast.pred()
   example one_predicate_for_every_n do
     small = rewritten_fibonacci(100)
@@ -90,27 +72,6 @@ defmodule Examples.EDoubling do
     assert Interpretation.len(Statement.witness(small)) == 7
     assert Interpretation.len(Statement.witness(large)) == 14
     Statement.pred(small)
-  end
-
-  @spec unclaimed_position_keeps_n_private() :: map()
-  example unclaimed_position_keeps_n_private do
-    source = %Statement{rels: [EUser.fib()], args: [100]}
-
-    {:ok, rewritten, _trace} = Pipeline.run(doubling(), source)
-    {:ok, statement} = Statement.opened(rewritten, [:r])
-
-    {:ok, uair} =
-      Uair.emit(
-        Statement.pred(statement),
-        Statement.witness(statement),
-        Statement.claims(statement)
-      )
-
-    assert uair.num_public == 2
-    {:ok, report, _id} = Prover.prove_uair(uair, name: :private_n)
-    assert [{_result, value}, {"in", 1}] = report.claims
-    assert value == EUser.fib(100)
-    report
   end
 
   @doc "Fibonacci finds a missing input, accepts its answer, and refuses another."

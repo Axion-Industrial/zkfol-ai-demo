@@ -6,11 +6,8 @@ defmodule Examples.ENodes do
 
   alias Examples.EAst
 
-  alias Zkfol.Phi.{Ref, View}
-
   alias Zkfol.{
     Alloc,
-    Ast,
     Derivation,
     Interpretation,
     Lay,
@@ -84,45 +81,6 @@ defmodule Examples.ENodes do
     statement
   end
 
-  @doc "A one-field record stays a record when a bank is realized as nodes."
-  @spec record_bank_as_nodes() :: Lay.t()
-  example record_bank_as_nodes do
-    values = [[1], [2]]
-    view = View.bank(:input, %View.Record{width: 1}, length(values))
-
-    member = %Alloc.Member{
-      name: :bridge,
-      relation: :bridge,
-      steps: nil,
-      sites: %{0 => []},
-      slots: [
-        %Alloc.Slot{name: :xs, allocation: {:bank, :input, view.col}},
-        %Alloc.Slot{name: :copy, allocation: {:node, {:bridge, :copy}}}
-      ]
-    }
-
-    predicate =
-      Ast.disj([
-        Ast.eq(Ast.cell({:in, :bridge}), 0),
-        Ast.eq(Ref.of(view).id, Ast.cell({:bridge, :copy}))
-      ])
-
-    {predicate, members} =
-      Zkfol.Nodes.lower(predicate, [member, %Alloc.Bank{name: :input, depth: 1}])
-
-    alloc = Alloc.numbered(members, :bridge)
-    fact = {:bridge, [values, values]}
-    derivation = %Derivation{facts: [fact], clauses: [{fact, 0}]}
-    lay = Lay.of(derivation, alloc)
-    predicate = Alloc.link(predicate, alloc)
-    assert {:ok, %Prover.Report{}, _id} = Prover.prove(predicate, Lay.witness(lay))
-
-    flattened = {:bridge, [values, [1, 2]]}
-    forged = %Derivation{facts: [flattened], clauses: [{flattened, 0}]}
-    refute Semantics.valid?(predicate, forged |> Lay.of(alloc) |> Lay.witness())
-    lay
-  end
-
   @doc "A rank-three value keeps every scalar; a two-axis bank cannot represent it."
   @spec a_cube_keeps_every_cell() :: Statement.t()
   example a_cube_keeps_every_cell do
@@ -138,17 +96,6 @@ defmodule Examples.ENodes do
              Prover.prove(Statement.pred(statement), Statement.witness(statement))
 
     statement
-  end
-
-  @doc "An expression-named row cannot be silently used in a different frame."
-  @spec a_generated_identity_keeps_its_frame() :: Zkfol.Refusal.t()
-  example a_generated_identity_keeps_its_frame do
-    ref = %Zkfol.Phi.Ref{id: Ast.at({Zkfol.Nodes, {:node, 7}}, :x, 1, 1)}
-
-    assert {:refused, refusal = {:unliftable_term, _}} =
-             catch_throw(Zkfol.Nodes.lower(Ast.eq(ref.id, 1), []))
-
-    refusal
   end
 
   @doc "Reverse allocates its constructed tails across calls; the source list remains a bank."

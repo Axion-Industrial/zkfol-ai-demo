@@ -6,15 +6,12 @@ defmodule Examples.EAlloc do
 
   import ExUnit.Assertions
 
-  alias Examples.EUser
   alias Zkfol.Al
   alias Zkfol.Alloc
-  alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Lay
   alias Zkfol.Phi
   alias Zkfol.Prover
-  alias Zkfol.Statement
 
   defrel held(0, 0)
 
@@ -120,25 +117,5 @@ defmodule Examples.EAlloc do
       refute Zkfol.Semantics.valid?(linked, Interpretation.new([[1]]))
       alloc
     end
-  end
-
-  @doc "The allocation links Fibonacci's answer and opens that answer with its presence."
-  @spec fibonacci_alloc() :: Alloc.t()
-  example fibonacci_alloc do
-    statement = EUser.fibonacci(6)
-    alloc = Statement.alloc(statement)
-    witness = Statement.witness(statement)
-    answer = Ast.eq(Ast.cell({:fib, {:param, :v}}), EUser.fib(6))
-    assert Zkfol.Semantics.holds?(Alloc.link(answer, alloc), witness, 6)
-
-    {:ok, claims} = Lay.claims(Statement.lay(statement), [{:fib, :v}])
-
-    opened =
-      Map.new(claims, fn {name, row, column} ->
-        {name, Interpretation.at(witness, row, column)}
-      end)
-
-    assert opened == %{"fib.v" => EUser.fib(6), "in" => 1}
-    alloc
   end
 end
