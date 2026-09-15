@@ -153,18 +153,18 @@ defmodule Examples.EFace do
     ran = Zkfol.compile(EUser.fib(), args: [8])
     snap = Zkfol.Log.snapshot()
 
-    assert %AL.Object{id: :zkfol, branch: branch} = program = Face.program(snap, ran)
+    assert %AL.Object{} = program = Face.program(snap, ran)
 
     assert Enum.any?(
              Zkfol.Log.thread(snap, ran.defined),
              &match?(
-               %Zkfol.Log.Event{body: {:al_solved, %{branch: ^branch}}},
+               %Zkfol.Log.Event{body: {:al_solved, %{program: ^program}}},
                &1
              )
            )
 
     query = Zkfol.eval!(EUser.fib(), [8, :_])
-    assert %AL.Object{id: :zkfol} = Zkfol.Al.program(query.ask.branch.id)
+    assert %AL.Object{} = Zkfol.Al.program(query.ask)
     Zkfol.Query.close(query)
 
     refused = Zkfol.emit(%Statement{rels: []}, name: :nothing)

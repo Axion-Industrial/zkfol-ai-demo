@@ -18,6 +18,7 @@ defmodule Zkfol.Al.Ask do
     field(:goal, [struct()])
     field(:arguments, [Zkfol.Statement.datum() | :_])
     field(:branch, AL.Branch.t())
+    field(:class, atom())
     field(:heap, pos_integer())
     # My methods carry the trace size as a last argument, which a fact is not.
     field(:len?, boolean())
