@@ -14,8 +14,11 @@ defmodule Zkfol.Ast do
           | {:add, poly(leaf), poly(leaf)}
           | {:mul, poly(leaf), poly(leaf)}
 
-  @typedoc "A row reference: a bare row post-link, or {symbol, which} before Alloc numbers it."
-  @type row_ref :: pos_integer() | {atom(), term()}
+  @typedoc """
+  A row reference: a bare row post-link, {symbol, which} before Alloc numbers it, or a
+  named row the emission adds beside the witness.
+  """
+  @type row_ref :: pos_integer() | atom() | {atom(), term()}
 
   @typedoc "What an address counts from: my own column, or the one a row holds."
   @type address_base :: :x | {:cell, row_ref()}
@@ -119,6 +122,10 @@ defmodule Zkfol.Ast do
   def add(q, t) when is_integer(q), do: {:add, t, q}
   def add(t, u), do: {:add, t, u}
 
+  @doc "I am t - u: `add/2` of the negation."
+  @spec sub(poly(l), poly(l)) :: poly(l) when l: var
+  def sub(t, u), do: add(t, mul(u, -1))
+
   @doc "I am t * u, born canonical: constants fold and ride right, zero and one vanish."
   @spec mul(poly(l), poly(l)) :: poly(l) when l: var
   def mul(q, r) when is_integer(q) and is_integer(r), do: q * r
@@ -194,7 +201,7 @@ defmodule Zkfol.Ast do
   def arithmetize(pred) do
     postwalk(pred, fn
       {:eq, t, u} ->
-        difference = add(t, mul(u, -1))
+        difference = sub(t, u)
         mul(difference, difference)
 
       # A conjunction wholly discharged by obligations arithmetizes to zero.

@@ -116,7 +116,7 @@ defmodule Zkfol.ZincPlus do
           num_cols: Uair.num_cols(uair),
           num_public: uair.num_public,
           shifts: uair.shifts,
-          program: uair.program,
+          program: Enum.map(uair.program, &wire/1),
           cells: cells(uair, values),
           word_lookups: uair.word_lookups,
           selected_lookups: uair.selected_lookups,
@@ -141,6 +141,11 @@ defmodule Zkfol.ZincPlus do
       value -> {:value_exceeds_cell, %{value: value}}
     end)
   end
+
+  # The NIF reads every op as an atom and an integer; add and mul carry an unread zero.
+  @spec wire(Uair.op()) :: {atom(), integer()}
+  defp wire({op, arg}), do: {op, arg}
+  defp wire(op) when is_atom(op), do: {op, 0}
 
   @doc "I hold every program constant inside the i64 the interpreter reads."
   @spec constants_fit([{atom(), integer()}]) :: :ok | {:error, Refusal.t()}
