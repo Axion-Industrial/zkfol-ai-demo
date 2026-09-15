@@ -31,7 +31,6 @@ native/*/target/
 # Editor droppings.
 *.~undo-tree~
 
-# AL keeps its mnesia image in the host cwd; reseeded from packages at boot.
-# Tests keep theirs apart, so a suite never touches a live node's log.
+# Each named node and the test environment owns a separate AL store.
 /.mnesiastore/
-/.mnesiastore-test/
+/.mnesiastore-*

@@ -62,7 +62,15 @@ MIX_ENV=test mix run -e 'Examples.EBench.report() |> Enum.each(&IO.inspect/1)'
 
 ## In iex
 
-`iex --sname fol -S mix` opens the live node; its log lives in `.mnesiastore/`.
+`iex --sname fol -S mix` opens the live node. Each named node owns its store at
+`.mnesiastore-<node>/`, so `iex --sname fol2 -S mix` starts an independent node.
+`AL_MNESIA_DIR` overrides the directory. To retain an existing `.mnesiastore/`
+on its original node, link its new path to it once:
+
+```sh
+ln -s .mnesiastore ".mnesiastore-fol@$(hostname -s)"
+```
+
 The front door returns a receipt for a proof; evaluation opens a query holding its first answer:
 
 ```elixir
