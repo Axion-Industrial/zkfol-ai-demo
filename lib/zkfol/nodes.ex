@@ -14,6 +14,8 @@ defmodule Zkfol.Nodes do
   alias Zkfol.{Alloc, Ast, Interpretation}
   alias Zkfol.Phi.{Place, Shape, Value}
 
+  require Place
+
   typedstruct enforce: true do
     field(:name, atom(), default: __MODULE__)
     field(:refs, [Ast.row_ref()])
@@ -140,18 +142,20 @@ defmodule Zkfol.Nodes do
   end
 
   # A whole bank is the term its suffix bridge realizes; a part of one is its elements.
-  defp node(id, {:along, {bank, 1}, {:at, base, m, a}}, known) do
+  defp node(id, laid, known) when Place.is_laid(laid) and elem(elem(laid, 1), 1) == 1 do
+    {bank, 1} = elem(laid, 1)
+    {:at, base, m, a} = Place.address(laid)
     element = Map.get(known, {bank, 1}, :unknown)
     Ast.eq(id, Ast.at({__MODULE__, {:suffix, {bank, element}}}, base, m, a))
   end
 
-  defp node(id, along = {:along, _row, _address}, known) do
-    case Place.count(along) do
+  defp node(id, laid, known) when Place.is_laid(laid) do
+    case Place.count(laid) do
       n when is_integer(n) and n >= 0 ->
-        node(id, for(i <- 0..(n - 1)//1, do: Place.slice(along, i, known)), known)
+        node(id, for(i <- 0..(n - 1)//1, do: Place.slice(laid, i, known)), known)
 
       _unplaced ->
-        throw({:refused, {:unliftable_term, %{term: along}}})
+        throw({:refused, {:unliftable_term, %{term: laid}}})
     end
   end
 
@@ -296,10 +300,11 @@ defmodule Zkfol.Nodes do
   defp ground([h | t], x, ctx), do: [ground(h, x, ctx) | ground(t, x, ctx)]
   defp ground([], _x, _ctx), do: []
 
-  # A list along the trace ends at column one: its length is its head column less one.
-  defp ground(along = {:along, _row, {:at, base, m, a}}, x, ctx) do
+  # A list in a bank ends at column one, so its length is its head column minus one.
+  defp ground(laid, x, ctx) when Place.is_laid(laid) do
+    {:at, base, m, a} = Place.address(laid)
     len = eval(Ast.add(Ast.mul(base, m), a - 1), x, ctx)
-    for i <- 0..(len - 1)//1, do: ground(Place.slice(along, i, ctx.known), x, ctx)
+    for i <- 0..(len - 1)//1, do: ground(Place.slice(laid, i, ctx.known), x, ctx)
   end
 
   defp ground(value, x, ctx), do: eval(Value.scalar(value), x, ctx)

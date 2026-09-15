@@ -76,7 +76,11 @@ defmodule Zkfol.Lay do
   def witness(%__MODULE__{alloc: alloc, stands: stands}) do
     defaults = Alloc.defaults(alloc)
     positions = positions(stands, alloc)
-    cells = Map.new(Enum.flat_map(stands, &laid(&1, alloc, positions)))
+
+    cells =
+      Map.new(Enum.flat_map(stands, &laid(&1, alloc, positions)), fn {at, value} ->
+        {at, Derivation.free_to_zero(value)}
+      end)
 
     cells =
       case Alloc.member(alloc, Zkfol.Nodes) do
@@ -417,13 +421,21 @@ defmodule Zkfol.Lay do
   # The allocation determines placement: scalar, term identity, bank, or no storage.
   @spec spread({term(), Slot.t()}, pos_integer(), Alloc.t()) ::
           [{{pos_integer(), pos_integer()}, term()}]
+  # A closure is {method, object, fixed arguments...}; the fixed arguments go to the rows.
+  defp spread({closure, %Slot{allocation: {:rel, _name, rows}}}, x, alloc) do
+    fixed = closure |> Tuple.to_list() |> Enum.drop(2)
+    for {value, row} <- Enum.zip(fixed, rows), do: {{Alloc.row(alloc, row), x}, value}
+  end
+
   defp spread({value, %Slot{allocation: {:cell, ref}}}, x, alloc),
     do: [{{Alloc.row(alloc, ref), x}, value}]
 
   defp spread({value, %Slot{allocation: {:node, ref}}}, x, alloc),
     do: [{{Alloc.row(alloc, ref), x}, {:node, value}}]
 
-  defp spread({values, %Slot{allocation: {:bank, bank, _}} = slot}, x, alloc)
+  # A held bank is laid ending at column one, so its head is at column length + 1. The
+  # pointer cell on the member's column holds that column.
+  defp spread({values, %Slot{allocation: {:bank, bank, address}} = slot}, x, alloc)
        when is_list(values) do
     rows = Alloc.slot_rows(alloc, slot)
 
@@ -431,16 +443,26 @@ defmodule Zkfol.Lay do
       for ref = {Zkfol.Nodes, {:suffix, {^bank, _element}}} <- Alloc.refs(alloc),
           do: Alloc.row(alloc, ref)
 
-    Enum.flat_map(Enum.with_index(values), fn {value, p} ->
-      column = Ast.column(at(slot, p), x)
+    {pointer, base} =
+      case address do
+        {:at, {:cell, ref}, _m, _a} ->
+          {[{{Alloc.row(alloc, ref), x}, length(values) + 1}], length(values) + 1}
 
-      cells =
-        for {cell, row} <- Enum.zip(row_values(value, length(rows)), rows),
-            do: {{Alloc.row(alloc, row), column}, cell}
+        {:at, :x, _m, _a} ->
+          {[], x}
+      end
 
-      nodes = for row <- suffix_rows, do: {{row, column}, {:node, Enum.drop(values, p)}}
-      [{{Alloc.presence(alloc, bank), column}, 1} | cells ++ nodes]
-    end)
+    pointer ++
+      Enum.flat_map(Enum.with_index(values), fn {value, p} ->
+        column = Ast.column(at(slot, p), base)
+
+        cells =
+          for {cell, row} <- Enum.zip(row_values(value, length(rows)), rows),
+              do: {{Alloc.row(alloc, row), column}, cell}
+
+        nodes = for row <- suffix_rows, do: {{row, column}, {:node, Enum.drop(values, p)}}
+        [{{Alloc.presence(alloc, bank), column}, 1} | cells ++ nodes]
+      end)
   end
 
   defp spread(_unallocated, _x, _alloc), do: []
