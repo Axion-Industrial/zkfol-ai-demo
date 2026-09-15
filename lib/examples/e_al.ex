@@ -269,7 +269,7 @@ defmodule Examples.EAl do
     {:ok, derivation} = Al.derived(collatz_next(), [7], [])
     {:error, reason} = Zkfol.Phi.relaid(Zkfol.Statement.of(collatz_next()), derivation)
 
-    assert {:unbound_variable, %{goals: [{:eq, {:var, :x}, {:add, {:mul, 2, {:var, :k}}, 1}}]}} =
+    assert {:unbound_variable, %{goals: [{:eq, {:var, :x}, {:add, {:mul, {:var, :k}, 2}, 1}}]}} =
              reason
 
     assert Refusal.message(reason) =~ "no clause binds"

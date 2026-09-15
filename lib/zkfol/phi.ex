@@ -1,7 +1,7 @@
 defmodule Zkfol.Phi do
   @moduledoc """
-  I am the lowering pass: a statement's relations become cells and equalities, and the
-  run's derivation is laid on the allocation born of them. Four rules make every equation:
+  I lower a statement's relations to a predicate over cells and the allocation those cells
+  stand on, and lay the run's derivation on it. Four rules make every equation:
 
   1. A symbol is a cell: handed one it references it, handed none it allocates a row, a
      repeat equates.
@@ -10,10 +10,10 @@ defmodule Zkfol.Phi do
   3. Recursion is address arithmetic: a call to a relation being laid continues it.
   4. Data fills cells; sizes, structure and ground literals shape the predicate.
 
-  For each member, `parameters/4` declares accesses and allocations on an initial walk.
-  `compile_clauses` produces constraints and resolves unknown bindings on that walk.
-  `allocate_parameters` collects the declarations and allocates any still-unresolved scalar
-  that the constraints read. Extent inference reads source recurrences without allocations.
+  A member is compiled in three steps: its parameters are declared as accesses or storage
+  from what the call handed and what its clauses say, each clause is matched and its goals
+  interpreted on that walk, and the scalars the clauses read but nothing bound are given
+  cells.
 
   ### Public API
 
@@ -21,10 +21,6 @@ defmodule Zkfol.Phi do
   - `relaid/2`: the derivation laid as the statement's witness.
   - `compile/3`: the predicate and the allocation it stands on.
   - `lower/2`: that predicate, linked.
-  - `parameters/3`, `parameters/4`: declare a member's parameter accesses and storage.
-  - `match/3`: match patterns against symbolic accesses, continuing an inspectable walk.
-  - `equate/3`: attempt an equation, reporting the bindings it needs when it must wait.
-  - `prepare/4`: prepare a primitive's arguments and local output storage.
   """
 
   @behaviour Zkfol.Pipeline
@@ -39,12 +35,11 @@ defmodule Zkfol.Phi do
   alias Zkfol.Lay
   alias Zkfol.Lang
   alias Zkfol.Lang.Rel
-  alias Zkfol.Phi.Ref
-  alias Zkfol.Phi.Cons
-  alias Zkfol.Phi.View
-  alias Zkfol.Phi.View.{Element, Record}
   alias Zkfol.Phi.Value
   alias Zkfol.Phi.Expression
+  alias Zkfol.Phi.Layout
+  alias Zkfol.Phi.Place
+  alias Zkfol.Phi.Shape
   alias Zkfol.Phi.Schedule
   alias Zkfol.Phi.Walk
   alias Zkfol.Phi.Walk.Clause
@@ -55,7 +50,8 @@ defmodule Zkfol.Phi do
   @typep frame :: Value.frame()
   @typep placement :: {atom(), [value()], frame(), Walk.t()}
 
-  # `inlining`: sizes of the calls being expanded on this path.
+  # `inlining` holds the argument sizes of every call being expanded on this path, so a
+  # recursive call can be seen to shrink or not.
   @typep ctx :: %{
            scope: %{atom() => Rel.t()},
            recursive: MapSet.t(),
@@ -111,16 +107,11 @@ defmodule Zkfol.Phi do
     with {:ok, pred, alloc, _walk} <- lowered(root, rels, args), do: {:ok, pred, alloc}
   end
 
-  @doc """
-  I match source patterns against symbolic accesses, retaining their bindings, equations,
-  and storage requirements. The returned walk can receive the next patterns; `:dead`
-  means this clause is impossible. Patterns and accesses have equal length.
-  """
+  # Each pattern against its value, in order; `:dead` is a clause that cannot match.
   @spec match([term()], [Value.t()], Walk.t()) :: Walk.t() | :dead
-  def match(patterns, values, walk \\ %Walk{})
-  def match([], [], walk), do: walk
+  defp match([], [], walk), do: walk
 
-  def match([pattern | patterns], [value | values], walk) do
+  defp match([pattern | patterns], [value | values], walk) do
     with walk = %Walk{} <- unify(pattern, value, walk), do: match(patterns, values, walk)
   end
 
@@ -135,7 +126,8 @@ defmodule Zkfol.Phi do
   @spec compiled(Rel.t(), %{atom() => Rel.t()}, [term()]) ::
           {:ok, Ast.pred(), Alloc.t(), Walk.t()} | {:error, Refusal.t()}
   defp compiled(root = %Rel{}, scope, args) do
-    # A handed scalar is data: its count may place (rule 4), its value never substitutes.
+    # A handed integer is data (rule 4): its count may place a bank, its value is never
+    # written into the predicate.
     handed =
       for k <- 0..(root.arity - 1)//1 do
         case Enum.at(args, k) do
@@ -145,7 +137,8 @@ defmodule Zkfol.Phi do
         end
       end
 
-    # A relation reaching itself by name is what a call may only unroll finitely or lay.
+    # A relation that reaches itself is recursive: a call to it is unrolled only while its
+    # arguments shrink, and laid as a member otherwise.
     recursive =
       for rel = %Rel{name: name} <- Map.values(scope),
           q <- Rel.calls(rel) ++ Rel.passes(rel),
@@ -165,7 +158,7 @@ defmodule Zkfol.Phi do
       inlining: %{}
     }
 
-    {name, _binds, walk} = compile_member(root, handed, ctx)
+    {name, _binds, walk} = compile_member(root, handed, %{}, ctx)
 
     pred =
       Ast.conj(
@@ -179,7 +172,8 @@ defmodule Zkfol.Phi do
     {:refused, refusal} -> {:error, refusal}
   end
 
-  # A bank fills one run from column two, so no forger shortens a walk by cutting its presence.
+  # A bank's presence is one on a single run starting at column two, so a forger cannot
+  # shorten a walk by dropping presence in the middle.
   @spec runs(Bank.t()) :: Ast.pred()
   defp runs(%Bank{name: name}) do
     Ast.disj([
@@ -193,13 +187,14 @@ defmodule Zkfol.Phi do
   #                     Member Compilation                   #
   ############################################################
 
-  # Spent rows number after the parameters' own, by tag, so goal order moves nothing.
-  @spec compile_member(Rel.t(), [value()], ctx()) :: {atom(), [value()], Walk.t()}
-  defp compile_member(%Rel{} = rel, handed, ctx) do
+  # Local rows are numbered after the parameters', by name, so goal order moves nothing.
+  @spec compile_member(Rel.t(), [value()], Place.known(), ctx()) ::
+          {atom(), [value()], Walk.t()}
+  defp compile_member(%Rel{} = rel, handed, known, ctx) do
     name = minted(rel.name, ctx.taken)
-    syms = params(rel)
+    syms = Layout.params(rel)
     refs = for sym <- syms, do: {name, {:param, sym}}
-    {steps, initial} = parameters(rel, handed, ctx.scope, refs)
+    {steps, initial} = parameters(rel, handed, known, ctx.scope, refs)
     binds = Enum.map(refs, &Map.get(initial.env, &1, {:fresh, &1}))
 
     member = %Member{name: name, relation: rel.name, steps: steps, slots: [], sites: %{}}
@@ -214,11 +209,8 @@ defmodule Zkfol.Phi do
     clauses = compile_clauses(rel, member, binds, initial, ctx)
 
     live = for %Clause{compiled: walk = %Walk{}} <- clauses, do: walk
-
-    branches =
-      for clause <- live,
-          do: Ast.conj([Ast.eq({:cell, {:in, name}}, 1) | Enum.reverse(clause.eqs)])
-
+    present = Ast.eq({:cell, {:in, name}}, 1)
+    branches = for clause <- live, do: Ast.conj([present | Enum.sort_by(clause.eqs, &inspect/1)])
     {binds, slots, banks, shapes} = allocate_parameters(refs, initial, live)
 
     sites =
@@ -232,11 +224,6 @@ defmodule Zkfol.Phi do
 
     local = live |> Enum.flat_map(& &1.slots) |> Enum.sort_by(&elem(&1.allocation, 1))
     member = %{member | sites: sites, slots: slots ++ local}
-
-    branches =
-      for {:conj, [present | eqs]} <- branches,
-          do: Ast.conj([present | Enum.sort_by(eqs, &inspect/1)])
-
     predicate = Ast.disj([Ast.eq({:cell, {:in, name}}, 0) | branches])
 
     walk = %Walk{
@@ -261,77 +248,64 @@ defmodule Zkfol.Phi do
   #                   Parameter Allocation                   #
   ############################################################
 
-  @doc """
-  I declare a member's parameters from symbolic values in its column frame.
-  I return its column counter and the initial walk to use for matching its clauses.
-  `scope` supplies the relations used by extent inference. Optional `refs` gives
-  parameters their identities when the member has a different name from its relation.
-  """
-  @spec parameters(Rel.t(), [value()], %{atom() => Rel.t()}, [Ast.row_ref()] | nil) ::
+  # Each parameter is declared as what it stands on, before any clause is matched. The
+  # layout decides from the relation's clauses and the handed places; the walk receives
+  # the decision as the values it reads today.
+  @spec parameters(Rel.t(), [value()], Place.known(), %{atom() => Rel.t()}, [Ast.row_ref()]) ::
           {{non_neg_integer(), integer()} | nil, Walk.t()}
-  def parameters(rel = %Rel{clauses: clauses}, handed, scope, refs \\ nil) do
-    refs = refs || Enum.map(params(rel), &{rel.name, {:param, &1}})
-    {step, counter} = column_counter(clauses, handed)
-    {j, o} = counter || {nil, 0}
-    solve = %{step: step, counter: counter, handed: handed, scope: scope, seen: []}
+  defp parameters(rel, handed, known, scope, refs) do
+    {{step, counter}, shapes} = Layout.shapes(rel, handed, known, scope)
+    places = Layout.places(rel, refs, handed, shapes, {step, counter})
 
     declarations =
-      for {{form, ref}, k} <- Enum.with_index(Enum.zip(handed, refs)) do
-        extent = extent(rel, k, solve)
-        empty = %Walk{}
-
-        cond do
-          tagged?(clauses, k) or is_struct(form, Ref) or
-            (step != nil and counter == nil and extent != nil) or
-            (is_list(form) and not bankable?(form)) or
-              (extent == :open and (form == :fresh or match?({:fresh, _}, form))) ->
-            Walk.bind(empty, ref, %Ref{id: Ast.cell(ref)}, {:node, ref})
-
-          extent == nil or is_struct(form, Element) ->
-            access = if k == j, do: Ast.add(:x, o), else: form
-            Walk.bind(empty, ref, access)
-
-          is_struct(form, View) ->
-            access =
-              if step != nil and counter != nil do
-                View.stepped(form, extent) ||
-                  throw({:refused, {:unliftable_term, %{term: form, relation: rel.name}}})
-              else
-                form
-              end
-
-            Walk.bind(empty, ref, access)
-
-          true ->
-            element =
-              case form do
-                [record | _] when is_list(record) -> %Record{width: length(record)}
-                [_ | _] -> :scalar
-                _unknown -> :unknown
-              end
-
-            Walk.bank(empty, ref, extent, element)
-        end
+      for {{ref, form, place, shape}, k} <-
+            Enum.with_index(Enum.zip([refs, handed, places, shapes])) do
+        declared(rel, ref, form, place, shape, {step, counter}, k)
       end
 
-    initial = Enum.reduce(declarations, %Walk{}, &Walk.merge/2)
-
-    {counter, initial}
+    {counter, Enum.reduce(declarations, Walk.refine(%Walk{}, known), &Walk.merge/2)}
   end
 
-  # Clauses resolve unknown bindings; surviving reads demand storage for unresolved scalars.
-  # Allocation-producing rules record their decisions; aliases require no storage.
+  # The layout's decision as a declaration over the value it was made for.
+  @spec declared(Rel.t(), Ast.row_ref(), value(), Place.t(), Shape.t(), Layout.steps(), integer()) ::
+          Walk.t()
+  defp declared(_rel, ref, form, place, shape, {step, counter}, k) do
+    {j, o} = counter || {nil, 0}
+
+    case {place, form} do
+      {{:node, _id}, _form} ->
+        Walk.bind(%Walk{}, ref, {:node, Ast.cell(ref)}, {:node, ref})
+
+      {_column, _form} when k == j and shape == :scalar ->
+        Walk.bind(%Walk{}, ref, Ast.add(:x, o))
+
+      {{:along, _, _}, {:along, _, _}} when step != nil and counter != nil ->
+        Walk.bind(%Walk{}, ref, Place.stepped(form, shape))
+
+      {{:along, _, _}, {:along, _, _}} ->
+        Walk.bind(%Walk{}, ref, form)
+
+      {along = {:along, _, _}, _handed} ->
+        Walk.bank(%Walk{}, ref, along, shape)
+
+      {_read_as_it_is, _form} ->
+        Walk.bind(%Walk{}, ref, form)
+    end
+  end
+
+  # A parameter the clauses bound keeps the storage they chose; one they only read gets a
+  # cell; one nothing read needs no storage at all.
   @spec allocate_parameters([Ast.row_ref()], Walk.t(), [Walk.t()]) ::
-          {[value()], [Slot.t()], [Bank.t()], %{Ast.row_ref() => View.element()}}
+          {[value()], [Slot.t()], [Bank.t()], %{Ast.row_ref() => Shape.t()}}
   defp allocate_parameters(refs, initial, clauses) do
-    # Earlier declarations take precedence; collect them once for all parameters.
+    # The earliest declaration of a parameter wins.
     declared = List.foldr([initial | clauses], %Walk{}, &Walk.merge/2)
     shapes = declared.shapes
 
     constraints =
       for %Walk{eqs: [_ | _] = eqs} <- clauses, do: Value.shaped(Ast.conj(eqs), shapes)
 
-    read = MapSet.new(Enum.flat_map(constraints, &Zkfol.Nodes.reads/1))
+    read = MapSet.new(Enum.flat_map(constraints, &Zkfol.Nodes.reads(&1, shapes)))
 
     parameters =
       for ref = {_name, {:param, sym}} <- refs do
@@ -346,10 +320,11 @@ defmodule Zkfol.Phi do
       for {_access, %Slot{allocation: {:bank, bank, _address}}} <- parameters,
           do: %Bank{
             name: bank,
+            element: Map.get(shapes, {bank, 1}, :unknown),
             depth:
               case shapes[{bank, 1}] do
-                %Record{width: {:at_least, width}} -> max(1, width)
-                %Record{width: width} -> max(1, width)
+                {:list, {:at_least, width}, :scalar} -> max(1, width)
+                {:list, {0, width}, :scalar} -> max(1, width)
                 _shape -> 1
               end
           }
@@ -359,177 +334,10 @@ defmodule Zkfol.Phi do
   end
 
   ############################################################
-  #                 Column and Sequence Extents              #
+  #                         Literals                         #
   ############################################################
 
-  # Choose the column counter before constructing any parameter representation.
-  @spec column_counter([{[term()], [term()]}], [value()]) ::
-          {step() | nil, {non_neg_integer(), integer()} | nil}
-  defp column_counter(clauses, handed) do
-    step = displaced_call(clauses)
-    j = (step && elem(step, 0)) || Enum.find_index(handed, &counted?/1)
-
-    counter =
-      if j && not tagged?(clauses, j) && walkable?(Enum.at(handed, j)),
-        do: {j, origin(clauses, j)}
-
-    {step, counter}
-  end
-
-  defp tagged?(clauses, k) do
-    heads = for {head, _body} <- clauses, do: Enum.at(head, k)
-    Enum.any?(heads, &is_integer/1) and Enum.any?(heads, &Lang.Term.sequence?/1)
-  end
-
-  # A bank stores a scalar row or equal-width scalar rows; other terms need nodes.
-  defp bankable?(cells) do
-    scalar_row?(cells) or
-      (Enum.all?(cells, &scalar_row?/1) and length(Enum.uniq_by(cells, &length/1)) == 1)
-  end
-
-  defp scalar_row?(cells) when is_list(cells), do: Enum.all?(cells, &is_integer/1)
-  defp scalar_row?(_value), do: false
-
-  @spec counted?(value()) :: boolean()
-  defp counted?(%View{length: e}), do: e != :open
-  defp counted?(form) when is_list(form), do: data_list?(form)
-  defp counted?(form), do: match?({m, _a} when m != 0, Value.affine(form))
-
-  @spec walkable?(value()) :: boolean()
-  defp walkable?(%View{col: col}), do: col != nil
-  defp walkable?(%Ref{}), do: false
-  defp walkable?(%Cons{}), do: false
-  defp walkable?(cells) when is_list(cells), do: data_list?(cells)
-  defp walkable?(_value), do: true
-
-  # The stepping call: the parameter, its displacement, the callee, how far each argument hands.
-  @typep step :: {non_neg_integer(), integer(), atom(), [[integer() | nil]]}
-
-  @spec displaced_call([{[term()], [term()]}]) :: step() | nil
-  defp displaced_call(clauses) do
-    Enum.find_value(clauses, fn {head, body} ->
-      Enum.find_value(body, fn
-        {:call, q, args} when is_atom(q) ->
-          hands = for pattern <- head, do: for(arg <- args, do: displaced(arg, pattern))
-
-          Enum.find_value(Enum.with_index(hands), fn {ds, k} ->
-            with c when c not in [nil, 0] <- Enum.find(ds, &(&1 not in [nil, 0])),
-                 do: {k, c, q, hands}
-          end)
-
-        _goal ->
-          nil
-      end)
-    end)
-  end
-
-  @spec displaced(term(), term()) :: integer() | nil
-  defp displaced({:var, _v} = name, name), do: 0
-
-  defp displaced({:add, a, q}, pattern) when is_integer(q),
-    do: with(c when is_integer(c) <- displaced(a, pattern), do: c + q)
-
-  defp displaced({:add, q, a}, pattern) when is_integer(q), do: displaced({:add, a, q}, pattern)
-  defp displaced({:cons, h, rest}, {:cons, h, t}), do: displaced(rest, t)
-
-  defp displaced(arg, {:cons, _h, t}),
-    do: with(c when is_integer(c) <- displaced(arg, t), do: c - 1)
-
-  defp displaced(_arg, _pattern), do: nil
-
-  # The count the smallest base clause stands at, a column from one.
-  @spec origin([{[term()], [term()]}], non_neg_integer()) :: integer()
-  defp origin(clauses, j),
-    do: Enum.min([1 | for({head, _body} <- clauses, n = count_in(head, j), do: n)]) - 1
-
-  # The count a parameter stands at in a clause head: a pin, a closed spine, none for a name.
-  @spec count_in([term()], non_neg_integer()) :: non_neg_integer() | nil
-  defp count_in(head, k) do
-    case Enum.at(head, k) do
-      q when is_integer(q) -> q
-      {:var, _v} -> nil
-      bracket -> if(tail_of(bracket) == nil, do: length(spine(bracket)))
-    end
-  end
-
-  # Extents depend on the source recurrence and argument shapes, not on allocated rows.
-  @spec extent(Rel.t(), non_neg_integer(), map()) :: View.extent() | nil
-  defp extent(rel = %Rel{clauses: clauses}, k, solve) do
-    form = Enum.at(solve.handed, k)
-    {j, o} = solve.counter || {nil, 0}
-
-    sequence =
-      data_list?(form) or match?(%View{}, form) or
-        Enum.any?(clauses, fn {head, _body} -> Lang.Term.sequence?(Enum.at(head, k)) end)
-
-    cond do
-      not sequence -> nil
-      solve.step == nil or solve.counter == nil -> Value.count(form) || :open
-      k == j -> {1, o}
-      true -> recurrence_extent(rel, k, solve)
-    end
-  end
-
-  @spec recurrence_extent(Rel.t(), non_neg_integer(), map()) :: View.extent()
-  defp recurrence_extent(rel = %Rel{name: self}, k, solve = %{step: {j, cj, q, hands}}) do
-    handed = Enum.at(solve.handed, k)
-
-    case Enum.find(Enum.with_index(Enum.at(hands, k)), fn {c, _p} -> c != nil end) do
-      {c, _p} when q == self ->
-        m = div(c, cj)
-        {m, intercept(rel.clauses, solve, j, k) - m}
-
-      {c, p} when q != self ->
-        callee = solve.scope[q]
-        fresh = List.duplicate(:fresh, callee.arity)
-
-        with false <- q in solve.seen,
-             {step, {_jc, oc} = counter} <- column_counter(callee.clauses, fresh),
-             false <- tagged?(callee.clauses, p),
-             inner = %{
-               solve
-               | step: step,
-                 counter: counter,
-                 handed: fresh,
-                 seen: [self | solve.seen]
-             },
-             length when length not in [nil, :open] <- extent(callee, p, inner) do
-          {_j, o} = solve.counter
-
-          case length do
-            {0, a} -> a - c
-            {m, a} -> {m, m * (cj + o - oc) + a - c}
-            n -> n - c
-          end
-        else
-          _unstepped -> Value.count(handed) || :open
-        end
-
-      _apart ->
-        Value.count(handed) || :open
-    end
-  end
-
-  # The base clause's count for a parameter, or what a name one with it there was handed.
-  @spec intercept([{[term()], [term()]}], map(), non_neg_integer(), non_neg_integer()) ::
-          integer()
-  defp intercept(clauses, %{handed: handed, step: {_j, _cj, _q, hands}}, j, k) do
-    {base, _body} = Enum.min_by(clauses, fn {head, _body} -> count_in(head, j) || 1 end)
-
-    mates =
-      for {pattern, i} <- Enum.with_index(base),
-          i == k or (match?({:var, _v}, pattern) and pattern == Enum.at(base, k)),
-          do: i
-
-    Enum.find_value(mates, 0, fn i ->
-      case count_in(base, i) do
-        nil -> if(0 in Enum.at(hands, i), do: Value.count(Enum.at(handed, i)))
-        said -> said
-      end
-    end)
-  end
-
-  # Values are data and stand in a bank; forms are cells that already stand (rule 1).
+  # A list of integers is data and takes a bank; a list of cells already stands (rule 1).
   @spec data_list?(value()) :: boolean()
   defp data_list?([]), do: false
 
@@ -538,20 +346,12 @@ defmodule Zkfol.Phi do
 
   defp data_list?(_form), do: false
 
-  @spec params(Rel.t()) :: [atom()]
-  defp params(%Rel{clauses: clauses}) do
-    {head, _body} = Enum.max_by(clauses, fn {_h, b} -> length(b) end)
-
-    for {pattern, k} <- Enum.with_index(head) do
-      with {:var, v} <- pattern, do: v, else: (_other -> :"a#{k + 1}")
-    end
-  end
-
   ############################################################
   #                     Clause Constraints                   #
   ############################################################
 
-  # A clause retains its equations, bindings and sites together; impossible clauses stay dead.
+  # Every clause is compiled, the impossible ones kept as `:dead`, so the views can show
+  # why a clause failed.
   @spec compile_clauses(Rel.t(), Member.t(), [value()], Walk.t(), ctx()) ::
           [Clause.t()]
   defp compile_clauses(%Rel{clauses: clauses}, %Member{name: name}, binds, seeded, ctx) do
@@ -581,7 +381,8 @@ defmodule Zkfol.Phi do
     walks
   end
 
-  # Goal interpretation reports dependencies; the schedule determines when to retry.
+  # A goal that needs a binding not yet made waits; the schedule retries it when the
+  # binding appears.
   @spec compile_goals([term()], Walk.t(), ctx()) :: Walk.t() | :dead
   defp compile_goals(goals, walk, ctx) do
     Schedule.run(Schedule.new(goals), walk, fn goal, k, walk ->
@@ -611,21 +412,21 @@ defmodule Zkfol.Phi do
 
     cond do
       callee.phi -> phi_goal(callee, args, walk, ctx)
-      # A relation of no clauses and no phi drives the derivation only; it says nothing here.
+      # A relation of no clauses and no phi steers the derivation only; here it is nothing.
       callee.clauses == [] -> walk
       true -> compile_call(callee, args, walk, ctx)
     end
   end
 
-  @doc "I attempt either direction of an equation, or report bindings that would let it progress."
+  # Either side may bind the other; when neither can yet, the names both need are reported.
   @spec equate(term(), term(), Walk.t()) :: Walk.t() | :dead | Expression.waiting()
-  def equate(a, b, walk) do
+  defp equate(a, b, walk) do
     with {:waiting, left} <- equation_side(a, b, walk),
          {:waiting, right} <- equation_side(b, a, walk),
          do: {:waiting, Enum.uniq(left ++ right)}
   end
 
-  # A variable or arithmetic expression can bind; a structure first needs its own value.
+  # A name or a sum can be bound from the other side; a structure is matched value to value.
   defp equation_side(pattern, other, walk) do
     case pattern do
       {:var, _name} ->
@@ -646,11 +447,11 @@ defmodule Zkfol.Phi do
   #                         Calling                          #
   ############################################################
 
-  # Said in place where the values select a clause and the steps are finite, continued where
-  # it names a relation being laid, laid as a member otherwise.
+  # A call is said in place when exactly one clause matches and its body compiles without
+  # storage; otherwise it is a member, a continuation of one being laid or a new one.
   @spec compile_call(Rel.t(), [term()], Walk.t(), ctx()) :: Walk.t() | :dead
   defp compile_call(callee, args, walk, ctx) do
-    # A primitive's clauses consume scalar values, just as its specialized lowering does.
+    # A primitive's clauses read a handed count as the cell it stands in.
     values =
       for arg <- args do
         case Expression.argument(arg, walk) do
@@ -659,29 +460,24 @@ defmodule Zkfol.Phi do
         end
       end
 
-    {strategy, within} = enter_call(callee, values, ctx)
+    {strategy, within} = enter_call(callee, values, walk.shapes, ctx)
 
-    candidates =
+    expansions =
       for {{head, body}, k} <- Enum.with_index(callee.clauses),
-          inner = %Walk{} <- [match(head, values, %Walk{})] do
+          inner = %Walk{} <- [match(head, values, %Walk{shapes: walk.shapes})] do
         if strategy == :residual,
           do: :residual,
           else: inline_clause(callee.name, {k, head, body, inner}, args, walk, within)
       end
 
-    # Placement is demanded only after considering the completed expansions.
-    place = fn ->
-      member = reuse_member(callee, values, ctx) || place_new_member(callee, values, ctx)
-      call_constraints(callee, args, member, walk, ctx)
-    end
-
-    case {strategy, Enum.reject(candidates, &(&1 == :dead))} do
+    case {strategy, Enum.reject(expansions, &(&1 == :dead))} do
       {_strategy, []} ->
         :dead
 
+      # A walk over a counted list is cheaper as a member; expanded only when it cannot be.
       {:prefer_call, [{:constrained, expanded}]} ->
         try do
-          place.()
+          called(callee, args, values, walk, ctx)
         catch
           {:refused, {:unliftable_term, _detail}} -> expanded
         end
@@ -690,18 +486,29 @@ defmodule Zkfol.Phi do
         expanded
 
       _residual ->
-        place.()
+        called(callee, args, values, walk, ctx)
     end
   end
 
-  # Keep the cost preference separate from whether recursion can be expanded at all.
-  @spec enter_call(Rel.t(), [value()], ctx()) :: {:inline | :prefer_call | :residual, ctx()}
-  defp enter_call(%Rel{name: name}, values, ctx) do
+  # The call as a member: the one being laid when the values continue it, a new one else.
+  @spec called(Rel.t(), [term()], [value()], Walk.t(), ctx()) :: Walk.t() | :dead
+  defp called(callee, args, values, walk, ctx) do
+    member =
+      reuse_member(callee, values, ctx) || place_new_member(callee, values, walk.shapes, ctx)
+
+    call_constraints(callee, args, member, walk, ctx)
+  end
+
+  # Whether a call may be expanded, and whether it should be: a recursive call expands only
+  # while its arguments are finite and shrinking; one walking a counted list prefers a member.
+  @spec enter_call(Rel.t(), [value()], Place.known(), ctx()) ::
+          {:inline | :prefer_call | :residual, ctx()}
+  defp enter_call(%Rel{name: name}, values, known, ctx) do
     key = specialization(name, values)
-    sizes = Enum.map(values, &size/1)
+    sizes = Enum.map(values, &size(&1, known))
     around = Map.get(ctx.inlining, key)
     shrunk = if around, do: Enum.zip(sizes, around)
-    constructed = Enum.any?(values, &(is_list(&1) or is_struct(&1, Cons)))
+    constructed = Enum.any?(values, &(is_list(&1) or match?({:pair, _, _}, &1)))
     finite = constructed or Enum.all?(values, &finite?/1)
 
     decreases =
@@ -717,15 +524,7 @@ defmodule Zkfol.Phi do
         not finite or not decreases ->
           :residual
 
-        not constructed and
-            Enum.any?(
-              values,
-              &match?(
-                %View{col: {:at, _, _, _}, length: e}
-                when is_integer(e),
-                &1
-              )
-            ) ->
+        not constructed and Enum.any?(values, &(Place.count(&1) != nil)) ->
           :prefer_call
 
         true ->
@@ -735,38 +534,41 @@ defmodule Zkfol.Phi do
     {strategy, %{ctx | inlining: Map.put(ctx.inlining, key, sizes)}}
   end
 
-  # A higher-order call recurs on its specialization, not on an unrelated callback's walk.
+  # Two calls with different passed relations are different calls for the shrinking check.
   @spec specialization(atom(), [value()]) :: {atom(), [{non_neg_integer(), value()}]}
   defp specialization(name, values),
     do: {name, for({value = {:rel, _, _}, k} <- Enum.with_index(values), do: {k, value})}
 
   @spec finite?(value()) :: boolean()
-  defp finite?(%Ref{}), do: false
-  defp finite?(%Element{}), do: false
-  defp finite?(%View{} = view), do: View.finite?(view)
-  defp finite?(%Cons{head: h, tail: t}), do: finite?(h) and finite?(t)
+  defp finite?({:node, _id}), do: false
+  defp finite?({:across, _, _, _}), do: false
+  defp finite?(along = {:along, _, _}), do: Place.count(along) != nil
+  defp finite?({:pair, h, t}), do: finite?(h) and finite?(t)
   defp finite?([h | t]), do: finite?(h) and finite?(t)
   defp finite?(:x), do: false
   defp finite?({tag, _a, _b}) when tag in [:add, :mul, :count], do: false
   defp finite?(_value), do: true
 
-  # How many cells a value holds, an integer standing for that many.
-  @spec size(value()) :: integer() | nil
-  defp size(q) when is_integer(q), do: q
-  defp size(view = %View{}), do: View.size(view)
-  defp size([]), do: 0
+  # The cells a value holds; a handed integer counts as that many.
+  @spec size(value(), Place.known()) :: integer() | nil
+  defp size(q, _known) when is_integer(q), do: q
+  defp size(along = {:along, _, _}, known), do: Place.size(along, known)
+  defp size([], _known), do: 0
 
-  defp size(%Cons{head: h, tail: t}),
-    do: with(a when a != nil <- size(h), b when b != nil <- size(t), do: a + b)
+  defp size({:pair, h, t}, known),
+    do: with(a when a != nil <- size(h, known), b when b != nil <- size(t, known), do: a + b)
 
-  defp size([h | t]), do: with(a when a != nil <- size(h), b when b != nil <- size(t), do: a + b)
-  defp size(%Element{}), do: nil
-  defp size(:fresh), do: nil
-  defp size({:fresh, _ref}), do: nil
-  defp size({:rel, _p, _f}), do: nil
-  defp size(_cell), do: 1
+  defp size([h | t], known),
+    do: with(a when a != nil <- size(h, known), b when b != nil <- size(t, known), do: a + b)
 
-  # Expansion is decided after the body, once impossible clauses and storage are known.
+  defp size({:across, _, _, _}, _known), do: nil
+  defp size(:fresh, _known), do: nil
+  defp size({:fresh, _ref}, _known), do: nil
+  defp size({:rel, _p, _f}, _known), do: nil
+  defp size(_cell, _known), do: 1
+
+  # The clause body is compiled in a walk of its own; the expansion is a substitution when
+  # it made no equations, constrained when it did, and residual when it needed storage.
   @spec inline_clause(
           atom(),
           {non_neg_integer(), [term()], [term()], Walk.t()},
@@ -803,11 +605,11 @@ defmodule Zkfol.Phi do
 
   @spec arithmetic?(value()) :: boolean()
   defp arithmetic?({op, _a, _b}) when op in [:add, :mul], do: true
-  defp arithmetic?(%Cons{head: h, tail: t}), do: arithmetic?(h) or arithmetic?(t)
+  defp arithmetic?({:pair, h, t}), do: arithmetic?(h) or arithmetic?(t)
   defp arithmetic?([h | t]), do: arithmetic?(h) or arithmetic?(t)
   defp arithmetic?(_value), do: false
 
-  # The chosen member's presence, argument equalities and source site belong to the caller.
+  # The caller gains the member's presence, an equation per argument, and the call site.
   @spec call_constraints(Rel.t(), [term()], placement(), Walk.t(), ctx()) ::
           Walk.t() | :dead
   defp call_constraints(callee, args, {name, binds, frame, made}, caller, %{site: [k | _]} = ctx) do
@@ -865,18 +667,18 @@ defmodule Zkfol.Phi do
     end)
   end
 
-  # Rule 3; a standing list or a call passing another relation is another walk.
+  # Rule 3. A literal list or a different passed relation cannot continue a member.
   @spec reuse_member(Rel.t(), [value()], ctx()) :: placement() | nil
   defp reuse_member(callee, values, ctx) do
     with {%Member{name: ancestor, steps: steps}, binds} <-
            Enum.find(ctx.ancestors, fn {member, _binds} -> member.relation == callee.name end),
          true <-
            Enum.all?(Enum.zip(values, binds), fn
-             {_value, %Ref{}} -> true
+             {_value, {:node, _id}} -> true
              {cells, _bind} when is_list(cells) -> false
-             {%Cons{}, _bind} -> false
-             {:fresh, view = %View{}} -> is_tuple(view.length)
-             {%Ref{}, _bind} -> false
+             {{:pair, _, _}, _bind} -> false
+             {:fresh, along = {:along, _, _}} -> match?({m, _a} when m != 0, Place.extent(along))
+             {{:node, _id}, _bind} -> false
              {{:rel, _p, _fixed} = passed, bind} -> bind == passed
              _form -> true
            end) do
@@ -887,33 +689,33 @@ defmodule Zkfol.Phi do
     end
   end
 
-  # A bank minted from a literal holds exactly its cells: presence bounded at the call.
-  @spec place_new_member(Rel.t(), [value()], ctx()) :: placement()
-  defp place_new_member(callee, values, ctx) do
+  # A bank made from a literal holds exactly those cells: its presence is bounded here.
+  @spec place_new_member(Rel.t(), [value()], Place.known(), ctx()) :: placement()
+  defp place_new_member(callee, values, known, ctx) do
     lifted = for form <- values, do: liftable(form)
-    {_step, steps} = column_counter(callee.clauses, lifted)
+    {_step, steps} = Layout.column_counter(callee.clauses, lifted, known)
 
     frame =
       case frame_of(values, steps) do
-        # A callee no column counts stands where its caller stands.
+        # A callee whose steps count no column stands at the caller's column.
         :ptr when steps == nil -> Ast.address(:x, 1, 0)
         frame -> framed_at(frame, callee.name, ctx)
       end
 
     {name, binds, walk} =
-      compile_member(callee, for(form <- lifted, do: Value.unframe(form, frame)), ctx)
+      compile_member(callee, for(form <- lifted, do: Value.unframe(form, frame)), known, ctx)
 
     bounded =
       for {cells, bind} <- Enum.zip(lifted, binds),
           data_list?(cells),
-          view = %View{} <- [Value.frame(bind, frame)],
-          eq <- View.bounded(view, length(cells)),
+          along = {:along, _, _} <- [Value.frame(bind, frame)],
+          eq <- Place.bounded(along, length(cells)),
           do: eq
 
     {name, binds, frame, %{walk | eqs: bounded}}
   end
 
-  # A pointer frame names its row; the completed call site owns its allocation.
+  # A call with no affine frame reads through a pointer cell owned by the call site.
   @spec framed_at(frame() | :ptr, atom(), ctx()) :: frame()
   defp framed_at(:ptr, target, ctx) do
     Ast.address({:cell, {ctx.member, {:own, {:"which #{target}", ctx.site}}}}, 1, 0)
@@ -921,33 +723,35 @@ defmodule Zkfol.Phi do
 
   defp framed_at(frame, _target, _ctx), do: frame
 
-  # A cell of the caller's cannot stand a callee's rows: the callee holds its own and equates.
+  # What a callee may take as handed: cells of the caller's column, data, counts. A list
+  # or term placed elsewhere becomes a node the callee equates with.
   @spec liftable(value()) :: value()
-  defp liftable(%Ref{} = ref), do: ref
-  defp liftable(%View{col: {:at, base, _m, _a}} = view) when base != :x, do: Ref.of(view)
-  defp liftable(element = %Element{}), do: element
-  defp liftable(%View{} = view), do: view
-  defp liftable(%Cons{} = cons), do: Ref.of(cons)
+  defp liftable(node = {:node, _id}), do: node
+  defp liftable(along = {:along, _, {:at, base, _, _}}) when base != :x, do: Place.node_of(along)
+  defp liftable(element = {:across, _, _, _}), do: element
+  defp liftable(along = {:along, _, _}), do: along
+  defp liftable(pair = {:pair, _, _}), do: Place.node_of(pair)
   defp liftable(form) when is_list(form) or is_integer(form) or form == :fresh, do: form
   defp liftable({tag, _a, _b} = form) when tag in [:count, :rel], do: form
-  defp liftable(form), do: if(Value.affine(form) != nil, do: form, else: :fresh)
+  defp liftable(form), do: if(Place.affine(form) != nil, do: form, else: :fresh)
 
-  # Where the callee's count stands in the caller's column, or a pointer where it cannot say.
+  # The caller's column where the callee's count stands; a pointer when no count is known.
   @spec frame_of([value()], tuple() | nil) :: frame() | :ptr
   defp frame_of(_values, nil), do: :ptr
 
   defp frame_of(values, {j, o}) do
     count =
       case Enum.at(values, j) do
-        view = %View{} -> with(n when is_integer(n) <- view.length, do: {0, n})
+        along = {:along, _, _} -> Place.extent(along)
         cells when is_list(cells) -> if data_list?(cells), do: {0, length(cells)}
-        form -> Value.affine(form)
+        form -> Place.affine(form)
       end
 
     with {m, a} <- count, do: Ast.address(:x, m, a - o), else: (_open -> :ptr)
   end
 
-  # An indexed read whose index stands picks its cell outright (rule 1).
+  # A primitive with a known index picks the cell; otherwise its meaning is applied to
+  # the prepared arguments.
   @spec phi_goal(Rel.t(), [term()], Walk.t(), ctx()) :: Walk.t() | :dead
   defp phi_goal(callee, args, walk, ctx) do
     {module, op} = callee.phi
@@ -962,7 +766,7 @@ defmodule Zkfol.Phi do
         Walk.constrain(walk, Ast.folded(apply(module, op, resolved)))
     end
   catch
-    {:refused, {:unliftable_term, %{term: %Ref{}}}}
+    {:refused, {:unliftable_term, %{term: {:node, _id}}}}
     when callee.al == nil and callee.clauses != [] ->
       compile_call(callee, args, walk, ctx)
 
@@ -970,9 +774,9 @@ defmodule Zkfol.Phi do
       throw({:refused, {reason, Map.put(detail, :relation, callee.name)}})
   end
 
-  @doc "I prepare primitive arguments, allocating one local cell for each unbound output name."
+  # An unbound output name gets a local cell; everything else is its value.
   @spec prepare([term()], Walk.t(), atom(), [term()]) :: {[Value.t()], Walk.t()}
-  def prepare(args, walk, member, site) do
+  defp prepare(args, walk, member, site) do
     Enum.map_reduce(args, walk, fn arg, walk ->
       case {arg, Expression.argument(arg, walk)} do
         {{:var, name}, :fresh} ->
@@ -982,7 +786,7 @@ defmodule Zkfol.Phi do
           {cell, %{walk | env: Map.put(walk.env, name, cell), slots: walk.slots ++ [slot]}}
 
         _bound ->
-          {Value.elements(Expression.resolve!(arg, walk)), walk}
+          {Value.elements(Expression.resolve!(arg, walk), walk.shapes), walk}
       end
     end)
   end
@@ -990,7 +794,7 @@ defmodule Zkfol.Phi do
   @spec pick({module(), atom()}, [term()], Walk.t()) :: {term(), value()} | nil
   defp pick({Ast, :nth}, [i, xs, v], walk) do
     with q when is_integer(q) <- Expression.argument(i, walk),
-         cells when is_list(cells) <- Value.elements(Expression.argument(xs, walk)),
+         cells when is_list(cells) <- Value.elements(Expression.argument(xs, walk), walk.shapes),
          true <- q >= 1 and q <= length(cells),
          do: {v, Enum.at(cells, q - 1)},
          else: (_unpicked -> nil)
@@ -1014,7 +818,7 @@ defmodule Zkfol.Phi do
     end
   end
 
-  # Two unresolved parameters share one identity until a value binds them.
+  # Two unresolved parameters become one until a value binds either.
   defp unify(a = {:fresh, ref}, b = {:fresh, other}, walk = %Walk{env: env}) do
     cond do
       is_map_key(env, ref) -> unify(Walk.fetch(walk, ref), b, walk)
@@ -1023,7 +827,7 @@ defmodule Zkfol.Phi do
     end
   end
 
-  # Choose the parameter's access, then require it to equal the value that resolved it.
+  # The parameter takes storage for the value, then is matched against it.
   defp unify({:fresh, ref}, value, walk = %Walk{env: env}) do
     case env do
       %{^ref => _bound} ->
@@ -1036,23 +840,32 @@ defmodule Zkfol.Phi do
     end
   end
 
+  # A bracket against a parameter nothing placed: the parameter takes a bank of the
+  # bracket's length, open past its tail. The layout places what a body binds for the
+  # callee's own parameters; a caller's unbound output reaches here.
   defp unify({:cons, _h, _t} = bracket, {:fresh, ref}, walk = %Walk{env: env})
        when not is_map_key(env, ref) do
-    len = if tail_of(bracket) == nil, do: length(spine(bracket)), else: {1, 0}
-    walk = Walk.bank(walk, ref, len)
+    extent =
+      case Lang.Term.closed(bracket) do
+        nil -> {1, 0}
+        elements -> {0, length(elements)}
+      end
+
+    shape = {:list, extent, :unknown}
+    walk = Walk.bank(walk, ref, {:along, {Bank.of(ref), 1}, Place.head(shape)}, shape)
     unify(bracket, walk.env[ref], walk)
   end
 
   defp unify(pattern, {:fresh, _ref} = fresh, walk), do: unify(fresh, pattern, walk)
 
-  defp unify(%Ref{id: a}, %Ref{id: b}, walk), do: Walk.constrain(walk, [Ast.eq(a, b)])
-  defp unify(%Ref{} = ref, other, walk), do: unify(other, ref, walk)
+  defp unify({:node, a}, {:node, b}, walk), do: Walk.constrain(walk, [Ast.eq(a, b)])
+  defp unify(node = {:node, _id}, other, walk), do: unify(other, node, walk)
 
-  defp unify(%View{} = view, %Ref{id: id}, walk),
-    do: Walk.constrain(walk, [Ast.eq(Ref.of(view).id, id)])
+  defp unify(along = {:along, _, _}, {:node, id}, walk),
+    do: Walk.constrain(walk, [Ast.eq(elem(Place.node_of(along), 1), id)])
 
-  defp unify(q, %Ref{} = ref, walk) when is_integer(q),
-    do: Walk.constrain(walk, [Ast.eq(Ref.read(:value, ref), q)])
+  defp unify(q, {:node, id}, walk) when is_integer(q),
+    do: Walk.constrain(walk, [Ast.eq(Place.read(:value, id), q)])
 
   defp unify(q, {:count, _held, form}, walk) when is_integer(q),
     do: Walk.constrain(walk, [Ast.eq(form, q)])
@@ -1061,10 +874,13 @@ defmodule Zkfol.Phi do
        when is_integer(q) and (form == :x or elem(form, 0) in [:cell, :add, :mul]),
        do: Walk.constrain(walk, pinned(form, q))
 
-  defp unify(q, %Element{part: {:fields, _n}}, _walk) when is_integer(q), do: :dead
-
-  defp unify(q, element = %Element{}, walk) when is_integer(q),
-    do: Walk.constrain(walk, [Ast.eq(element, q)])
+  # An integer against an element: a record has no number, an element still unknown may.
+  defp unify(q, element = {:across, row, _address, _skipped}, walk) when is_integer(q) do
+    case Map.get(walk.shapes, row) do
+      {:list, _extent, _fields} -> :dead
+      _scalar_or_unknown -> Walk.constrain(walk, [Ast.eq(element, q)])
+    end
+  end
 
   defp unify(q, _value, _walk) when is_integer(q), do: :dead
 
@@ -1072,11 +888,11 @@ defmodule Zkfol.Phi do
 
   defp unify([], value, walk), do: Walk.ended(walk, value)
 
-  defp unify({:cons, h, t}, value, walk), do: unify(%Cons{head: h, tail: t}, value, walk)
+  defp unify({:cons, h, t}, value, walk), do: unify({:pair, h, t}, value, walk)
 
-  defp unify([h | t], value, walk), do: unify(%Cons{head: h, tail: t}, value, walk)
+  defp unify([h | t], value, walk), do: unify({:pair, h, t}, value, walk)
 
-  defp unify(%Cons{head: h, tail: t}, value, walk) do
+  defp unify({:pair, h, t}, value, walk) do
     with {:ok, vh, vt, walk} <- Walk.peel(walk, value),
          walk = %Walk{} <- unify(h, vh, walk),
          do: unify(t, vt, walk)
@@ -1092,26 +908,25 @@ defmodule Zkfol.Phi do
   defp unify(pattern = {:papply, _p, _fixed}, value, walk),
     do: unify(Expression.resolve!(pattern, walk), value, walk)
 
-  defp unify(a = %View{}, b = %View{}, walk) do
-    a = Value.shaped(a, walk.shapes)
-    b = Value.shaped(b, walk.shapes)
+  # Two lists along the trace: the same one, or one counted against the other's elements.
+  defp unify(a = {:along, _, _}, b = {:along, _, _}, walk) do
+    known = walk.shapes
 
     cond do
       a == b -> walk
-      a.col == nil or b.col == nil -> throw({:refused, {:unliftable_term, %{term: b}}})
-      View.count(b) -> unify(a, for(i <- 0..(View.count(b) - 1)//1, do: View.slice(b, i)), walk)
-      View.count(a) -> unify(b, for(i <- 0..(View.count(a) - 1)//1, do: View.slice(a, i)), walk)
+      Place.count(b) -> unify(a, elements(b, known), walk)
+      Place.count(a) -> unify(b, elements(a, known), walk)
       true -> throw({:refused, {:unliftable_term, %{term: b}}})
     end
   end
 
-  defp unify(%View{} = a, value, walk) when is_list(value), do: unify(value, a, walk)
-  defp unify(%View{} = a, value = %Cons{}, walk), do: unify(value, a, walk)
-  defp unify(%View{}, _value, _walk), do: :dead
+  defp unify(a = {:along, _, _}, value, walk) when is_list(value), do: unify(value, a, walk)
+  defp unify(a = {:along, _, _}, value = {:pair, _, _}, walk), do: unify(value, a, walk)
+  defp unify({:along, _, _}, _value, _walk), do: :dead
   defp unify({:rel, _p, _f}, _value, _walk), do: :dead
 
-  defp unify(element, value, walk)
-       when is_struct(element, Element) and (is_list(value) or is_struct(value, Cons)),
+  defp unify(element = {:across, _, _, _}, value, walk)
+       when is_list(value) or (is_tuple(value) and elem(value, 0) == :pair),
        do: unify(value, element, walk)
 
   defp unify(a, b, walk), do: equated(a, b, walk)
@@ -1135,31 +950,29 @@ defmodule Zkfol.Phi do
   @spec equated(value(), value(), Walk.t()) :: Walk.t() | :dead
   defp equated(a, b, walk) do
     cond do
-      is_integer(b) -> unify(b, a, walk)
-      is_list(b) or is_struct(b, Cons) or is_struct(b, View) or match?({:rel, _p, _f}, b) -> :dead
-      true -> Walk.constrain(walk, [Ast.eq(Value.scalar(a), Value.scalar(b))])
+      is_integer(b) ->
+        unify(b, a, walk)
+
+      is_list(b) or match?({:pair, _, _}, b) or match?({:along, _, _}, b) or
+          match?({:rel, _p, _f}, b) ->
+        :dead
+
+      true ->
+        Walk.constrain(walk, [Ast.eq(Value.scalar(a), Value.scalar(b))])
     end
   end
 
-  # An integer against the column pins the column; against a cell, the cell.
+  # A counted list along the trace as the list of its elements.
+  @spec elements(value(), Place.known()) :: [value()]
+  defp elements(along, known),
+    do: for(i <- 0..(Place.count(along) - 1)//1, do: Place.slice(along, i, known))
+
+  # An integer against the column pins the column; against anything else, that cell.
   @spec pinned(Ast.term_t(), integer()) :: [Ast.pred()]
   defp pinned(form, q) do
-    case Value.affine(form) do
+    case Place.affine(form) do
       {1, o} -> [Ast.eq(:x, q - o)]
       _cell -> Ast.folded(Ast.eq(Value.scalar(form), q))
     end
   end
-
-  ############################################################
-  #                        Brackets                          #
-  ############################################################
-
-  @spec spine(term()) :: [term()]
-  defp spine({:cons, h, t}), do: [h | spine(t)]
-  defp spine(_end), do: []
-
-  @spec tail_of(term()) :: term() | nil
-  defp tail_of({:cons, _h, t}), do: tail_of(t)
-  defp tail_of({:var, _v} = tail), do: tail
-  defp tail_of(_closed), do: nil
 end
