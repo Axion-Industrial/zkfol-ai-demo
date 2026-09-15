@@ -29,7 +29,7 @@ defmodule Examples.EFace do
     text = Face.text(EUser.fibonacci())
     assert text =~ "…elided…"
     refute text =~ "Interpretation"
-    assert {:ok, _json} = Jexon.to_json(EUser.fibonacci())
+    assert bridged(EUser.fibonacci()) == EUser.fibonacci()
     summary
   end
 
@@ -187,6 +187,15 @@ defmodule Examples.EFace do
     feed
   end
 
+  @doc "I send an object through GT's result encoder and recover the same object."
+  @spec bridged(object) :: object when object: var
+  def bridged(object) do
+    %{"exid" => id} = object |> GtBridge.Eval.encode_result() |> Jason.decode!()
+    assert {:ok, ^object} = GtBridge.ObjectRegistry.get(id)
+    GtBridge.ObjectRegistry.remove(id)
+    object
+  end
+
   @spec the_stage_carries_its_derivation() :: %{atom() => term()}
   example the_stage_carries_its_derivation do
     statement = EUser.fibonacci()
@@ -198,12 +207,12 @@ defmodule Examples.EFace do
     assert %GtBridge.Phlow.ColumnedList{} = Face.derivation_view(statement, Builder)
     lowering = statement |> Face.lowering_view(Builder) |> ColumnedList.as_dict()
     [_, _, recursive] = lowering.rawItems
-    assert recursive.before.env == %{}
-    assert Enum.sort(Map.keys(recursive.matched.env)) == [:v, :x]
+    assert [recursive.matched.env.x, recursive.matched.env.v] == recursive.accesses
+    assert recursive.before.env[{:fib, {:param, :x}}] == recursive.matched.env.x
     assert Map.has_key?(recursive.compiled.env, :v1) and Map.has_key?(recursive.compiled.env, :v2)
     steps = recursive |> Face.steps_view(Builder) |> ColumnedList.as_dict()
     assert List.last(steps.rawItems) == recursive.compiled
-    assert {:ok, _json} = Jexon.to_json(lowering)
+    assert bridged(lowering) == lowering
     feed
   end
 

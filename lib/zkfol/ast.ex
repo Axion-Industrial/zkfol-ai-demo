@@ -37,12 +37,14 @@ defmodule Zkfol.Ast do
   @typedoc "Figure 1's terms: `t:ep/0` plus reify, closed under + and ×."
   @type term_t :: poly(ep_leaf() | {:reify, pred()})
 
-  @type pred ::
-          {:eq, term_t(), term_t()}
-          | {:conj, [pred()]}
-          | {:disj, [pred()]}
-          | {:natural, term_t()}
-          | {:permutes, [term_t()], [integer()]}
+  @type pred(t) ::
+          {:eq, t, t}
+          | {:conj, [pred(t)]}
+          | {:disj, [pred(t)]}
+          | {:natural, t}
+          | {:permutes, [t], [integer()]}
+
+  @type pred :: pred(term_t())
 
   @doc "I am the index variable X: the current column."
   @spec x() :: term_t()
@@ -89,6 +91,23 @@ defmodule Zkfol.Ast do
   @spec column(address(), integer()) :: integer()
   def column({:at, _base, mul, add}, base), do: mul * base + add
 
+  @doc "I substitute a call's address for X in an address; nested pointer reads cannot be expressed."
+  @spec reframe(address(), address()) :: address() | nil
+  def reframe({:at, :x, m, a}, {:at, base, scale, offset}),
+    do: address(base, m * scale, m * offset + a)
+
+  def reframe(_address, _call), do: nil
+
+  @doc "I recover an address in the callee's coordinates, when its scale divides exactly."
+  @spec unframe(address() | nil, address()) :: address() | nil
+  def unframe({:at, :x, 0, a}, {:at, :x, _scale, _offset}), do: address(:x, 0, a)
+
+  def unframe({:at, :x, m, a}, {:at, :x, scale, offset})
+      when scale != 0 and rem(m, scale) == 0,
+      do: address(:x, div(m, scale), a - div(m, scale) * offset)
+
+  def unframe(_address, _call), do: nil
+
   @doc "I am t + u, born canonical: constants fold and ride right, through a sum's own, zero vanishes."
   @spec add(poly(l), poly(l)) :: poly(l) when l: var
   def add(q, r) when is_integer(q) and is_integer(r), do: q + r
@@ -113,7 +132,7 @@ defmodule Zkfol.Ast do
   def reify(phi), do: {:reify, phi}
 
   @doc "I am t = u, born canonical: a constant rides right, as in a sum."
-  @spec eq(term_t(), term_t()) :: pred()
+  @spec eq(t, t) :: pred(t) when t: var
   def eq(q, u) when is_integer(q) and not is_integer(u), do: {:eq, u, q}
   def eq(t, u), do: {:eq, t, u}
 
@@ -146,11 +165,11 @@ defmodule Zkfol.Ast do
   def distinct(cells), do: permutes(cells, Enum.to_list(1..length(cells)//1))
 
   @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
-  @spec natural(term_t()) :: pred()
+  @spec natural(t) :: pred(t) when t: var
   def natural(t), do: {:natural, t}
 
   @doc "I am permutes(cells, values): the cells hold `values` as a multiset, no polynomial."
-  @spec permutes([term_t()], [integer()]) :: pred()
+  @spec permutes([t], [integer()]) :: pred(t) when t: var
   def permutes(cells, values), do: {:permutes, cells, values}
 
   @doc """
@@ -195,7 +214,7 @@ defmodule Zkfol.Ast do
   true, falsity where a constant decides it false, `pred` itself where
   nothing is decided.
   """
-  @spec folded(pred()) :: [pred()]
+  @spec folded(pred(t)) :: [pred(t)] when t: var
   def folded({:natural, q}) when is_integer(q), do: if(q >= 0, do: [], else: [eq(0, 1)])
 
   def folded({:eq, a, b}) when is_integer(a) and is_integer(b),

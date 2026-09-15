@@ -155,13 +155,19 @@ defmodule Examples.EFol do
     names
   end
 
-  @doc "Concrete data is read, not walked: only the root stands."
-  @spec laid_transpose() :: [atom()]
+  @doc "A literal transpose computes its output; its source needs no bank or called member."
+  @spec laid_transpose() :: Statement.t()
   example laid_transpose do
-    {:ok, _pred, alloc} = Phi.compile(literal_columns(), [literal_columns()], [:_])
+    {:ok, statement, _trace} =
+      Pipeline.run(EUser.plain(), %Statement{rels: [literal_columns()], args: [:_]})
 
-    assert Alloc.names(alloc) == [:literal_columns]
-    refute :column in Alloc.names(alloc)
-    Alloc.names(alloc)
+    alloc = Statement.alloc(statement)
+    assert Alloc.names(alloc) == [:literal_columns, :"literal_columns cs"]
+    assert Zkfol.Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+
+    assert {:ok, %Prover.Report{}, _id} =
+             Prover.prove(Statement.pred(statement), Statement.witness(statement))
+
+    statement
   end
 end
