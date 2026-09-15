@@ -48,6 +48,7 @@ defmodule Examples.ERefusal do
       {:read_row_outside_witness, %{row: 9}},
       {:relation_not_in_scope, %{relation: :nowhere}},
       {:residue, %{answer: [1, {:var, :x}]}},
+      {:selection_changes_claim, %{claim: "accepts.cells", row: 2, column: 1}},
       {:selection_outside_trace, %{cell: {:cell, 2}, column: 9}},
       {:send_failed, %{reason: :nope}},
       {:step_beyond_history, %{extra: [:z]}},
