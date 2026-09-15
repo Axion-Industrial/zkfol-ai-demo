@@ -101,8 +101,12 @@ defmodule Zkfol.Prover do
   @impl true
   def handle_call({:run, uair, intent, opts}, _from, inflight) do
     case ZincPlus.request(uair, opts) do
-      {:ok, req} -> {:reply, :ok, Map.put(inflight, req, {intent, uair.claims})}
-      {:error, _reason} = error -> {:reply, error, inflight}
+      {:ok, req} ->
+        {:reply, :ok, Map.put(inflight, req, {intent, uair.claims})}
+
+      {:error, reason} = error ->
+        Log.push({:prove_failed, reason}, intent)
+        {:reply, error, inflight}
     end
   end
 
