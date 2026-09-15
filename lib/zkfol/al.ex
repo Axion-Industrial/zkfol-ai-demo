@@ -14,8 +14,6 @@ defmodule Zkfol.Al do
   alias Zkfol.Log
   alias Zkfol.Statement
 
-  @class :zkfol
-
   @heap 256_000_000
 
   @typedoc "An emitted AL program: goal structs ready for AL.eval/3."
@@ -25,9 +23,9 @@ defmodule Zkfol.Al do
 
   @typep prep :: %{root: Rel.t(), program: program(), bind: bind(), len?: boolean()}
 
-  @doc "I am the program as AL holds it: the class object on `branch`."
-  @spec program(atom()) :: AL.Object.t()
-  def program(branch), do: %AL.Object{id: @class, branch: branch}
+  @doc "I am the installed program owned by this ask."
+  @spec program(Ask.t()) :: AL.Object.t()
+  def program(%Ask{class: class, branch: branch}), do: %AL.Object{id: class, branch: branch.id}
 
   @doc "I am the derivation `arguments` establish: one ask, run once to its first answer."
   @spec derived(Statement.t() | Rel.t() | [Rel.t()], [Statement.datum() | :_], keyword()) ::
@@ -39,7 +37,7 @@ defmodule Zkfol.Al do
       case capped_eval(ask) do
         {:ok, _bindings, derivation} ->
           count = length(derivation.facts)
-          event = {:al_solved, %{name: name, count: count, branch: ask.branch.id}}
+          event = {:al_solved, %{name: name, count: count, program: program(ask)}}
           Log.push(event, Keyword.get(opts, :basedon))
 
           {:ok, derivation}
@@ -62,14 +60,16 @@ defmodule Zkfol.Al do
   def open(target, arguments, opts) do
     with {:ok, rels} <- rels(target),
          arguments = padded(arguments, hd(rels).arity),
-         {:ok, prep} <- prepared(rels, arguments),
-         heap = Keyword.get(opts, :heap) || @heap,
          branch = %AL.Branch{id: landing(Keyword.get(opts, :branch))},
+         {:atomic, class} = :mnesia.transaction(fn -> AL.Command.fresh_id(branch) end),
+         {:ok, prep} <- prepared(rels, arguments, class),
+         heap = Keyword.get(opts, :heap) || @heap,
          :ok <- install(prep.program, branch, heap) do
       {:ok,
        %Ask{
          rels: rels,
-         goal: asking(prep, arguments),
+         goal: asking(prep, arguments, class),
+         class: class,
          arguments: arguments,
          branch: branch,
          heap: heap,
@@ -83,10 +83,10 @@ defmodule Zkfol.Al do
   def step(ask = %Ask{state: nil}), do: answered(AL.eval(ask.goal, nil, ask.branch, []), ask)
   def step(ask = %Ask{state: state}), do: answered(AL.next_solution(state), ask)
 
-  @doc "I retract what the ask posted, by name; the branch keeps everything else."
+  @doc "I retract this ask’s clauses; other installations keep theirs."
   @spec close(Ask.t()) :: :ok | {:error, Refusal.t()}
-  def close(%Ask{rels: rels, branch: branch, heap: heap}) do
-    program = AL.ast_to_pattern({:__block__, [], retractions(Enum.map(rels, & &1.name))})
+  def close(%Ask{rels: rels, branch: branch, heap: heap, class: class}) do
+    program = AL.ast_to_pattern({:__block__, [], retractions(Enum.map(rels, & &1.name), class)})
     install(program, branch, heap)
   end
 
@@ -126,11 +126,12 @@ defmodule Zkfol.Al do
   defp rels([root = %Rel{} | _rest] = list), do: Lang.reached(root, list)
   defp rels(_none), do: {:error, {:no_relations, %{}}}
 
-  @spec prepared([Rel.t()], [integer() | atom()]) :: {:ok, prep()} | {:error, Refusal.t()}
-  defp prepared([root | _rest] = rels, args) do
+  @spec prepared([Rel.t()], [Statement.datum() | :_], atom()) ::
+          {:ok, prep()} | {:error, Refusal.t()}
+  defp prepared([root | _rest] = rels, args, class) do
     len? = Enum.any?(rels, &mentions_len?(&1.clauses))
 
-    with {:ok, program} <- question_program(rels, len?),
+    with {:ok, program} <- question_program(rels, len?, class),
          {:ok, bind} <- bind(Enum.to_list(1..root.arity//1), args),
          :ok <- len_bound(len?, bind),
          do: {:ok, %{root: root, program: program, bind: bind, len?: len?}}
@@ -143,10 +144,10 @@ defmodule Zkfol.Al do
   defp len_bound(true, _bind), do: {:error, {:len_needs_a_bound_count, %{}}}
 
   # The root call: a bound row's value, a query variable elsewhere, the size last where len asks.
-  @spec asking(prep(), [Statement.datum() | :_]) :: program()
-  defp asking(%{root: root, bind: bind, len?: len?}, arguments) do
+  @spec asking(prep(), [Statement.datum() | :_], atom()) :: program()
+  defp asking(%{root: root, bind: bind, len?: len?}, arguments, class) do
     sized = if len?, do: [Map.fetch!(bind, 1)], else: []
-    [AL.ast_to_pattern({root.name, [], [@class | goal(root.arity, bind, arguments) ++ sized]})]
+    [AL.ast_to_pattern({root.name, [], [class | goal(root.arity, bind, arguments) ++ sized]})]
   end
 
   # AL keeps every call under the frame that made it, so its journal is the derivation. The
@@ -214,8 +215,9 @@ defmodule Zkfol.Al do
   defp bind(rows, args),
     do: {:ok, rows |> Enum.zip(args) |> Enum.reject(fn {_row, a} -> is_atom(a) end) |> Map.new()}
 
-  @spec question_program([Rel.t()], boolean()) :: {:ok, program()} | {:error, Refusal.t()}
-  defp question_program(rels, len?) do
+  @spec question_program([Rel.t()], boolean(), atom()) ::
+          {:ok, program()} | {:error, Refusal.t()}
+  defp question_program(rels, len?, class) do
     hints =
       Map.new(
         for %Rel{al: al, clauses: [{head, _body} | _rest]} = rel <- rels,
@@ -236,10 +238,10 @@ defmodule Zkfol.Al do
     |> Enum.flat_map(fn rel -> Enum.map(rel.clauses, &{rel.name, rel.al, &1}) end)
     |> Enum.with_index()
     |> Refusal.map(fn {{rname, al, clause}, i} ->
-      question_clause(rname, al, clause, i, len?, hints, said)
+      question_clause(rname, al, clause, i, len?, hints, said, class)
     end)
     |> case do
-      {:ok, clauses} -> {:ok, installed(Enum.map(rels, & &1.name), clauses)}
+      {:ok, clauses} -> {:ok, installed(clauses, class)}
       refusal -> refusal
     end
   end
@@ -251,9 +253,10 @@ defmodule Zkfol.Al do
           non_neg_integer(),
           boolean(),
           %{atom() => {[term()], Macro.t()}},
-          MapSet.t()
+          MapSet.t(),
+          atom()
         ) :: {:ok, Macro.t()} | {:error, Refusal.t()}
-  defp question_clause(rname, al, {head, body}, i, len?, hints, said) do
+  defp question_clause(rname, al, {head, body}, i, len?, hints, said, class) do
     case Enum.find(head, &(not Term.seatable?(&1))) do
       nil ->
         lenp = if len?, do: [v(:len)], else: []
@@ -267,6 +270,7 @@ defmodule Zkfol.Al do
              {:ok, goals} <- Refusal.flat_map(entry ++ written, &goals(&1, i, lenp)) do
           {:ok,
            defmethod(
+             class,
              rname,
              [v(:self) | params ++ lenp],
              {:__block__, [], reading ++ posted ++ goals}
@@ -422,26 +426,26 @@ defmodule Zkfol.Al do
     end)
   end
 
-  @spec defmethod(atom(), [Macro.t()], Macro.t()) :: Macro.t()
-  defp defmethod(name, head, body), do: {:defmethod, [], [@class, name, head, [do: body]]}
+  @spec defmethod(atom(), atom(), [Macro.t()], Macro.t()) :: Macro.t()
+  defp defmethod(class, name, head, body), do: {:defmethod, [], [class, name, head, [do: body]]}
 
-  @spec installed([atom()], [Macro.t()]) :: program()
-  defp installed(names, clauses) do
+  @spec installed([Macro.t()], atom()) :: program()
+  defp installed(clauses, class) do
     program =
       quote do
-        vm_set_class(unquote(@class), :object)
-        unquote_splicing(retractions(names) ++ clauses)
+        vm_set_class(unquote(class), :object)
+        unquote_splicing(clauses)
       end
 
     AL.ast_to_pattern(program)
   end
 
-  # A name's clauses go before it is posted again, and when the ask that posted them closes.
-  @spec retractions([atom()]) :: [Macro.t()]
-  defp retractions(names) do
+  # A closing ask retracts only methods on its own object.
+  @spec retractions([atom()], atom()) :: [Macro.t()]
+  defp retractions(names, class) do
     for name <- names do
       quote do
-        forall([vm_method(unquote(@class), unquote(name), impl), vm_clause(impl, h, _b)]) do
+        forall([vm_method(unquote(class), unquote(name), impl), vm_clause(impl, h, _b)]) do
           vm_retract_oapply(impl, h)
         end
       end
@@ -457,7 +461,7 @@ defmodule Zkfol.Al do
     end
   end
 
-  # Installs retract by name, so a query owns nothing of the head branch.
+  # Installations share a branch, each on its own object.
   @spec landing(term() | nil) :: term()
   defp landing(id) when id in [nil, :head], do: AL.Branch.head().id
   defp landing(id), do: id

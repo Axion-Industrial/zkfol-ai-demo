@@ -47,7 +47,7 @@ defmodule Examples.EQuery do
   example a_query_exhausts_then_closes do
     {:ok, query} = Query.open(EAl.tab(), [:_, :_], [])
     branch = query.ask.branch
-    assert answers?(branch)
+    assert answers?(query.ask)
 
     assert Enum.map(1..4, fn _ -> Query.next(query) end) ==
              [{:ok, [1, 10]}, {:ok, [2, 20]}, {:ok, [3, 40]}, {:ok, [4, 40]}]
@@ -58,14 +58,33 @@ defmodule Examples.EQuery do
     assert Query.close(query) == :ok
     assert Query.close(query) == :ok
     refute Process.alive?(query.pid)
-    refute answers?(branch)
+    refute answers?(query.ask)
     assert branch in [AL.Branch.main() | AL.Branch.list()]
     query
   end
 
-  @spec answers?(AL.Branch.t()) :: boolean()
-  defp answers?(branch) do
-    goal = [AL.ast_to_pattern(quote(do: tab(:zkfol, _x, _v)))]
+  @doc "Overlapping queries retain their own clauses, even when their relation names agree."
+  @spec overlapping_queries() :: [Query.t()]
+  example overlapping_queries do
+    one = %{EAl.tab() | clauses: [{[1, 10], []}]}
+    two = %{EAl.tab() | clauses: [{[2, 20], []}]}
+    {:ok, first} = Query.open(one, [:_, :_], [])
+    {:ok, second} = Query.open(two, [:_, :_], [])
+    {:ok, same} = Query.open(one, [:_, :_], [])
+    assert first.ask.branch == second.ask.branch
+    refute first.ask.class == second.ask.class
+    assert Query.next(first) == {:ok, [1, 10]}
+    assert Query.close(first) == :ok
+    assert Query.next(second) == {:ok, [2, 20]}
+    assert Query.next(same) == {:ok, [1, 10]}
+    Query.close(second)
+    Query.close(same)
+    [first, second, same]
+  end
+
+  @spec answers?(Zkfol.Al.Ask.t()) :: boolean()
+  defp answers?(%Zkfol.Al.Ask{branch: branch, class: class}) do
+    goal = [AL.ast_to_pattern(quote(do: tab(unquote(class), _x, _v)))]
     match?({:atomic, _answer}, AL.eval(goal, nil, branch, []))
   end
 
