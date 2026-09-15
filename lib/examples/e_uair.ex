@@ -13,8 +13,10 @@ defmodule Examples.EUair do
   alias Zkfol.Ast
   alias Zkfol.Interpretation
   alias Zkfol.Log
+  alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Refusal
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
   alias Zkfol.ZincPlus
