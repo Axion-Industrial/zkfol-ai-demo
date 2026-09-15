@@ -3,13 +3,41 @@ defmodule Examples.EBench do
 
   use ExExample
 
+  alias Examples.EAlloc
   alias Examples.EDoubling
   alias Examples.EUser
+  alias Zkfol.Alloc
+  alias Zkfol.Derivation
   alias Zkfol.Interpretation
+  alias Zkfol.Lay
+  alias Zkfol.Phi
   alias Zkfol.Pipeline
   alias Zkfol.Prover
+  alias Zkfol.Semantics
   alias Zkfol.Statement
   alias Zkfol.Uair
+
+  @doc "I time placement and witness construction on a scalar chain, without AL search or proving."
+  @spec measured_placement([pos_integer()]) :: [map()]
+  example measured_placement(sizes \\ [1_000, 2_000, 4_000, 8_000]) do
+    {:ok, pred, alloc} = Phi.compile(EAlloc.held())
+
+    for n <- sizes do
+      facts = for i <- 0..n, do: {:held, [i, div(i * (i + 1), 2)]}
+
+      derivation = %Derivation{
+        facts: facts,
+        clauses: for({:held, [i, _v]} = fact <- facts, do: {fact, if(i == 0, do: 0, else: 1)}),
+        consumed:
+          for({fact, previous} <- Enum.zip(facts, [nil | facts]), do: {fact, List.wrap(previous)})
+      }
+
+      {place_us, lay} = :timer.tc(fn -> Lay.of(derivation, alloc) end)
+      {witness_us, witness} = :timer.tc(fn -> Lay.witness(lay) end)
+      true = Semantics.valid?(Alloc.link(pred, alloc), witness)
+      %{facts: n + 1, place_ms: place_us / 1_000, witness_ms: witness_us / 1_000}
+    end
+  end
 
   @spec measured_power(non_neg_integer()) :: map()
   example measured_power(exponent \\ 32) do
