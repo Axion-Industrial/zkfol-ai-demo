@@ -12,12 +12,13 @@ defmodule Examples.EForgery do
   alias Examples.EAst
   alias Examples.EDoubling
   alias Examples.EFacts
+  alias Examples.ENodes
+  alias Examples.EPassed
   alias Examples.EPhi
   alias Examples.EUser
   alias Zkfol.Alloc
   alias Zkfol.Alloc.Slot
   alias Zkfol.Ast
-  alias Zkfol.Derivation
   alias Zkfol.Interpretation
   alias Zkfol.Lay
   alias Zkfol.Lang.Rel
@@ -28,8 +29,8 @@ defmodule Examples.EForgery do
   @typedoc "One cell moved: where it sits, what it held, and what it took."
   @type move :: {{pos_integer(), pos_integer()}, integer(), integer()}
 
-  @typedoc "One read of one cell: for the value standing there, or as the column a pointer aims."
-  @type deref :: {:value | :address, {pos_integer(), integer() | :error}}
+  @typedoc "One read of one cell: an equality value, a domain bound, or a pointer address."
+  @type deref :: {:value | :address | :bound, {pos_integer(), integer() | :error}}
 
   @typedoc "One reading: the column that made it, and the standing its conjunct speaks for."
   @type reader :: {pos_integer(), pos_integer() | nil}
@@ -72,7 +73,14 @@ defmodule Examples.EForgery do
       divided: EPhi.divided(),
       aliased: EPhi.aliased(),
       construction: EPhi.construction(),
-      alternative: EPhi.selected_alternative()
+      alternative: EPhi.selected_alternative(),
+      first_row: EPassed.first_row(),
+      picked_row: EPassed.picked_row(),
+      strided_last: EPassed.strided_last(),
+      mutual_last: EPassed.mutual_last(),
+      loose_last: EPassed.loosely_stepped(),
+      last_at: EPassed.agreeing_bases(),
+      optional_tail: ENodes.scalar_tail()
     ]
   end
 
@@ -160,7 +168,8 @@ defmodule Examples.EForgery do
     for i <- Enum.uniq(standing(alloc)),
         x <- 1..Interpretation.len(witness),
         Interpretation.at(witness, i, x) == 1,
-        Enum.all?(Map.get(read, {:value, {i, x}}, []), &(&1 == {x, i})),
+        readers = Map.get(read, {:value, {i, x}}, []) ++ Map.get(read, {:bound, {i, x}}, []),
+        Enum.all?(readers, &(&1 == {x, i})),
         do: {{i, x}, 1, 0}
   end
 
@@ -216,46 +225,18 @@ defmodule Examples.EForgery do
   # A value the act handed but did not open is a private witness: free, never a forgery.
   @spec private(Statement.t()) :: MapSet.t()
   defp private(statement = %Statement{args: args}) do
-    alloc = Statement.alloc(statement)
-    [root | _rest] = alloc.members
     lay = Statement.lay(statement)
-    opened = MapSet.new(claimed(statement), fn {cell, _from, _to} -> cell end)
+    arguments = for {arg, k} <- Enum.with_index(args, 1), arg != :_, do: k
+    {:ok, claims} = Lay.claims(lay, arguments)
+    standing = presence(statement)
 
-    scalars =
-      for {arg, %Slot{allocation: {:cell, ref}}} <-
-            Enum.zip(args, root.slots),
-          arg != :_,
-          into: MapSet.new(),
-          do: Alloc.row(alloc, ref)
-
-    banks =
-      for {arg, %Slot{allocation: {:bank, owner, _at}}} <-
-            Enum.zip(args, root.slots),
-          is_list(arg),
-          into: MapSet.new(),
-          do: owner
-
-    query = Derivation.root(lay.derivation, root.relation)
-
-    scalar_cells =
-      for fact <- List.wrap(query),
-          stand <- lay.stands,
-          stand.member == root.name,
-          stand.fact == fact,
-          row <- scalars,
-          into: MapSet.new(),
-          do: {row, stand.column}
-
-    bank_cells =
-      for {_held, seq, i, x} <- data(statement), seq in banks, into: MapSet.new(), do: {i, x}
-
-    MapSet.difference(MapSet.union(scalar_cells, bank_cells), opened)
+    MapSet.new(for {_name, i, x} <- claims, i not in standing, do: {i, x})
   end
 
   @spec read(Ast.pred(), Interpretation.t()) :: %{deref() => [reader()]}
   defp read(pred, witness) do
     for conjunct <- Ast.conjuncts(pred),
-        owner = owner(conjunct),
+        owner <- [owner(conjunct)],
         x <- 1..Interpretation.len(witness),
         {_kind, cell} = deref <- reads(conjunct, witness, x),
         inside?(witness, cell),
@@ -266,7 +247,13 @@ defmodule Examples.EForgery do
 
   # A member says where it stands before it says anything else.
   @spec owner(Ast.pred()) :: pos_integer() | nil
-  defp owner({:disj, [{:eq, {:cell, i}, 0} | _rest]}), do: i
+  defp owner({:disj, [absent | _rest]}) do
+    case Ast.conjuncts(absent) do
+      [{:eq, {:cell, i}, 0}] -> i
+      _conditional -> nil
+    end
+  end
+
   defp owner(_conjunct), do: nil
 
   @spec reads(Ast.pred() | Ast.term_t(), Interpretation.t(), pos_integer()) :: MapSet.t(deref())
@@ -292,7 +279,14 @@ defmodule Examples.EForgery do
     ])
   end
 
-  defp reads({:natural, t}, witness, x), do: reads(t, witness, x)
+  # A domain check reads a value without fixing it: moving within the domain is allowed.
+  defp reads({:natural, t}, witness, x) do
+    MapSet.new(reads(t, witness, x), fn
+      {:value, cell} -> {:bound, cell}
+      address -> address
+    end)
+  end
+
   defp reads(leaf, witness, x), do: MapSet.new(derefs(leaf, witness, x))
 
   @spec derefs(Ast.pred() | Ast.term_t(), Interpretation.t(), pos_integer()) :: [deref()]

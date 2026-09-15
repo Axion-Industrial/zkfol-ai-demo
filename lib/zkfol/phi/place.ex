@@ -23,7 +23,7 @@ defmodule Zkfol.Phi.Place do
   - `shape/2`: the shape of a place, given the banks' shapes.
   - `is_laid/1`: the guard for a list in a bank, `along` or `held`.
   - `slice/3`, `shifted/2`: one element of a list in a bank, and the list past `i`.
-  - `extent/1`, `count/1`, `width/2`, `cells/2`, `size/2`: what a list in a bank holds.
+  - `extent/1`, `count/1`, `width/2`, `elements/2`, `size/2`: what a list in a bank holds.
   - `stepped/2`, `presence/1`, `bounded/2`: a list re-headed along the trace, and its presence.
   - `address/1`, `headed/2`: the column form of a list's head, and the list with its head at an address.
   - `resolved/2`: an element read across rows, as far as its bank's shape is known.
@@ -188,19 +188,12 @@ defmodule Zkfol.Phi.Place do
   def width(laid, known) when is_laid(laid),
     do: Shape.width(Map.get(known, elem(laid, 1), :unknown))
 
-  @doc "I return every cell of a list in a bank in source order, or refuse a list I cannot count."
-  @spec cells(t(), known()) :: [Ast.term_t()]
-  def cells(laid, known) when is_laid(laid) do
-    {bank, first} = elem(laid, 1)
-
-    case size(laid, known) do
-      nil ->
-        throw({:refused, {:unliftable_term, %{term: laid}}})
-
-      _counted ->
-        for i <- 0..(count(laid) - 1)//1, j <- 0..(width(laid, known) - 1)//1 do
-          at({bank, first + j}, shifted_by(address(laid), i))
-        end
+  @doc "I return the elements of a counted list in source order, keeping each record together."
+  @spec elements(t(), known()) :: [t()]
+  def elements(laid, known) when is_laid(laid) do
+    case count(laid) do
+      nil -> throw({:refused, {:unliftable_term, %{term: laid}}})
+      n -> Enum.map(0..(n - 1)//1, &slice(laid, &1, known))
     end
   end
 

@@ -53,6 +53,12 @@ defmodule Examples.ENodes do
   defrel terms(0)
   defrel terms([_h | _t])
 
+  defrel optional_tail(_term)
+
+  defrel optional_tail([_head | tail]) do
+    optional_tail(tail)
+  end
+
   defrel bridge(xs, s) do
     tree(xs, s)
   end
@@ -62,6 +68,19 @@ defmodule Examples.ENodes do
   end
 
   defrel identical(x, x)
+
+  @doc "A clause reading a list leaves the generic clause free to take a scalar, zero included."
+  @spec scalar_tail() :: Statement.t()
+  example scalar_tail do
+    assert Zkfol.Phi.compile(optional_tail(), nil, [0]) ==
+             Zkfol.Phi.compile(optional_tail(), nil, [2])
+
+    statement = solved(optional_tail(), [0])
+
+    assert {:ok, [_ | _]} = Lay.claims(Statement.lay(statement), [1])
+    assert Semantics.valid?(Statement.pred(statement), Statement.witness(statement))
+    statement
+  end
 
   @doc "A bridge proves the original bank at every addressed column."
   @spec a_view_keeps_its_source_cells() :: Statement.t()

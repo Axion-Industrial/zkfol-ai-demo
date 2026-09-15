@@ -13,10 +13,17 @@ defmodule Zkfol.Unrolling do
   makes pointer reads cheap, this module is what changes.
 
   Per member, before any clause is matched, I compute the stepping call, which is the
-  first recursive call that moves a parameter; the column counter, which is the parameter
+  first call that moves a parameter; the column counter, which is the parameter
   that call moves or else the first list, whose count is read from the column; the extent
   of every other list relative to that counter; and a place for each parameter, by the
   table in `place/6`.
+
+  An affine extent is a candidate until every alternative clause establishes it. Its
+  equation is `length = m * n + b`, where `n` is the source counter parameter. A closed
+  head anchors its length; a call substitutes its source arguments into that equation.
+  Only `parameters/6` translates between these lengths and physical columns.
+  Unknown or disagreeing evidence leaves a list open for node storage. This analysis
+  reads heads and calls; it does not execute body equations to discover more shapes.
 
   Per call, I decide whether it is unrolled into its clauses or compiled as a member
   (`strategy/4`), and the column a continued or a new member stands at (`frame/2`).
@@ -39,14 +46,14 @@ defmodule Zkfol.Unrolling do
 
   require Place
 
-  @typedoc "The column counter: which parameter, and the count its base clause starts at."
+  @typedoc "The column counter: which parameter, and its value at column zero."
   @type counter :: {non_neg_integer(), integer()}
 
   @typedoc """
-  The stepping call: which parameter it moves, by how much, which relation it calls, and
-  how far each argument is displaced from each head pattern.
+  The stepping call: which parameter it moves, by how much, and the source clause and
+  call establishing that movement. Extent analysis reads these same source terms.
   """
-  @type step :: {non_neg_integer(), integer(), atom(), [[integer() | nil]]}
+  @type step :: {non_neg_integer(), integer(), clause(), term()}
 
   @typedoc "The stepping call and column counter chosen before entering a member's frame."
   typedstruct do
@@ -54,32 +61,47 @@ defmodule Zkfol.Unrolling do
     field(:counter, counter() | nil)
   end
 
-  @typep clauses :: [{[term()], [term()]}]
+  @typep clause :: {[term()], [term()]}
+  @typep clauses :: [clause()]
 
+  @typep length_rule ::
+           {:head, integer() | nil, integer() | nil}
+           | {:step, integer() | nil, integer() | nil}
+           | {:extent, Shape.extent() | nil}
+
+  # Extents here are functions of the source parameter, not of the physical column X.
+  # Only inherited list lengths enter the analysis; places and banks stay at its boundary.
   @typep solve :: %{
            step: step() | nil,
-           counter: counter() | nil,
-           handed: [Place.t()],
-           known: Place.known(),
+           parameter: non_neg_integer() | nil,
+           extents: %{non_neg_integer() => Shape.extent()},
            scope: %{atom() => Rel.t()},
            seen: [atom()]
          }
 
   @doc """
   I choose the stepping call and column counter: the parameter the call displaces,
-  or else the first counted argument. A heap term cannot count the column.
+  or else the first counted argument. A scalar needs a lower bound from the clauses;
+  otherwise it stays in a cell. A heap term cannot count the column.
   `handed` contains canonical values from `Value.handed/1`. This choice determines
   the call's frame and is retained when its arguments move into that frame.
   Parameter extents are inferred after that move.
   """
   @spec column(Rel.t(), [Place.t()], Place.known()) :: t()
-  def column(%Rel{clauses: clauses}, handed, known) do
+  def column(rel = %Rel{clauses: clauses}, handed, known) do
     step = displaced_call(clauses)
     j = (step && elem(step, 0)) || Enum.find_index(handed, &counted?(&1, known))
 
     counter =
-      if j && not term?(clauses, j) && walkable?(Enum.at(handed, j)),
-        do: {j, origin(clauses, j, handed, known)}
+      with j when j != nil <- j,
+           false <- term?(clauses, j),
+           form = Enum.at(handed, j),
+           true <- walkable?(form),
+           origin when is_integer(origin) <- origin(rel, j, Place.shape(form, known)) do
+        {j, origin}
+      else
+        _unsupported -> nil
+      end
 
     %__MODULE__{step: step, counter: counter}
   end
@@ -98,13 +120,27 @@ defmodule Zkfol.Unrolling do
         ) :: {[Shape.t()], [Place.t()]}
   def parameters(rel = %Rel{clauses: clauses, arity: arity}, refs, handed, known, scope, column) do
     %__MODULE__{step: step, counter: counter} = column
-    solve = %{step: step, counter: counter, handed: handed, known: known, scope: scope, seen: []}
+    {parameter, origin} = counter || {nil, 0}
+
+    extents =
+      for {form, k} <- Enum.with_index(handed),
+          {:list, extent, _element} <- [Place.shape(form, known)],
+          into: %{},
+          do: {k, Shape.from(extent, -origin)}
+
+    solve = %{
+      step: step,
+      parameter: parameter,
+      extents: extents,
+      scope: scope,
+      seen: [rel.name]
+    }
 
     shapes =
       for k <- 0..(arity - 1)//1 do
         case extent(rel, k, solve) do
           nil -> :scalar
-          extent -> {:list, extent, Layout.element(Enum.at(handed, k), known)}
+          extent -> {:list, Shape.from(extent, origin), Layout.element(Enum.at(handed, k), known)}
         end
       end
 
@@ -116,8 +152,8 @@ defmodule Zkfol.Unrolling do
     {shapes, places}
   end
 
-  # A term, a list in a member that counts no column, and an unbounded list nothing was
-  # handed for are nodes; no bank can hold them. A scalar is a cell, except the column
+  # A term, a list whose extent cannot follow the member's column, and an unbounded
+  # list nothing was handed for use nodes. A scalar is a cell, except the column
   # counter, which reads the column itself, and a handed constant, which is inlined. A
   # passed relation's fixed arguments take the member's own cells. A list that already
   # stands somewhere is read where it is, re-headed at the member's extent when the member
@@ -132,7 +168,7 @@ defmodule Zkfol.Unrolling do
         match?({:node, _}, form),
         not Layout.matrix?(form),
         step != nil and counter == nil and shape != :scalar,
-        open?(shape) and Place.fresh?(form)
+        open?(shape) and (Place.fresh?(form) or step != nil)
       ]) ->
         {:node, Ast.cell(ref)}
 
@@ -195,17 +231,17 @@ defmodule Zkfol.Unrolling do
   defp walkable?({:held, _, _, _}), do: false
   defp walkable?(_place), do: true
 
-  # The first recursive call that moves a parameter.
+  # The first call that moves a parameter.
   @spec displaced_call(clauses()) :: step() | nil
   defp displaced_call(clauses) do
-    Enum.find_value(clauses, fn {head, body} ->
+    Enum.find_value(clauses, fn clause = {head, body} ->
       Enum.find_value(body, fn
-        {:call, q, args} when is_atom(q) ->
-          hands = Enum.map(head, fn pattern -> Enum.map(args, &displaced(&1, pattern)) end)
+        call = {:call, q, args} when is_atom(q) ->
+          Enum.find_value(Enum.with_index(head), fn {pattern, k} ->
+            shifts = Enum.map(args, &displaced(&1, pattern))
 
-          Enum.find_value(Enum.with_index(hands), fn {ds, k} ->
-            with c when c not in [nil, 0] <- Enum.find(ds, &(&1 not in [nil, 0])),
-                 do: {k, c, q, hands}
+            with c when c not in [nil, 0] <- Enum.find(shifts, &(&1 not in [nil, 0])),
+                 do: {k, c, clause, call}
           end)
 
         _goal ->
@@ -237,25 +273,51 @@ defmodule Zkfol.Unrolling do
     nil
   end
 
-  # The origin is the smallest count a base clause fixes, minus one, so that count maps to
-  # column one. A handed list shorter than every base clause sets the origin from its own
-  # length; this depends on the handed data.
-  @spec origin(clauses(), non_neg_integer(), [Place.t()], Place.known()) :: integer()
-  defp origin(clauses, j, handed, known) do
-    counts = for {head, _body} <- clauses, n = count_in(head, j), do: n
-    Enum.min([1 | counts ++ List.wrap(count(Enum.at(handed, j), known))]) - 1
+  # List origins use lengths from the heads and the handed shape. A scalar needs
+  # a source lower bound: literal anchors, and a required self call to an equal or
+  # smaller value in every other clause. A private scalar never chooses an origin.
+  @spec origin(Rel.t(), non_neg_integer(), Shape.t()) :: integer() | nil
+  defp origin(rel = %Rel{clauses: clauses}, j, shape) do
+    heads = for {head, _body} <- clauses, do: Enum.at(head, j)
+    list? = match?({:list, _, _}, shape) or Enum.all?(heads, &Lang.Term.sequence?/1)
+
+    if list? do
+      lengths = for {head, _body} <- clauses, n = count_in(head, j), do: n
+      Enum.min([1 | lengths ++ List.wrap(Shape.count(shape))]) - 1
+    else
+      scalar_origin(rel, j)
+    end
+  end
+
+  @spec scalar_origin(Rel.t(), non_neg_integer()) :: integer() | nil
+  defp scalar_origin(%Rel{name: name, clauses: clauses}, j) do
+    anchors = for {head, _body} <- clauses, n = Enum.at(head, j), is_integer(n), do: n
+
+    bounded =
+      Enum.all?(clauses, fn {head, body} ->
+        parameter = Enum.at(head, j)
+
+        is_integer(parameter) or
+          (match?({:var, _}, parameter) and
+             Enum.any?(body, fn
+               {:call, ^name, args} ->
+                 match?(d when is_integer(d) and d <= 0, displaced(Enum.at(args, j), parameter))
+
+               _goal ->
+                 false
+             end))
+      end)
+
+    if anchors != [] and bounded, do: Enum.min([1 | anchors]) - 1
   end
 
   # The count a head pattern fixes for a parameter: the integer, the length of a closed
   # bracket, nothing for a name or an open bracket.
-  @spec count_in([term()], non_neg_integer()) :: non_neg_integer() | nil
+  @spec count_in([term()], non_neg_integer()) :: integer() | nil
   defp count_in(head, k) do
     case Enum.at(head, k) do
       q when is_integer(q) ->
         q
-
-      {:var, _} ->
-        nil
 
       bracket ->
         with elements when elements != nil <- Lang.Term.closed(bracket), do: length(elements)
@@ -270,98 +332,138 @@ defmodule Zkfol.Unrolling do
   # list. Without a counter a list keeps the extent it came with, or is open.
   @spec extent(Rel.t(), non_neg_integer(), solve()) :: Shape.extent() | nil
   defp extent(rel = %Rel{clauses: clauses}, k, solve) do
-    form = Enum.at(solve.handed, k)
-    {j, o} = solve.counter || {nil, 0}
-
-    list? = match?({:list, _, _}, Place.shape(form, solve.known)) or Layout.list?(clauses, k)
+    inherited = Map.get(solve.extents, k)
+    list? = inherited != nil or Layout.list?(clauses, k)
 
     cond do
       not list? -> nil
-      solve.step == nil or solve.counter == nil -> handed_extent(form, solve.known)
-      k == j -> {1, o}
+      solve.step == nil or solve.parameter == nil -> inherited || {:at_least, 0}
+      k == solve.parameter -> {1, 0}
       true -> recurrence_extent(rel, k, solve)
     end
   end
 
-  # A list already standing somewhere keeps its extent; one nothing was handed for is
-  # open. A handed literal keeps its count, which depends on the handed data, because a
-  # member that does not step cannot walk an open list yet.
-  @spec handed_extent(Place.t(), Place.known()) :: Shape.extent()
-  defp handed_extent(form, known) do
-    case Place.shape(form, known) do
-      {:list, extent, _element} -> extent
-      _scalar_or_unknown -> {:at_least, 0}
-    end
-  end
-
-  # The stepping call hands parameter `k` on displaced by `c`. To this relation itself:
-  # the list grows `c / cj` per column and has the base clause's count at column one.
-  # To another relation: that relation's extent for it, seen from this member's column
-  # and shortened by the displacement. Otherwise what was handed is all that is known.
+  # A clause supports a length equation through its head or one required call.
+  # A head gives (counter, length); a step gives their changes at the same parameter
+  # positions. Only the selected foreign call supplies a callee equation, once.
+  # The selected movement proposes a rate; every clause must support its equation.
   @spec recurrence_extent(Rel.t(), non_neg_integer(), solve()) :: Shape.extent()
-  defp recurrence_extent(rel = %Rel{name: self}, k, solve = %{step: {j, cj, q, hands}}) do
-    handed = Enum.at(solve.handed, k)
+  defp recurrence_extent(rel, k, solve) do
+    {j, dc, selected, call = {:call, callee, args}} = solve.step
 
-    case Enum.find(Enum.with_index(Enum.at(hands, k)), fn {c, _p} -> c != nil end) do
-      {c, _p} when q == self ->
-        rate = div(c, cj)
-        Shape.from({rate, intercept(rel.clauses, solve, j, k)}, -1)
+    {head, _body} = selected
 
-      {c, p} when q != self ->
-        {_j, o} = solve.counter
+    proposal =
+      if callee == rel.name,
+        do: {:step, dc, displaced(Enum.at(args, k), Enum.at(head, k))},
+        else: {:extent, call_extent(call, head, k, solve)}
 
-        case callee_extent(solve.scope[q], p, solve) do
-          {extent, oc} -> extent |> Shape.from(cj + o - oc) |> Shape.longer(-c)
-          nil -> handed_extent(handed, solve.known)
+    lengths =
+      for {i, {0, length}} <- solve.extents, carried?(rel, i), into: %{}, do: {i, length}
+
+    clauses =
+      for clause = {head, body} <- rel.clauses do
+        if clause == selected and callee != rel.name do
+          [proposal]
+        else
+          calls =
+            for {:call, name, args} <- body, name == rel.name do
+              {:step, displaced(Enum.at(args, j), Enum.at(head, j)),
+               displaced(Enum.at(args, k), Enum.at(head, k))}
+            end
+
+          [{:head, count_in(head, j), head_count(head, k, lengths)} | calls]
         end
-
-      _apart ->
-        handed_extent(handed, solve.known)
-    end
-  end
-
-  # The extent of the callee's parameter `p` and the origin of its counter. nil when the
-  # callee counts no column or is already being solved.
-  @spec callee_extent(Rel.t(), non_neg_integer(), solve()) :: {Shape.extent(), integer()} | nil
-  defp callee_extent(callee = %Rel{name: q, arity: arity}, p, solve) do
-    fresh = List.duplicate(:fresh, arity)
-
-    with false <- q in solve.seen,
-         %__MODULE__{step: step, counter: counter = {_jc, oc}} <-
-           column(callee, fresh, solve.known),
-         false <- term?(callee.clauses, p),
-         inner = %{solve | step: step, counter: counter, handed: fresh, seen: [q | solve.seen]},
-         extent = {_m, _a} <- extent(callee, p, inner) do
-      {extent, oc}
-    else
-      _unstepped -> nil
-    end
-  end
-
-  # The count the base clause gives a parameter, or gives a name sharing its pattern. A
-  # name the recursion passes through unchanged takes the count it was handed, which
-  # depends on the handed data.
-  @spec intercept(clauses(), solve(), non_neg_integer(), non_neg_integer()) :: integer()
-  defp intercept(clauses, %{handed: handed, known: known, step: {_j, _cj, _q, hands}}, j, k) do
-    {base, _body} = Enum.min_by(clauses, fn {head, _body} -> count_in(head, j) || 1 end)
-
-    mates =
-      for {pattern, i} <- Enum.with_index(base),
-          i == k or (match?({:var, _}, pattern) and pattern == Enum.at(base, k)),
-          do: i
-
-    Enum.find_value(mates, 0, fn i ->
-      case count_in(base, i) do
-        nil -> if 0 in Enum.at(hands, i), do: count(Enum.at(handed, i), known)
-        said -> said
       end
+
+    inherited = Map.get(solve.extents, k, {:at_least, 0})
+
+    with extent = {m, _b} when is_integer(m) <- candidate_extent(proposal, clauses, inherited),
+         true <- Enum.all?(clauses, fn rules -> Enum.any?(rules, &supports?(&1, extent)) end) do
+      extent
+    else
+      _unknown -> {:at_least, 0}
+    end
+  end
+
+  @spec candidate_extent(length_rule(), [[length_rule()]], Shape.extent()) :: Shape.extent() | nil
+  defp candidate_extent({:extent, extent}, _clauses, _inherited), do: extent
+
+  defp candidate_extent({:step, dc, dl}, clauses, inherited) do
+    if is_integer(dl) and rem(dl, dc) == 0 do
+      rate = div(dl, dc)
+
+      Enum.find_value(clauses, fn
+        [{:head, n, length} | _calls] when is_integer(n) and is_integer(length) ->
+          {rate, length - rate * n}
+
+        _unknown ->
+          nil
+      end)
+    else
+      inherited
+    end
+  end
+
+  @spec supports?(length_rule(), {integer(), integer()}) :: boolean()
+  defp supports?({:head, n, length}, {rate, offset})
+       when is_integer(n) and is_integer(length),
+       do: length == rate * n + offset
+
+  defp supports?({:head, nil, length}, {0, offset}) when is_integer(length),
+    do: length == offset
+
+  defp supports?({:step, dc, dl}, {rate, _offset})
+       when is_integer(dc) and is_integer(dl),
+       do: dl == rate * dc
+
+  defp supports?({:extent, extent}, extent), do: true
+  defp supports?(_rule, _extent), do: false
+
+  # Substitute the source arguments in the callee's established extent. Its counter
+  # may occupy a different argument position; no physical columns enter this equation.
+  @spec call_extent(term(), [term()], non_neg_integer(), solve()) :: Shape.extent() | nil
+  defp call_extent({:call, q, args}, head, k, solve) do
+    with callee = %Rel{} <- solve.scope[q],
+         false <- q in solve.seen,
+         step = {jc, _delta, _clause, _call} <- displaced_call(callee.clauses),
+         false <- term?(callee.clauses, jc),
+         dc when is_integer(dc) <- displaced(Enum.at(args, jc), Enum.at(head, solve.parameter)),
+         {p, dn} <-
+           Enum.find_value(Enum.with_index(args), fn {arg, p} ->
+             with dn when is_integer(dn) <- displaced(arg, Enum.at(head, k)), do: {p, dn}
+           end),
+         false <- term?(callee.clauses, p),
+         inner = %{solve | step: step, parameter: jc, extents: %{}, seen: [q | solve.seen]},
+         extent = {m, _b} when is_integer(m) <- extent(callee, p, inner) do
+      extent |> Shape.from(dc) |> Shape.longer(-dn)
+    else
+      _unknown -> nil
+    end
+  end
+
+  # A head fixes a length directly, or shares a name with an argument of known length.
+  @spec head_count([term()], non_neg_integer(), %{non_neg_integer() => integer()}) ::
+          integer() | nil
+  defp head_count(head, k, lengths) do
+    count_in(head, k) ||
+      Enum.find_value(Enum.with_index(head), fn {pattern, i} ->
+        if match?({:var, _}, pattern) and pattern == Enum.at(head, k), do: lengths[i]
+      end)
+  end
+
+  # A handed length is local to this member. Until call cycles are analyzed, only
+  # direct self calls can inherit it; each must pass this argument unchanged.
+  @spec carried?(Rel.t(), non_neg_integer()) :: boolean()
+  defp carried?(%Rel{name: name, clauses: clauses}, i) do
+    Enum.all?(clauses, fn {head, body} ->
+      Enum.all?(body, fn
+        {:call, ^name, args} -> Enum.at(args, i) == Enum.at(head, i)
+        {:call, _callee, _args} -> false
+        _goal -> true
+      end)
     end)
   end
-
-  @spec count(Place.t(), Place.known()) :: integer() | nil
-  defp count(q, _known) when is_integer(q), do: q
-  defp count({:count, q, _cell}, _known), do: q
-  defp count(place, known), do: Shape.count(Place.shape(place, known))
 
   ############################################################
   #                         The calls                        #

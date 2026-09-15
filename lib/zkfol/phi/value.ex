@@ -26,9 +26,15 @@ defmodule Zkfol.Phi.Value do
   @typedoc "Where a call reaches: an affine frame of the column, or a pointer cell."
   @type frame :: Ast.address()
 
-  @doc "I expose a finite list as the values a primitive consumes."
+  @doc "I expose a finite list to a primitive, preserving its elements; each bank's width must be known."
   @spec elements(t(), Place.known()) :: t()
-  def elements(laid, known) when Place.is_laid(laid), do: Place.cells(laid, known)
+  def elements(laid, known) when Place.is_laid(laid) do
+    case Place.size(laid, known) do
+      nil -> throw({:refused, {:unliftable_term, %{term: laid}}})
+      _size -> Place.elements(laid, known)
+    end
+  end
+
   def elements({:pair, h, t}, known), do: [elements(h, known) | elements(t, known)]
   def elements([h | t], known), do: [elements(h, known) | elements(t, known)]
   def elements({:count, _q, form}, _known), do: form
