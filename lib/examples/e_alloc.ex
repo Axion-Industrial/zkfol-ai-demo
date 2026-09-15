@@ -29,6 +29,12 @@ defmodule Examples.EAlloc do
     held(n, value)
   end
 
+  defrel choose(0) do
+    nth(1, [1], 2)
+  end
+
+  defrel choose(1)
+
   defrel impossible_after(n, value) do
     held(n, value)
     1 = 2
@@ -45,6 +51,17 @@ defmodule Examples.EAlloc do
 
   defrel erased(a, z) do
     z = 0 * a
+  end
+
+  @doc "An impossible lookup clause does not prevent another clause from answering."
+  @spec a_dead_lookup_clause() :: Prover.Report.t()
+  example a_dead_lookup_clause do
+    {:ok, derivation} = Al.derived(choose(), [1])
+    {:ok, pred, alloc} = Phi.compile(choose(), nil, [1])
+    witness = derivation |> Lay.of(alloc) |> Lay.witness()
+    assert {:ok, report, _id} = Prover.prove(Alloc.link(pred, alloc), witness)
+    assert {:error, {:no_answer, _}} = Al.derived(choose(), [0])
+    report
   end
 
   @doc "Private scalars share one predicate, directly or through a call; a wrong sum is refused."
