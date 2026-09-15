@@ -20,11 +20,17 @@ defmodule Zkfol.Doubling do
   @doc "I am the rewrite as a pass, always a try: an uncertified statement passes through."
   @impl Zkfol.Pipeline
   @spec run(Statement.t(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  def run(statement = %Statement{rels: [root | _rest], args: [n | _args]}, opts)
-      when is_integer(n) do
-    case Facts.recurrence(root) do
-      {:error, _outside} -> {:ok, statement}
-      {:ok, descriptor} -> rewritten(descriptor, n, named(statement, opts))
+  def run(statement = %Statement{rels: [root | _rest], args: [n | args]}, opts)
+      when is_integer(n) and length(args) <= 1 do
+    with {:ok, [root = %Rel{al: nil, phi: nil} | helpers]} <-
+           Zkfol.Lang.reached(root, statement.rels),
+         {:ok, descriptor} <- Facts.recurrence(root),
+         canonical = %{root | home: nil},
+         {:ok, [_root | ^helpers]} <- Zkfol.Lang.reached(canonical, [canonical]),
+         true <- descriptor.mod == nil or (descriptor.p >= 0 and descriptor.q >= 0) do
+      rewritten(descriptor, n, List.first(args, :_), named(statement, opts))
+    else
+      _uncertified -> {:ok, statement}
     end
   end
 
@@ -34,27 +40,23 @@ defmodule Zkfol.Doubling do
   @spec verb() :: Zkfol.Pipeline.verdict()
   def verb, do: :rewrites
 
-  @spec rewritten(Facts.t(), integer(), keyword()) ::
+  @spec rewritten(Facts.t(), integer(), Statement.datum() | :_, keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp rewritten(descriptor = %Facts{initial: [{start, x1}, {_, x2}], mod: mod}, n, opts) do
+  defp rewritten(descriptor = %Facts{initial: [{start, x1}, {_, x2}]}, n, result, opts) do
     case n - start + 1 do
       m when m < 1 ->
         {:error, {:precedes_base_case, %{n: n, base: start}}}
 
       1 ->
-        trivial(reduced(x1, mod), opts)
+        trivial(x1, result, opts)
 
       2 ->
-        trivial(reduced(x2, mod), opts)
+        trivial(x2, result, opts)
 
       m ->
-        build(descriptor, m, Keyword.take(opts, [:branch, :heap, :name, :basedon]))
+        build(descriptor, m, result, Keyword.take(opts, [:branch, :heap, :name, :basedon]))
     end
   end
-
-  @spec reduced(integer(), pos_integer() | nil) :: integer()
-  defp reduced(value, nil), do: value
-  defp reduced(value, mod), do: rem(value, mod)
 
   # One new atom per relation, bounded by the program.
   defp named(%Statement{rels: [root | _rest]}, opts),
@@ -62,28 +64,30 @@ defmodule Zkfol.Doubling do
 
   defp named(_statement, opts), do: opts
 
-  @spec trivial(integer(), keyword()) :: {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp trivial(value, opts) do
+  @spec trivial(integer(), Statement.datum() | :_, keyword()) ::
+          {:ok, Statement.t()} | {:error, Refusal.t()}
+  defp trivial(value, result, opts) do
     one =
       Zkfol.Lang.rel :one do
         one(1, ^value)
       end
 
-    with {:ok, solved} <- solved(one, [1], Keyword.take(opts, [:branch, :heap, :basedon])),
+    with {:ok, solved} <-
+           solved(one, [1, result], Keyword.take(opts, [:branch, :heap, :basedon])),
          do: {:ok, %Statement{rels: [one], stage: solved}}
   end
 
-  @spec build(Facts.t(), pos_integer(), keyword()) ::
+  @spec build(Facts.t(), pos_integer(), Statement.datum() | :_, keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp build(descriptor, m, solve_opts) do
+  defp build(descriptor, m, result, solve_opts) do
     statement = %Statement{rels: [kernel(descriptor)]}
-    derived(statement, m, solve_opts)
+    derived(statement, m, result, solve_opts)
   end
 
-  @spec derived(Statement.t(), pos_integer(), keyword()) ::
+  @spec derived(Statement.t(), pos_integer(), Statement.datum() | :_, keyword()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
-  defp derived(statement = %Statement{rels: rels}, m, solve_opts) do
-    with {:ok, solved} <- solved(rels, [count(m), :_, :_, m - 2], solve_opts),
+  defp derived(statement = %Statement{rels: rels}, m, result, solve_opts) do
+    with {:ok, solved} <- solved(rels, [count(m), :_, :_, m - 2, result], solve_opts),
          do: {:ok, %{statement | stage: solved}}
   end
 
