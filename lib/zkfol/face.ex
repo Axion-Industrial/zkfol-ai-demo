@@ -60,7 +60,7 @@ defmodule Zkfol.Face do
   @doc "I am the statement as diffable text, pretty, bounded, the witness elided."
   @spec text(Statement.t()) :: String.t()
   def text(statement = %Statement{stage: solved = %Solved{}}) do
-    elided = %{solved | lay: :"…elided…"}
+    elided = Map.merge(solved, %{lay: :"…elided…", lowering: :"…elided…"})
     inspected(%{statement | stage: elided})
   end
 
@@ -343,6 +343,94 @@ defmodule Zkfol.Face do
   # A nested list is a wall: every argument reads at a glance or is cut.
   @spec cut(String.t()) :: String.t()
   defp cut(text), do: if(byte_size(text) > 12, do: String.slice(text, 0, 11) <> "…", else: text)
+
+  defview lowering_view(statement = %Statement{}, builder) do
+    case Statement.lowering(statement) do
+      nil -> builder.empty()
+      walk -> clause_list(walk.clauses, "Lowering", builder)
+    end
+  end
+
+  defview(clauses_view(%Zkfol.Phi.Walk{clauses: clauses}, builder),
+    do: clause_list(clauses, "Clauses", builder)
+  )
+
+  @spec clause_list([Zkfol.Phi.Walk.Clause.t()], String.t(), module()) :: ColumnedList.t()
+  defp clause_list(clauses, title, builder) do
+    builder.columned_list()
+    |> ColumnedList.title(title)
+    |> ColumnedList.priority(1)
+    |> ColumnedList.items(clauses)
+    |> ColumnedList.column("Member", &to_string(&1.member))
+    |> ColumnedList.column("Clause", &clause_text(&1.member, &1.head, &1.body))
+    |> ColumnedList.column(
+      "Result",
+      &if(&1.compiled == :dead, do: "impossible", else: "compiled")
+    )
+  end
+
+  defview inputs_view(%Zkfol.Phi.Walk.Clause{head: head, accesses: accesses}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Inputs")
+    |> ColumnedList.priority(1)
+    |> ColumnedList.items(Enum.zip(head, accesses))
+    |> ColumnedList.column("Pattern", fn {pattern, _access} -> surface_text(pattern) end)
+    |> ColumnedList.column("Access", fn {_pattern, access} -> inspected(access) end)
+    |> ColumnedList.send(fn {_pattern, access} -> access end)
+  end
+
+  defview steps_view(clause = %Zkfol.Phi.Walk.Clause{}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Steps")
+    |> ColumnedList.priority(2)
+    |> ColumnedList.items([
+      {"Before head", clause.before},
+      {"After head", clause.matched},
+      {"After body", clause.compiled}
+    ])
+    |> ColumnedList.column("Step", fn {name, _state} -> name end)
+    |> ColumnedList.send(fn {_name, state} -> state end)
+  end
+
+  defview predicates_view(%Zkfol.Phi.Walk{predicates: predicates}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Predicates")
+    |> ColumnedList.priority(5)
+    |> ColumnedList.items(predicates)
+    |> ColumnedList.column("Predicate", &phi_text/1)
+  end
+
+  defview bindings_view(%Zkfol.Phi.Walk{env: env}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Bindings")
+    |> ColumnedList.priority(2)
+    |> ColumnedList.items(Enum.sort(env))
+    |> ColumnedList.column("Name", fn {name, _access} -> inspect(name) end)
+    |> ColumnedList.column("Access", fn {_name, access} -> inspected(access) end)
+    |> ColumnedList.send(fn {_name, access} -> access end)
+  end
+
+  defview equations_view(%Zkfol.Phi.Walk{eqs: eqs}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Equations")
+    |> ColumnedList.priority(3)
+    |> ColumnedList.items(Enum.reverse(eqs))
+    |> ColumnedList.column("Equation", &phi_text/1)
+  end
+
+  defview storage_view(walk = %Zkfol.Phi.Walk{}, builder) do
+    builder.columned_list()
+    |> ColumnedList.title("Storage")
+    |> ColumnedList.priority(4)
+    |> ColumnedList.items([
+      {"Bank depths", walk.banks},
+      {"Slots", walk.slots},
+      {"Members", walk.members}
+    ])
+    |> ColumnedList.column("What", fn {name, _value} -> name end)
+    |> ColumnedList.column("Value", fn {_name, value} -> inspected(value) end)
+    |> ColumnedList.send(fn {_name, value} -> value end)
+  end
 
   defview regions_view(alloc = %Zkfol.Alloc{}, builder) do
     builder.columned_list()
