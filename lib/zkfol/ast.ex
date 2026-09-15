@@ -43,6 +43,8 @@ defmodule Zkfol.Ast do
           | {:disj, [pred(t)]}
           | {:natural, t}
           | {:permutes, [t], [integer()]}
+          | {:distinct, [t]}
+          | {:permuted, [t], [t]}
 
   @type pred :: pred(term_t())
 
@@ -157,12 +159,24 @@ defmodule Zkfol.Ast do
 
   def nth(_index, cells, _value), do: throw({:refused, {:unliftable_term, %{term: cells}}})
 
-  @doc "I am distinct(cells): the cells hold 1..n exactly, `permutes/2` over them."
+  @doc "I am distinct(cells): the cells hold pairwise different values, no polynomial."
   @spec distinct([term_t()]) :: pred()
   def distinct(cells) when not is_list(cells),
     do: throw({:refused, {:unliftable_term, %{term: cells}}})
 
-  def distinct(cells), do: permutes(cells, Enum.to_list(1..length(cells)//1))
+  def distinct(cells), do: {:distinct, cells}
+
+  @doc "I am permutation(n, cells): the cells hold 1..n exactly, `permutes/2` over them."
+  @spec permutation(term_t(), [term_t()]) :: pred()
+  def permutation(n, cells) when is_integer(n) and is_list(cells) do
+    if n == length(cells), do: permutes(cells, Enum.to_list(1..n//1)), else: eq(0, 1)
+  end
+
+  def permutation(n, cells), do: throw({:refused, {:unliftable_term, %{term: {n, cells}}}})
+
+  @doc "I am permuted(cells, copy): the two hold one multiset, whatever it is."
+  @spec permuted([term_t()], [term_t()]) :: pred()
+  def permuted(cells, copy), do: {:permuted, cells, copy}
 
   @doc "I am natural(t): a naturality obligation, discharged by lookup, never a polynomial."
   @spec natural(t) :: pred(t) when t: var
@@ -242,6 +256,11 @@ defmodule Zkfol.Ast do
   defp map_children({:permutes, cells, values}, fun),
     do: {:permutes, Enum.map(cells, fun), values}
 
+  defp map_children({:distinct, cells}, fun), do: {:distinct, Enum.map(cells, fun)}
+
+  defp map_children({:permuted, cells, copy}, fun),
+    do: {:permuted, Enum.map(cells, fun), Enum.map(copy, fun)}
+
   defp map_children({:conj, preds}, fun), do: {:conj, Enum.map(preds, fun)}
   defp map_children({:disj, preds}, fun), do: {:disj, Enum.map(preds, fun)}
   defp map_children(leaf, _fun), do: leaf
@@ -256,6 +275,8 @@ defmodule Zkfol.Ast do
   def children({:reify, phi}), do: [phi]
   def children({:natural, t}), do: [t]
   def children({:permutes, cells, _values}), do: cells
+  def children({:distinct, cells}), do: cells
+  def children({:permuted, cells, copy}), do: cells ++ copy
   def children({tag, preds}) when tag in [:conj, :disj], do: preds
   def children(_leaf), do: []
 
