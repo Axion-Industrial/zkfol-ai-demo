@@ -2,11 +2,12 @@
 
 This is a concrete implementation of the arithmetisation of FOL
 validity over finite models on integers proposed by Gabbay and
-Mendelsohn in their paper on /"zk-SNARKs For First Order Logic"/, as
-per the draft included in the [[paper/][papers directory]].  This is based on
+Mendelsohn in their paper on /"Integer SNARKs for First-Order Logic"/,
+as per the draft included in the [[paper/][papers directory]].  This is based on
 Gabbay's paper on /"Arithmetisation of computation via polynomial
 semantics for first-order logic"/, fulltext available on the
 [[https://eprint.iacr.org/2024/954][Cryptology ePrint Archive]].
+
 
 The arithmetisation of FOL validity over finite models allows the
 validity (= the truth) of arbitrarily complex logical assertions over
