@@ -310,8 +310,11 @@ defmodule Zkfol.Harness.Bench do
     | CPU steal over the whole run | #{Float.round(steal * 100, 2)} % |
 
     "Uncontended" here means what those two rows say: the runner starts one cell at a time,
-    and the load average and steal time above are what the machine reported. They are not a
-    guarantee about anything outside the run.
+    and the load average and steal time above are what the machine reported. The load average
+    covers the last minute, so it includes the runner's own proving in the cells before: it
+    is an upper bound on what else was running. Steal is time the hypervisor took from this
+    machine, and a value above zero means the machine was shared. Neither is a guarantee
+    about anything outside the run.
 
     ## What the columns are
 
@@ -411,7 +414,7 @@ defmodule Zkfol.Harness.Bench do
     sha = command("git", ["rev-parse", "HEAD"], @root)
 
     dirty =
-      if command("git", ["status", "--porcelain"], @root) == "",
+      if command("git", ["status", "--porcelain", "--", ".", ":!RESULTS.md"], @root) == "",
         do: "",
         else: " (with uncommitted changes)"
 
