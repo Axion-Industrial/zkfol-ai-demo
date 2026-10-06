@@ -34,3 +34,6 @@ native/*/target/
 # Each named node and the test environment owns a separate AL store.
 /.mnesiastore/
 /.mnesiastore-*
+
+# What the demo writes when it runs.
+/harness/out/

@@ -1,0 +1,5 @@
+#!/bin/sh
+# The demo's front door. It runs in the test environment, which keeps the proving store
+# apart from a live development node.
+cd "$(dirname "$0")/.." || exit 1
+MIX_ENV=test exec mix harness "$@"

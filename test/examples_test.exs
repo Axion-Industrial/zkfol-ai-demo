@@ -24,7 +24,8 @@ for module <-
         Examples.EForgery,
         Examples.EVerifier,
         Examples.ECanon,
-        Examples.EPolicy
+        Examples.EPolicy,
+        Examples.EGate
       ] ++ bench do
   Module.create(
     Module.concat(module, Test),

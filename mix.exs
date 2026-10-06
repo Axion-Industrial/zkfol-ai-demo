@@ -8,7 +8,7 @@ defmodule Zkfol.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       dialyzer: [
-        plt_add_apps: [:ex_unit, :crypto, :mnesia],
+        plt_add_apps: [:ex_unit, :crypto, :mnesia, :inets, :ssl, :public_key],
         ignore_warnings: ".dialyzer_ignore.exs"
       ],
       deps: deps()
@@ -18,7 +18,7 @@ defmodule Zkfol.MixProject do
   def application do
     [
       mod: {Zkfol.Application, []},
-      extra_applications: [:logger, :crypto]
+      extra_applications: [:logger, :crypto, :inets, :ssl, :public_key]
     ]
   end
 

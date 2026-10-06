@@ -190,6 +190,14 @@ defmodule Zkfol.Refusal do
   defp said({:no_answer, %{}}),
     do: {:false_statement, "the question found no answer: nothing derives those values"}
 
+  defp said({:dashes_found, %{count: count}}),
+    do: {:restructure, "#{count} dash characters in files the demo adds; rewrite them without"}
+
+  defp said({:no_api_key, _detail}),
+    do: {:transport, "ANTHROPIC_API_KEY is not set in the environment"}
+
+  defp said({:model_error, %{said: said}}), do: {:transport, said}
+
   defp said({:send_failed, %{reason: reason}}),
     do: {:transport, "the send failed: " <> clip(reason)}
 
