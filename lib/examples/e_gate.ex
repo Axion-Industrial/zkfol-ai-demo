@@ -126,6 +126,25 @@ defmodule Examples.EGate do
     [request, other_request]
   end
 
+  @doc """
+  The verifier cannot see the plaintext: its request is three paths, and the public inputs
+  file holds only the bound values, never a cell of the text.
+  """
+  @spec public_inputs_hold_no_plaintext() :: map()
+  example public_inputs_hold_no_plaintext do
+    %Release{request: request, statement: statement} = compliant_output_is_released()
+    assert request |> Map.from_struct() |> Map.keys() |> Enum.sort() == [:pins, :proof, :public]
+
+    json = File.read!(request.public)
+    %{"public" => %{"I64" => columns}, "spec" => %{"num_public" => public}} = JSON.decode!(json)
+    assert public == 1 and length(columns) == 1
+
+    bound = statement.public |> Enum.flat_map(&elem(&1, 1)) |> MapSet.new() |> MapSet.put(0)
+    assert columns |> List.flatten() |> MapSet.new() |> MapSet.subset?(bound)
+    refute json =~ "lanterns"
+    %{public_cells: length(List.flatten(columns)), bound_words: MapSet.size(bound)}
+  end
+
   @spec policy() :: Policy.t()
   defp policy, do: Policy.load()
 
