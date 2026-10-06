@@ -76,6 +76,9 @@ defmodule Zkfol.ZincPlus do
     field(:point_ties, [Zkfol.ZincPlus.Tie.t()], default: [])
     field(:reads, [{non_neg_integer(), [non_neg_integer()], non_neg_integer()}], default: [])
     field(:num_vars, pos_integer())
+    # A path prefix: a proof that verifies is written to `<prefix>.proof` beside the public
+    # inputs a verifier needs in `<prefix>.public.json`. Nothing private reaches either.
+    field(:export, Path.t() | nil, default: nil)
   end
 
   @doc "I queue an interpreted UAIR on the prover thread."
@@ -100,6 +103,9 @@ defmodule Zkfol.ZincPlus do
   @doc """
   I queue the UAIR with the prover fitting its magnitude and return an id.
 
+  `export: prefix` also writes the portable proof under `prefix` once it verifies; see
+  `Zkfol.Verifier`.
+
   `unchecked: true` ships the payload as built, past `fits/1`. It is the door the
   negative tests need: a forgery the circuit must refuse cannot be watched being
   refused while Elixir refuses it first. No ordinary caller passes it.
@@ -123,7 +129,8 @@ defmodule Zkfol.ZincPlus do
           permuted_lookups: uair.permuted_lookups,
           point_ties: uair.point_ties,
           reads: reads,
-          num_vars: Uair.num_vars(uair)
+          num_vars: Uair.num_vars(uair),
+          export: Keyword.get(opts, :export)
         })
 
       with {:error, said} <- queued, do: {:error, Refusal.from_backend(said)}
