@@ -22,7 +22,7 @@ use config::{
     NUM_COLUMN_OPENINGS, PERFORM_CHECKS, REP_FACTOR,
 };
 use runtime::{Op, Permuted, RuntimeUair, Selected, Spec, Tie, SPEC};
-use wire::{encode_proof, verify_proof, write_export, Payload, Statement};
+use wire::{encode_proof, verify_proof, write_export, Binding, Payload, Statement};
 
 const BACKEND: &str = "zinc-plus-66776a3";
 
@@ -55,6 +55,7 @@ struct Job {
     payload: Payload,
     num_vars: usize,
     export: Option<String>,
+    bindings: Vec<Binding>,
 }
 
 static JOBS: OnceLock<Mutex<Sender<Job>>> = OnceLock::new();
@@ -97,6 +98,7 @@ struct Request {
     reads: Vec<(usize, Vec<usize>, usize)>,
     num_vars: usize,
     export: Option<String>,
+    bindings: Vec<Binding>,
 }
 
 /// Queue the statement and return the id its verdict will answer to.
@@ -121,6 +123,7 @@ fn prove_fol(env: Env, request: Request) -> Result<u64, String> {
         payload: request.cells,
         num_vars: request.num_vars,
         export: request.export,
+        bindings: request.bindings,
     };
 
     JOBS.get_or_init(|| {
@@ -172,7 +175,10 @@ fn verdict(job: Job) {
     // The statement carries only the public columns: what a verifier is told.
     let export = job.export.map(|prefix| {
         let public = job.payload.public(num_public);
-        (prefix, Statement { num_vars: job.num_vars, spec: job.spec.clone(), public })
+        (
+            prefix,
+            Statement { num_vars: job.num_vars, spec: job.spec.clone(), public, bindings: job.bindings },
+        )
     });
     *SPEC.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(job.spec);
 
@@ -275,6 +281,18 @@ fn run(
                 export
             )
         }
+    }
+}
+
+/// The commitment a proof of this statement would carry to its witness, without proving:
+/// the integer tier only, and the witness columns are those after the public ones.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn commit_fol(request: Request) -> Result<String, String> {
+    match request.cells {
+        Payload::I64(columns) => {
+            wire::commit_witness(columns[request.num_public..].to_vec(), request.num_vars)
+        }
+        _ => Err("commit supports the i64 tier only".to_string()),
     }
 }
 
