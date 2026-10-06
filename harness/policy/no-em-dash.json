@@ -1,0 +1,6 @@
+{
+  "name": "no-em-dash",
+  "version": 1,
+  "banned_codepoints": [8212],
+  "sentinel": 0
+}

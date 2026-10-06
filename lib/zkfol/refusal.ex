@@ -156,6 +156,14 @@ defmodule Zkfol.Refusal do
   defp said({:selection_outside_trace, %{cell: cell, column: x}}),
     do: {:out_of_range, "no selection names #{inspect(cell)} at column #{x}: outside the trace"}
 
+  defp said({:text_exceeds_capacity, %{cells: cells, capacity: capacity}}),
+    do: {:out_of_range, "the text needs #{cells} cells and the layout holds #{capacity}"}
+
+  defp said({:encoding_unbounded, %{depth: depth}}),
+    do:
+      {:restructure,
+       "the text is encoded more than #{depth} levels deep, so it cannot be normalised"}
+
   defp said({:witness_value_negative, %{value: value}}),
     do: {:out_of_range, "witness value #{value} is negative; cells carry no sign"}
 

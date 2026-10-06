@@ -22,7 +22,9 @@ for module <-
         Examples.EPassed,
         Examples.EFol,
         Examples.EForgery,
-        Examples.EVerifier
+        Examples.EVerifier,
+        Examples.ECanon,
+        Examples.EPolicy
       ] ++ bench do
   Module.create(
     Module.concat(module, Test),
