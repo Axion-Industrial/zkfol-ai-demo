@@ -30,7 +30,7 @@ defmodule Zkfol.Harness.Lint do
 
     case offences do
       [] ->
-        Show.good("no dash characters in #{length(files)} files or in the commit messages") && :ok
+        Show.good("no dash characters in #{length(files)} files or in the commit messages")
 
       _ ->
         {:error, {:dashes_found, %{count: length(offences)}}}

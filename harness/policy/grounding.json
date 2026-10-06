@@ -1,0 +1,7 @@
+{
+  "name": "grounding",
+  "version": 1,
+  "rule": "every numeric figure in the output also appears in the source set",
+  "figure": "ASCII digits, optional thousands commas, optional decimal fraction; trailing fraction zeros dropped; encoded as digits * 16 + fraction length; at most 15 digits",
+  "columns": 1023
+}

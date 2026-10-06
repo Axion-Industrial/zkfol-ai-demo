@@ -156,6 +156,18 @@ defmodule Zkfol.Refusal do
   defp said({:selection_outside_trace, %{cell: cell, column: x}}),
     do: {:out_of_range, "no selection names #{inspect(cell)} at column #{x}: outside the trace"}
 
+  defp said({:allowlist_unsigned, _detail}),
+    do: {:restructure, "the allowlist's signature does not verify against the published key"}
+
+  defp said({:signing_key_exists, %{path: path}}),
+    do: {:restructure, "a signing key already exists at #{path}; keep it or remove it first"}
+
+  defp said({:signing_key_missing, %{path: path}}),
+    do: {:restructure, "no signing key at #{path}; make one with bin/harness keygen"}
+
+  defp said({:figure_exceeds_cell, %{figure: figure}}),
+    do: {:out_of_range, "the figure #{figure} has more than 15 digits and does not fit a cell"}
+
   defp said({:text_exceeds_capacity, %{cells: cells, capacity: capacity}}),
     do: {:out_of_range, "the text needs #{cells} cells and the layout holds #{capacity}"}
 

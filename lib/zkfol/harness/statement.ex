@@ -30,7 +30,8 @@ defmodule Zkfol.Harness.Statement do
     @typedoc """
     What is proved (`pred` over `rows`, with `stand_in` satisfying it), what the proof binds
     (`public`), what a verifier is asked to hold it to (`pins`, hex by binding name), and the
-    `output` released if it verifies, with a `manifest` describing the run.
+    `output` released if it verifies, with a `manifest` describing the run. The public values
+    are laid in one more row after `rows`, and `pred` must read that row.
     """
     field(:pred, Ast.pred())
     field(:rows, [[non_neg_integer()]])
@@ -66,10 +67,9 @@ defmodule Zkfol.Harness.Statement do
     arity = length(statement.rows)
     width = statement.rows |> hd() |> length()
     {row, bindings, claims} = Bindings.place(statement.public, width, arity + 1)
-    pred = Ast.conj([statement.pred, Ast.natural(Ast.cell(arity + 1))])
 
     with {:ok, uair} <-
-           Uair.emit(pred, Interpretation.new(statement.stand_in ++ [row]), claims) do
+           Uair.emit(statement.pred, Interpretation.new(statement.stand_in ++ [row]), claims) do
       {:ok, %{uair | columns: committed(uair, statement.rows)}, bindings}
     end
   end
@@ -79,7 +79,7 @@ defmodule Zkfol.Harness.Statement do
   @spec committed(Uair.t(), [[non_neg_integer()]]) :: [[integer()]]
   defp committed(%Uair{columns: columns, rows: rows}, real) do
     for {column, row} <- Enum.zip(columns, rows) do
-      case Enum.at(real, row - 1) do
+      case if(is_integer(row), do: Enum.at(real, row - 1)) do
         nil -> column
         cells -> Enum.reverse(cells) ++ List.duplicate(hd(cells), length(column) - length(cells))
       end

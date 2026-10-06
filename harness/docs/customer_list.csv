@@ -1,0 +1,11 @@
+customer_id,name,company,email,city,annual_spend
+C-1001,Alder Fenwick,Meadowbank Grocers,alder@meadowbank.example,Millbrook,18400
+C-1002,Briar Holloway,Corner Larder,briar@cornerlarder.example,Ashford,9200
+C-1003,Cedar Marsh,Valley Deli,cedar@valleydeli.example,Millbrook,15750
+C-1004,Dunmore Reeve,Harbour Foods,dunmore@harbourfoods.example,Seaton,22100
+C-1005,Elm Thackeray,Little Pantry,elm@littlepantry.example,Ashford,6400
+C-1006,Fern Okafor,Greenway Market,fern@greenway.example,Millbrook,12900
+C-1007,Gale Winterbourne,Old Mill Cafe,gale@oldmill.example,Seaton,7800
+C-1008,Heath Lindqvist,Orchard Table,heath@orchardtable.example,Ashford,19300
+C-1009,Ivy Castellan,Four Corners Store,ivy@fourcorners.example,Millbrook,5600
+C-1010,Juniper Abara,Riverside Provisions,juniper@riverside.example,Seaton,14200

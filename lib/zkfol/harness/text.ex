@@ -8,6 +8,7 @@ defmodule Zkfol.Harness.Text do
   - `statement/3` builds the statement for a raw output under a policy and a context.
   """
 
+  alias Zkfol.Ast
   alias Zkfol.Harness.Bindings
   alias Zkfol.Harness.Canon
   alias Zkfol.Harness.Canon.Result
@@ -30,7 +31,8 @@ defmodule Zkfol.Harness.Text do
 
       {:ok,
        %Statement{
-         pred: Policy.pred(policy, layout.rows),
+         pred:
+           Ast.conj([Policy.pred(policy, layout.rows), Ast.natural(Ast.cell(layout.rows + 1))]),
          rows: matrix,
          stand_in: for(row <- matrix, do: Enum.map(row, &if(&1 > bound, do: 0, else: &1))),
          public: public,

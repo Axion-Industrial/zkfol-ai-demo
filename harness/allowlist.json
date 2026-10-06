@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "entries": [
+    { "address": "reports@corp.example", "documents": true },
+    { "address": "status@corp.example", "documents": false }
+  ]
+}

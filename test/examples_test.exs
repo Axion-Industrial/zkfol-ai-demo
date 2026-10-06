@@ -25,7 +25,10 @@ for module <-
         Examples.EVerifier,
         Examples.ECanon,
         Examples.EPolicy,
-        Examples.EGate
+        Examples.EGate,
+        Examples.EGrounding,
+        Examples.ETrace,
+        Examples.ETools
       ] ++ bench do
   Module.create(
     Module.concat(module, Test),

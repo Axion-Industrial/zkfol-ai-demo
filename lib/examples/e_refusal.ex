@@ -22,6 +22,7 @@ defmodule Examples.ERefusal do
   @spec detailed() :: [Refusal.t()]
   def detailed do
     [
+      {:allowlist_unsigned, %{}},
       {:arguments_exceed_rows, %{args: 3, rows: 2}},
       {:beyond_the_rows, %{relation: :fib}},
       {:beyond_the_rows, %{sequence: :xs}},
@@ -29,6 +30,7 @@ defmodule Examples.ERefusal do
       {:constant_exceeds_cell, %{constant: Integer.pow(2, 63)}},
       {:dashes_found, %{count: 3}},
       {:encoding_unbounded, %{depth: 8}},
+      {:figure_exceeds_cell, %{figure: "1234567890123456"}},
       {:head_not_a_column, %{head: {:add, 1, 1}}},
       {:heap_exhausted, %{said: "the derivation exceeded 256000000 heap words"}},
       {:len_needs_a_bound_count, %{}},
@@ -51,6 +53,8 @@ defmodule Examples.ERefusal do
       {:residue, %{answer: [1, {:var, :x}]}},
       {:selection_changes_claim, %{claim: "accepts.cells", row: 2, column: 1}},
       {:selection_outside_trace, %{cell: {:cell, 2}, column: 9}},
+      {:signing_key_exists, %{path: "/tmp/key"}},
+      {:signing_key_missing, %{path: "/tmp/key"}},
       {:send_failed, %{reason: :nope}},
       {:symbol_not_allocated, %{symbol: :xs}},
       {:text_exceeds_capacity, %{cells: 70_000, capacity: 65_520}},

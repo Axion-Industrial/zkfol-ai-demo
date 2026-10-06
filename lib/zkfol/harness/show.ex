@@ -6,7 +6,7 @@ defmodule Zkfol.Harness.Show do
   ### Public API
 
   - `title/1`, `step/1`, `good/1`, `bad/1`, `rejected/1`, `note/1` and `kv/2` print one line each.
-  - `banner/2` prints a boxed, coloured banner.
+  - `banner/2` prints a boxed, coloured banner, and `inbox/3` an inbox.
   - `text/1` prints a text with every dash highlighted, and `dashes/1` counts them.
   """
 
@@ -48,6 +48,45 @@ defmodule Zkfol.Harness.Show do
   @spec rejected(String.t()) :: :ok
   def rejected(text),
     do: IO.puts([IO.ANSI.bright(), IO.ANSI.red(), "   [REJECTED] ", text, IO.ANSI.reset()])
+
+  @doc "I print an inbox: its title, and a line for each message, or a large `(empty)`."
+  @spec inbox(String.t(), atom(), [Zkfol.Harness.Sink.Message.t()]) :: :ok
+  def inbox(title, colour, messages) do
+    IO.puts([
+      "\n",
+      IO.ANSI.bright(),
+      apply(IO.ANSI, colour, []),
+      "   +-- ",
+      title,
+      " : #{length(messages)} message(s)",
+      IO.ANSI.reset()
+    ])
+
+    case messages do
+      [] ->
+        IO.puts([IO.ANSI.bright(), "   |      (empty)", IO.ANSI.reset()])
+
+      messages ->
+        for {message, n} <- Enum.with_index(messages, 1) do
+          attached =
+            if message.attachments == [],
+              do: "",
+              else: "   [attached: #{Enum.join(message.attachments, ", ")}]"
+
+          IO.puts([
+            "   |  ",
+            to_string(n),
+            ". to ",
+            Enum.join(message.to, ", "),
+            ": ",
+            message.subject,
+            attached
+          ])
+        end
+    end
+
+    :ok
+  end
 
   @doc "I print a plain note."
   @spec note(String.t()) :: :ok
