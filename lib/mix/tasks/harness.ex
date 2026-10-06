@@ -9,6 +9,9 @@ defmodule Mix.Tasks.Harness do
       bin/harness act5 --injection FILE [--mode live|assume-compromised]
       bin/harness inboxes
       bin/harness probe-injections [--mode live|assume-compromised]
+      bin/harness bench [--runs N]
+      bin/harness published
+      bin/harness package
       bin/harness lint
       bin/harness fixtures
       bin/harness keygen
@@ -19,6 +22,7 @@ defmodule Mix.Tasks.Harness do
 
   alias Zkfol.Harness.Acts
   alias Zkfol.Harness.Allowlist
+  alias Zkfol.Harness.Bench
   alias Zkfol.Harness.Lint
 
   @requirements ["app.start"]
@@ -31,7 +35,8 @@ defmodule Mix.Tasks.Harness do
     public: :string,
     pins: :string,
     injection: :string,
-    mode: :string
+    mode: :string,
+    runs: :integer
   ]
 
   @impl Mix.Task
@@ -60,6 +65,15 @@ defmodule Mix.Tasks.Harness do
       "fixtures" ->
         finish(Acts.fixtures())
 
+      "published" ->
+        finish(Acts.published())
+
+      "package" ->
+        finish(Acts.package())
+
+      "bench" ->
+        finish(bench(opts))
+
       "act5" ->
         finish(Acts.act5(opts))
 
@@ -80,6 +94,12 @@ defmodule Mix.Tasks.Harness do
       other ->
         Mix.raise("unknown command #{other}")
     end
+  end
+
+  @spec bench(keyword()) :: :ok
+  defp bench(opts) do
+    Bench.run(Keyword.get(opts, :runs, 5))
+    :ok
   end
 
   @spec finish(:ok | {:error, Zkfol.Refusal.t()}) :: :ok

@@ -94,7 +94,14 @@ defmodule Zkfol.Harness.Show do
 
   @doc "I print a labelled value."
   @spec kv(String.t(), term()) :: :ok
-  def kv(label, value), do: IO.puts(["   ", String.pad_trailing(label, 26), to_string(value)])
+  def kv(label, value),
+    do:
+      IO.puts([
+        "   ",
+        label,
+        String.duplicate(" ", max(27 - String.length(label), 2)),
+        to_string(value)
+      ])
 
   @doc "I print a banner of `lines`, in `colour` (`:red`, `:green` or `:yellow`), full width."
   @spec banner(atom(), [String.t()]) :: :ok

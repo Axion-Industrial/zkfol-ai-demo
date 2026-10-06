@@ -15,6 +15,8 @@ defmodule Zkfol.Harness.Acts do
   - `act5/1`: a hijacked agent, and the harness refusing its exfiltration.
   - `inboxes/0`: the two mail sinks, side by side.
   - `probe_injections/1`: each injection template, tried against the live model.
+  - `published/0`: the hashes of every published file, for an audience to check beforehand.
+  - `package/0`: the proof, public inputs, pins and verifier, for act 4 on another machine.
   - `fixtures/0`: the replay texts, written where `--from-file` can read them.
   """
 
@@ -519,6 +521,65 @@ defmodule Zkfol.Harness.Acts do
       "The audience's text is given to the real model unchanged.",
       "The model may refuse to be hijacked. If it does, this demo says so."
     ])
+  end
+
+  ############################################################
+  #                        Published                         #
+  ############################################################
+
+  @published ~w(
+    harness/policy/no-em-dash.json harness/policy/grounding.json harness/policy/trace.json
+    harness/allowlist.json harness/allowlist.sig harness/allowlist.pub
+    lib/zkfol/harness/canon.ex lib/zkfol/harness/figures.ex
+  )
+
+  @doc "I print the SHA-256 of every published file, so `sha256sum` on each reproduces it."
+  @spec published() :: :ok
+  def published do
+    Show.title("Published files and their SHA-256")
+    root = Path.expand("../../..", __DIR__)
+
+    for file <- @published do
+      hash =
+        root
+        |> Path.join(file)
+        |> File.read!()
+        |> Zkfol.Harness.Bindings.hash()
+        |> Base.encode16(case: :lower)
+
+      Show.kv(file, hash)
+    end
+
+    :ok
+  end
+
+  @doc """
+  I gather what act 4 needs on another machine: the accepted proof and its public inputs,
+  a pins file built from the published hashes, the verifier binary built on this machine,
+  and a one-line script that runs it.
+  """
+  @spec package() :: :ok | {:error, Refusal.t()}
+  def package do
+    dir = Path.join(@out, "portable")
+
+    with {:ok, _manifest} <- manifest() do
+      File.rm_rf!(dir)
+      File.mkdir_p!(dir)
+      File.cp!(@accepted <> ".proof", Path.join(dir, "accepted.proof"))
+      File.cp!(@accepted <> ".public.json", Path.join(dir, "accepted.public.json"))
+      File.cp!(published_pins(), Path.join(dir, "pins.json"))
+      File.cp!(Verifier.executable(), Path.join(dir, "zkfol_verify"))
+      File.chmod!(Path.join(dir, "zkfol_verify"), 0o755)
+
+      File.write!(
+        Path.join(dir, "verify.sh"),
+        "#!/bin/sh\ncd \"$(dirname \"$0\")\" || exit 1\nexec ./zkfol_verify accepted.proof accepted.public.json pins.json\n"
+      )
+
+      File.chmod!(Path.join(dir, "verify.sh"), 0o755)
+      Show.note("wrote #{dir}: copy it to the other machine and run ./verify.sh")
+      Show.note("the verifier binary runs only on this machine's OS and architecture")
+    end
   end
 
   ############################################################
