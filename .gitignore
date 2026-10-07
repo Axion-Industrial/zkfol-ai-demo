@@ -1,0 +1,8 @@
+/_build/
+/deps/
+erl_crash.dump
+*.ez
+/.mnesiastore/
+/.mnesiastore-*
+# What the demo writes when it runs.
+/harness/out/
