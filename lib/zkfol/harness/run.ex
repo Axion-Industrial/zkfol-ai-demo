@@ -36,6 +36,8 @@ defmodule Zkfol.Harness.Run do
     field(:reads, %{String.t() => String.t()}, default: %{})
     field(:attempts, [Attempt.t()], default: [])
     field(:actions, non_neg_integer(), default: 0)
+    # Why the API ended the run with a safety refusal, when it did: the model never acted.
+    field(:refusal, String.t() | nil, default: nil)
   end
 
   @doc "I start a run over the folder `docs`, writing proofs under `out`."

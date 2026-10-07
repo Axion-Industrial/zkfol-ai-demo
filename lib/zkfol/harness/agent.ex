@@ -24,7 +24,7 @@ defmodule Zkfol.Harness.Agent do
           {:text, String.t()}
           | {:tool_call, String.t(), map()}
           | {:tool_result, String.t(), String.t(), boolean()}
-          | :refused
+          | {:refused, String.t()}
 
   typedstruct module: Generation, enforce: true do
     @typedoc "Raw model output, and the context a proof about it would bind."
@@ -86,8 +86,9 @@ defmodule Zkfol.Harness.Agent do
       case {response["stop_reason"],
             for(%{"type" => "tool_use"} = call <- response["content"], do: call)} do
         {"refusal", _} ->
-          notify.(:refused)
-          {:ok, run}
+          why = refusal(response)
+          notify.({:refused, why})
+          {:ok, %{run | refusal: why}}
 
         {_, []} ->
           {:ok, run}
@@ -114,6 +115,20 @@ defmodule Zkfol.Harness.Agent do
     {%{"type" => "tool_result", "tool_use_id" => id, "content" => text, "is_error" => error?},
      run}
   end
+
+  # What the API said about a refusal: its category and explanation, when it gave them.
+  @spec refusal(map()) :: String.t()
+  defp refusal(%{"stop_details" => %{} = details}) do
+    [details["category"], details["explanation"]]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(": ")
+    |> case do
+      "" -> "no category given"
+      said -> said
+    end
+  end
+
+  defp refusal(_response), do: "no category given"
 
   # The context names the model the API says answered, so it waits for the first response.
   @spec with_context(Run.t(), map(), String.t(), String.t()) :: Run.t()
