@@ -202,6 +202,9 @@ defmodule Zkfol.Refusal do
   defp said({:no_answer, %{}}),
     do: {:false_statement, "the question found no answer: nothing derives those values"}
 
+  defp said({:input_unreadable, %{path: path}}),
+    do: {:restructure, "there is no file at #{path}; give the path of a file that exists"}
+
   defp said({:dashes_found, %{count: count}}),
     do: {:restructure, "#{count} dash characters in files the demo adds; rewrite them without"}
 

@@ -33,6 +33,7 @@ defmodule Examples.ERefusal do
       {:figure_exceeds_cell, %{figure: "1234567890123456"}},
       {:head_not_a_column, %{head: {:add, 1, 1}}},
       {:heap_exhausted, %{said: "the derivation exceeded 256000000 heap words"}},
+      {:input_unreadable, %{path: "edited.txt"}},
       {:len_needs_a_bound_count, %{}},
       {:model_error, %{said: "HTTP 401: invalid x-api-key"}},
       {:no_answer, %{relation: :fib}},

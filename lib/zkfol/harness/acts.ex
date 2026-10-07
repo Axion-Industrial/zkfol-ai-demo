@@ -168,10 +168,10 @@ defmodule Zkfol.Harness.Acts do
     Show.title("Act 3: tampering")
 
     with {:ok, manifest} <- manifest(),
-         {:ok, accepted} <- Verifier.verify(request(@accepted)) do
+         {:ok, accepted} <- Verifier.verify(request(@accepted)),
+         {:ok, edited} <- edited_text(opts) do
       policy = Policy.load()
       context = context(manifest)
-      edited = edited_text(opts)
 
       Show.step("The accepted output, and your edit of it")
       Show.text(File.read!(@accepted <> ".txt"))
@@ -753,18 +753,18 @@ defmodule Zkfol.Harness.Acts do
     end
   end
 
-  @spec edited_text(options()) :: String.t()
+  @spec edited_text(options()) :: {:ok, String.t()} | {:error, Refusal.t()}
   defp edited_text(opts) do
     case Keyword.get(opts, :edited) do
       nil ->
         IO.puts("Type the edited text, then a line containing only END:")
-        read_until_end([])
+        {:ok, read_until_end([])}
 
       "-" ->
-        IO.read(:stdio, :eof)
+        {:ok, IO.read(:stdio, :eof)}
 
       path ->
-        File.read!(path)
+        with {:error, _} <- File.read(path), do: {:error, {:input_unreadable, %{path: path}}}
     end
   end
 
