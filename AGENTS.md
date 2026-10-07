@@ -17,8 +17,9 @@ the failure points and what the proofs do not say.
 - **No em dashes** in code, docs or commits (`bin/harness lint` checks this), and British
   English in prose.
 - **zkFOL is a dependency, not a fork.** Anything that needs the compiler or its Rust crate
-  changed goes to zkFOL as its own topic. The proof export and standalone verifier are on the
-  branch `zkfol-ai/proof-export`, which `mix.exs` points at until it is merged.
+  changed goes to zkFOL as its own topic. The proof export and standalone verifier are on
+  `zkfol-ai/proof-export` and string literals on `mariari/string-literals`; `mix.exs` points at
+  `zkfol-ai/with-strings`, which merges both, until they are merged into zkFOL.
 
 ## Build, test, run
 

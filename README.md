@@ -13,6 +13,21 @@ destination after an approval. See [harness/README.md](harness/README.md) for th
 the run order for a live demo, the failure points and what the proofs do not say, and
 [RESULTS.md](RESULTS.md) for measured times and proof sizes.
 
+## The no-dash check in zkFOL's own language
+
+The whole policy fits in one relation (`lib/zkfol_ai_demo/no_dash.ex`):
+
+```elixir
+defrel no_dash(text) do
+  absent(8212, text)    # no codepoint of the text is U+2014
+end
+```
+
+A text is its list of codepoints, using the string-literals topic. `Examples.ENoDash` proves a
+clean text with the real prover and shows a dashed one has no answer, so nothing is proved.
+The harness's own check (`ZkfolAiDemo.Canon`) first normalises the ways a dash can be
+smuggled in, then proves the same absence.
+
 ## Using zkFOL in your own project
 
 zkFOL is a git dependency. This project's `mix.exs` shows the shape:
@@ -20,11 +35,11 @@ zkFOL is a git dependency. This project's `mix.exs` shows the shape:
 ```elixir
 {:zkfol,
  git: "https://github.com/Axion-Industrial/zkfol-ai-demo.git",
- branch: "zkfol-ai/proof-export"}
+ branch: "zkfol-ai/with-strings"}
 ```
 
-The branch adds proof export and a standalone verifier to zkFOL (about 660 lines, nothing else
-changed). Once it is merged the line becomes
+The branch is zkFOL plus two topics: proof export with a standalone verifier (about 660
+lines, on `zkfol-ai/proof-export`) and string literals (`mariari/string-literals`). Once it is merged the line becomes
 `{:zkfol, git: "https://github.com/zkFOL/zkfol.git"}`.
 
 Because it is a dependency, add the same overrides zkFOL needs (`gt_bridge`, `al`) and copy

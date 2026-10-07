@@ -22,7 +22,7 @@ defmodule ZkfolAiDemo.MixProject do
     [
       {:zkfol,
        git: "https://github.com/Axion-Industrial/zkfol-ai-demo.git",
-       branch: "zkfol-ai/proof-export"},
+       branch: "zkfol-ai/with-strings"},
       {:ex_example, "~> 0.1.2"},
       {:typed_struct, "~> 0.3"},
       {:gt_bridge, "~> 0.20.1", override: true},

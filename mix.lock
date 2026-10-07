@@ -26,5 +26,5 @@
   "telemetry": {:hex, :telemetry, "1.4.2", "a0cb522801dffb1c49fe6e30561badffc7b6d0e180db1300df759faa22062855", [:rebar3], [], "hexpm", "928f6495066506077862c0d1646609eed891a4326bee3126ba54b60af61febb1"},
   "typed_struct": {:hex, :typed_struct, "0.3.0", "939789e3c1dca39d7170c87f729127469d1315dcf99fee8e152bb774b17e7ff7", [:mix], [], "hexpm", "c50bd5c3a61fe4e198a8504f939be3d3c85903b382bde4865579bc23111d1b6d"},
   "unsafe": {:hex, :unsafe, "1.0.2", "23c6be12f6c1605364801f4b47007c0c159497d0446ad378b5cf05f1855c0581", [:mix], [], "hexpm", "b485231683c3ab01a9cd44cb4a79f152c6f3bb87358439c6f68791b85c2df675"},
-  "zkfol": {:git, "https://github.com/Axion-Industrial/zkfol-ai-demo.git", "ac598b0dbdaa6389cb1c104253949c8c6b9f1127", [branch: "zkfol-ai/proof-export"]},
+  "zkfol": {:git, "https://github.com/Axion-Industrial/zkfol-ai-demo.git", "10374e1e7e334cf0cffd923b381f3d9f0790816c", [branch: "zkfol-ai/with-strings"]},
 }
