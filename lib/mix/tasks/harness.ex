@@ -41,57 +41,74 @@ defmodule Mix.Tasks.Harness do
     runs: :integer
   ]
 
+  # Every derivation a command makes lands in AL's store, and the store is replayed at each
+  # start, so a command runs on a branch that is discarded after it. What a command leaves is
+  # its files, never the store.
   @impl Mix.Task
   def run(args) do
     if Mix.env() == :dev,
       do: Mix.raise("run this through bin/harness, which uses the test environment")
 
     {opts, [command | _]} = OptionParser.parse!(args, strict: @switches)
+    finish(on_a_branch(fn -> command(command, opts) end))
+  end
 
+  @spec on_a_branch((-> result)) :: result when result: term()
+  defp on_a_branch(fun) do
+    branch = AL.Branch.fork()
+    AL.Branch.checkout(branch)
+
+    try do
+      fun.()
+    after
+      AL.Branch.discard(branch)
+    end
+  end
+
+  @spec command(String.t(), keyword()) :: :ok | {:ok, term()} | {:error, Zkfol.Refusal.t()}
+  defp command(command, opts) do
     case command do
       "demo" ->
-        finish(Demo.run(opts))
+        Demo.run(opts)
 
       "act1" ->
-        finish(Acts.act1(opts))
+        Acts.act1(opts)
 
       "act2" ->
-        finish(Acts.act2(opts))
+        Acts.act2(opts)
 
       "act3" ->
-        finish(Acts.act3(opts))
+        Acts.act3(opts)
 
       "act4" ->
-        finish(Acts.act4(opts))
+        Acts.act4(opts)
 
       "lint" ->
-        finish(Lint.run())
+        Lint.run()
 
       "fixtures" ->
-        finish(Acts.fixtures())
+        Acts.fixtures()
 
       "published" ->
-        finish(Acts.published())
+        Acts.published()
 
       "package" ->
-        finish(Acts.package())
+        Acts.package()
 
       "bench" ->
-        finish(bench(opts))
+        bench(opts)
 
       "act5" ->
-        finish(Acts.act5(opts))
+        Acts.act5(opts)
 
       "probe-injections" ->
-        finish(Acts.probe_injections(opts))
+        Acts.probe_injections(opts)
 
       "keygen" ->
-        finish(
-          with {:ok, path} <- Allowlist.keygen(), do: Mix.shell().info("key written to #{path}")
-        )
+        with {:ok, path} <- Allowlist.keygen(), do: Mix.shell().info("key written to #{path}")
 
       "sign-allowlist" ->
-        finish(Allowlist.sign())
+        Allowlist.sign()
 
       other ->
         Mix.raise("unknown command #{other}")

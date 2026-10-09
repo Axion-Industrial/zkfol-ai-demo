@@ -34,7 +34,9 @@ the failure points and what the proofs do not say.
   caption before and after each. It is `bin/harness demo` with the key and model set up.
 - `bin/harness act1` to `act5`, `probe-injections`, `bench`, `published`, `package`,
   `lint`, `fixtures`, `keygen`, `sign-allowlist`. It runs in the test environment so the proving
-  store stays apart from a development node.
+  store stays apart from a development node, and on a branch of that store that it discards
+  after each command. Without that, every derivation stays in the store and each start replays
+  them: ten runs of the demo made the next start take over a minute.
 
 Examples are the primary verification: run them, do not reason from signatures.
 
