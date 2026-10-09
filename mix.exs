@@ -13,7 +13,10 @@ defmodule ZkfolAiDemo.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger, :crypto, :inets, :ssl, :public_key]]
+    [
+      mod: {ZkfolAiDemo.Application, []},
+      extra_applications: [:logger, :crypto, :inets, :ssl, :public_key]
+    ]
   end
 
   # zkFOL is a git dependency. The branch carries the proof export and the standalone

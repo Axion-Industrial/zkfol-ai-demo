@@ -10,8 +10,8 @@ the failure points and what the proofs do not say.
 
 - **No mocks, stubs or simulated proofs.** False statements go to the real prover and fail
   there. The only replay modes are labelled on screen.
-- **All data is synthetic.** Addresses use the reserved `.example` domain. The mail sinks listen
-  on loopback only.
+- **All data is synthetic.** Addresses use the reserved `.example` domain. The two inboxes
+  are processes in the application, so nothing leaves the VM.
 - **The API key comes from `ANTHROPIC_API_KEY`** in the environment, never from a file or a
   commit. Cloud sessions ignore it, so live model runs happen on a real machine.
 - **No em dashes** in code, docs or commits (`bin/harness lint` checks this), and British
@@ -29,7 +29,7 @@ the failure points and what the proofs do not say.
 - `mix format` (98 columns) and `bin/harness lint` before finishing.
 - `bin/demo` (or `bin/demo --auto`): the guided demo for a recording, every act in order with a
   caption before and after each. It is `bin/harness demo` with the key and model set up.
-- `bin/harness act1` to `act5`, `inboxes`, `probe-injections`, `bench`, `published`, `package`,
+- `bin/harness act1` to `act5`, `probe-injections`, `bench`, `published`, `package`,
   `lint`, `fixtures`, `keygen`, `sign-allowlist`. It runs in the test environment so the proving
   store stays apart from a development node.
 
@@ -38,8 +38,8 @@ Examples are the primary verification: run them, do not reason from signatures.
 ## Layout
 
 - `lib/zkfol_ai_demo/`: the policies (`canon`, `policy`, `text`, `grounding`, `figures`,
-  `trace`), the gate, the agent and its tools, the mail sinks, the acts, the guided demo
-  (`demo`) and the benchmark.
+  `trace`), the gate, the agent and its tools, the inboxes (`mailbox`, started by
+  `application`), the acts, the guided demo (`demo`) and the benchmark.
 - `lib/examples/`: examples, wired into `test/examples_test.exs`.
 - `lib/mix/tasks/harness.ex` and `bin/harness`: the command line.
 - `harness/`: published policies, the signed allowlist, synthetic documents, injection templates.

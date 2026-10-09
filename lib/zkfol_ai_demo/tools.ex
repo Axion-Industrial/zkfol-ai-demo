@@ -20,8 +20,8 @@ defmodule ZkfolAiDemo.Tools do
 
   alias ZkfolAiDemo.Allowlist
   alias ZkfolAiDemo.Gate
-  alias ZkfolAiDemo.Mail
-  alias ZkfolAiDemo.Mail.Outgoing
+  alias ZkfolAiDemo.Mailbox
+  alias ZkfolAiDemo.Mailbox.Message
   alias ZkfolAiDemo.Run
   alias ZkfolAiDemo.Run.Attempt
   alias ZkfolAiDemo.Trace
@@ -125,14 +125,13 @@ defmodule ZkfolAiDemo.Tools do
 
     case Gate.release(statement, prefix) do
       {:released, _release} ->
-        message = %Outgoing{
-          to: recipients,
-          subject: to_string(input["subject"]),
-          body: to_string(input["body"]),
-          attachments: attachments
-        }
-
-        :ok = Mail.deliver(message)
+        :ok =
+          Mailbox.deliver(%Message{
+            to: recipients,
+            subject: to_string(input["subject"]),
+            body: to_string(input["body"]),
+            attachments: attachments
+          })
 
         attempt = %Attempt{
           tool: "send_email",

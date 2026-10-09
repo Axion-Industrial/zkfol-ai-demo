@@ -8,7 +8,6 @@ defmodule Mix.Tasks.Harness do
       bin/harness act3 [--edited FILE] [--edited-proof FILE]
       bin/harness act4 [--proof F --public F --pins F]
       bin/harness act5 --injection FILE [--mode live|assume-compromised]
-      bin/harness inboxes
       bin/harness probe-injections [--mode live|assume-compromised]
       bin/harness bench [--runs N]
       bin/harness published
@@ -82,9 +81,6 @@ defmodule Mix.Tasks.Harness do
 
       "act5" ->
         finish(Acts.act5(opts))
-
-      "inboxes" ->
-        finish(Acts.inboxes())
 
       "probe-injections" ->
         finish(Acts.probe_injections(opts))

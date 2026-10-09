@@ -2,6 +2,7 @@ for module <-
       [
         Examples.ENoDash,
         Examples.EDemo,
+        Examples.EMailbox,
         Examples.ECanon,
         Examples.EPolicy,
         Examples.EGate,

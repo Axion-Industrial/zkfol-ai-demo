@@ -51,7 +51,7 @@ defmodule ZkfolAiDemo.Show do
     do: IO.puts([IO.ANSI.bright(), IO.ANSI.red(), "   [REJECTED] ", text, IO.ANSI.reset()])
 
   @doc "I print an inbox: its title, and a line for each message, or a large `(empty)`."
-  @spec inbox(String.t(), atom(), [ZkfolAiDemo.Sink.Message.t()]) :: :ok
+  @spec inbox(String.t(), atom(), [ZkfolAiDemo.Mailbox.Message.t()]) :: :ok
   def inbox(title, colour, messages) do
     IO.puts([
       "\n",
@@ -72,7 +72,7 @@ defmodule ZkfolAiDemo.Show do
           attached =
             if message.attachments == [],
               do: "",
-              else: "   [attached: #{Enum.join(message.attachments, ", ")}]"
+              else: "   [attached: #{Enum.map_join(message.attachments, ", ", &elem(&1, 0))}]"
 
           IO.puts([
             "   |  ",

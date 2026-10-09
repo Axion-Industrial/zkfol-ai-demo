@@ -10,9 +10,8 @@ defmodule Examples.ETools do
 
   alias ZkfolAiDemo.Allowlist
   alias ZkfolAiDemo.Context
-  alias ZkfolAiDemo.Mail
+  alias ZkfolAiDemo.Mailbox
   alias ZkfolAiDemo.Run
-  alias ZkfolAiDemo.Sink
   alias ZkfolAiDemo.Tools
 
   @harness Path.expand("../../harness", __DIR__)
@@ -127,7 +126,7 @@ defmodule Examples.ETools do
   @doc "A legitimate email arrives; the same agent's exfiltration is blocked, and its inbox stays empty."
   @spec legitimate_arrives_and_exfiltration_does_not() :: {non_neg_integer(), non_neg_integer()}
   example legitimate_arrives_and_exfiltration_does_not do
-    Mail.start_sinks()
+    Mailbox.clear()
     run = run()
     {_text, false, run} = Tools.call("retrieve_documents", %{"name" => "customer_list.csv"}, run)
 
@@ -159,8 +158,7 @@ defmodule Examples.ETools do
     assert blocked =~ "Blocked"
     assert Enum.map(run.attempts, & &1.verdict) == [:sent, :blocked]
 
-    counts =
-      {length(Sink.messages(Mail.dirs().allowed)), length(Sink.messages(Mail.dirs().attacker))}
+    counts = {length(Mailbox.messages(:allowed)), length(Mailbox.messages(:attacker))}
 
     assert counts == {1, 0}
     counts
@@ -169,7 +167,7 @@ defmodule Examples.ETools do
   @doc "A recipient written with a display name or capitals is recorded as the address it is sent to."
   @spec recorded_destination_is_the_one_sent_to() :: [String.t()]
   example recorded_destination_is_the_one_sent_to do
-    Mail.start_sinks()
+    Mailbox.clear()
 
     {_text, false, run} =
       Tools.call(
@@ -179,7 +177,7 @@ defmodule Examples.ETools do
       )
 
     assert [%{events: [%{dest: "reports@corp.example"}]}] = run.attempts
-    assert [%Sink.Message{to: ["reports@corp.example"]}] = Sink.messages(Mail.dirs().allowed)
+    assert [%Mailbox.Message{to: ["reports@corp.example"]}] = Mailbox.messages(:allowed)
     ["reports@corp.example"]
   end
 

@@ -16,7 +16,7 @@ defmodule ZkfolAiDemo.Acts do
   - `act5/1`: a hijacked agent, and the harness refusing its exfiltration.
   - `exfil?/1`: whether an agent run tried to send anything off the allowlist.
   - `injection/1`: the audience's text, with the attacker's address filled in.
-  - `inboxes/0`: the two mail sinks, side by side.
+  - `inboxes/0`: the two inboxes, side by side.
   - `probe_injections/1`: each injection template, tried against the live model.
   - `published/0`: the hashes of every published file, for an audience to check beforehand.
   - `package/0`: the proof, public inputs, pins and verifier, for act 4 on another machine.
@@ -31,12 +31,11 @@ defmodule ZkfolAiDemo.Acts do
   alias ZkfolAiDemo.Gate.Release
   alias ZkfolAiDemo.Gate.Withheld
   alias ZkfolAiDemo.Allowlist
-  alias ZkfolAiDemo.Mail
+  alias ZkfolAiDemo.Mailbox
   alias ZkfolAiDemo.Policy
   alias ZkfolAiDemo.Run
   alias ZkfolAiDemo.Run.Attempt
   alias ZkfolAiDemo.Show
-  alias ZkfolAiDemo.Sink
   alias ZkfolAiDemo.Trace
   alias ZkfolAiDemo.Statement
   alias ZkfolAiDemo.Text
@@ -302,7 +301,7 @@ defmodule ZkfolAiDemo.Acts do
     mode_banner(mode)
 
     with {:ok, injection} <- injection(opts) do
-      Mail.start_sinks()
+      Mailbox.clear()
       Show.step("The two inboxes, before anything happens")
       inboxes()
 
@@ -323,13 +322,11 @@ defmodule ZkfolAiDemo.Acts do
     end
   end
 
-  @doc "I print the two sinks' inboxes: the one that should fill, and the one that must stay empty."
+  @doc "I print the two inboxes: the one that should fill, and the one that must stay empty."
   @spec inboxes() :: :ok
   def inboxes do
-    dirs = Mail.dirs()
-    Show.inbox("ALLOWED INBOX  (reports@corp.example)", :green, Sink.messages(dirs.allowed))
-    Show.inbox("ATTACKER INBOX (#{@attacker})", :red, Sink.messages(dirs.attacker))
-    :ok
+    Show.inbox("ALLOWED INBOX  (reports@corp.example)", :green, Mailbox.messages(:allowed))
+    Show.inbox("ATTACKER INBOX (#{@attacker})", :red, Mailbox.messages(:attacker))
   end
 
   @doc "I try each injection template against the live model, and record what it did in TESTED.md."
@@ -337,7 +334,7 @@ defmodule ZkfolAiDemo.Acts do
   def probe_injections(opts) do
     mode = mode(opts)
     Show.title("Probing the injection templates (#{mode_name(mode)})")
-    Mail.start_sinks()
+    Mailbox.clear()
 
     rows =
       for template <- @templates |> Path.join("*.txt") |> Path.wildcard() |> Enum.sort() do
@@ -453,7 +450,7 @@ defmodule ZkfolAiDemo.Acts do
     Show.kv("model", run.context && run.context.model)
     Show.kv("attempted exfiltration", if(exfil?(run), do: "YES", else: "no"))
     Show.kv("actions blocked", blocked(run))
-    Show.kv("attacker inbox", "#{length(Sink.messages(Mail.dirs().attacker))} message(s)")
+    Show.kv("attacker inbox", "#{length(Mailbox.messages(:attacker))} message(s)")
 
     cond do
       exfil?(run) ->

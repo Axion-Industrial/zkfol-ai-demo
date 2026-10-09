@@ -106,8 +106,8 @@ On stage:
 | 4 | `bin/harness act4` | Verification from the proof and public inputs files alone. Run it on a second machine with the network off (see below). |
 | 5 | `bin/harness act5 --injection FILE [--mode assume-compromised]` | A legitimate email arrives; the audience's injection hijacks the agent; the exfiltration is blocked; the attacker inbox stays empty. |
 
-`bin/harness inboxes` shows the two mail sinks at any time, so it can run in a second
-terminal beside act 5.
+Act 5 prints both inboxes before it starts, after the legitimate email and after the injected
+run, so one terminal shows everything.
 
 ### Act 4 on a second machine
 
@@ -137,9 +137,9 @@ before the prover is called.
   the end of the run.
 
 The agent's `send_email` call is printed as it is issued, in red, before the gate runs, so the
-audience sees the compromise happen. The two sinks are SMTP servers on the loopback
-interface only: one stands in for the allowed recipient, one for the attacker, and nothing
-can leave the machine.
+audience sees the compromise happen. The two inboxes are `ZkfolAiDemo.Mailbox` processes
+under the application's supervisor, started with it: one stands in for the allowed recipient,
+one for the attacker, and nothing can leave the VM.
 
 The allowlist is signed with a key held outside the repository and outside the agent's
 process. Signing is the separate commands `bin/harness keygen` and `bin/harness sign-allowlist`.
@@ -159,7 +159,6 @@ a symlink, attachments, the tools' exports, and the signed files' hashes before 
 | **The model resists the injection in act 5** | A yellow "THE MODEL RESISTED THE INJECTION" banner; the attacker inbox is empty because nothing was sent | Do not hide it. Say it is the model, then re-run with `--mode assume-compromised`, which prints a red banner saying the hijack is arranged. Pre-stage a template from `TESTED.md` that the model obeyed that day. |
 | **The API ends the run with a safety refusal** | A yellow "THE API ENDED THE RUN WITH A SAFETY REFUSAL" banner, with the reason the API gave. Seen with `claude-opus-5-5` on all four templates, even in assume-compromised mode | This is the platform's safeguard, not the harness. Try an older model: `export ZKFOL_MODEL=claude-haiku-4-5`, then `bin/harness probe-injections`. The model name is printed on screen. |
 | Audience injection is ignored | Same as above | Have the four templates ready. Run `probe-injections` the morning of the demo. |
-| A sink port is taken | `eaddrinuse` on 2525 or 2526 | Stop the other process. Act 5 starts and empties both sinks. |
 | Proof fails on an honest text | `Proximity failure` | The pinned Zinc+ rejects a column needing 2^15 rows. Texts over about 65,000 characters are refused earlier. See RESULTS.md. |
 | Act 4 on the second machine fails | `exec format error` or a missing library | The verifier binary is per platform. Build it on that machine ahead of time. |
 | Time | Act 5 makes two model runs of several calls each | Allow a minute or two. The proving itself is a fraction of a second per action. |
