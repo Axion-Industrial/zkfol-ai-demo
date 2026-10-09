@@ -9,7 +9,7 @@ will be used, and the file is rewritten with its own stamp.
 
 | | |
 |---|---|
-| Demo commit | `d399b815bf304d8d57d59630bc3124b71ab090e2` |
+| Demo commit | `5fc4a982dfc2d06e00c4972ed8fe90bdf255f5bd` |
 | zkFOL commit | `10374e1e7e334cf0cffd923b381f3d9f0790816c` |
 | Zinc+ commit | `5a01924a06b8748e3250bda37aafd7a34135b223` (the `Cargo.lock` revision of `zinc-protocol`) |
 | CPU | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
@@ -18,8 +18,8 @@ will be used, and the file is rewritten with its own stamp.
 | Erlang / Elixir / Rust | 27 (erts 15.2.7) / 1.18.4 / rustc 1.91.0 (f8297e351 2025-10-28) |
 | Date | 2026-10-09 |
 | Run order | cells run strictly one at a time, in the order below |
-| Load average at cell starts (1 minute) | 0.88 to 3.52 |
-| CPU steal over the whole run | 3.19 % |
+| Load average at cell starts (1 minute) | 0.75 to 3.17 |
+| CPU steal over the whole run | 3.22 % |
 
 "Uncontended" here means what those two rows say: the runner starts one cell at a time,
 and the load average and steal time above are what the machine reported. The load average
@@ -44,33 +44,33 @@ about anything outside the run.
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 100 characters | 100 cells | 34.2 (31.9 to 45.4) | 7.7 (7.0 to 8.7) | 89.0 (89.0 to 89.0) KB | 0 (0 to 7) MB |
-| 500 characters | 500 cells | 82.4 (76.7 to 85.4) | 9.6 (8.3 to 13.3) | 116 (116 to 116) KB | 5 (0 to 7) MB |
-| 999 characters | 999 cells | 134 (132 to 149) | 13.3 (11.1 to 17.1) | 145 (145 to 145) KB | 5 (0 to 8) MB |
+| 100 characters | 100 cells | 33.9 (27.1 to 34.0) | 7.8 (5.7 to 8.8) | 89.0 (89.0 to 89.0) KB | 0 (0 to 8) MB |
+| 500 characters | 500 cells | 76.5 (62.8 to 81.1) | 11.9 (8.2 to 12.3) | 116 (116 to 116) KB | 7 (0 to 9) MB |
+| 999 characters | 999 cells | 135 (129 to 140) | 16.0 (12.9 to 21.3) | 145 (145 to 145) KB | 9 (0 to 13) MB |
 
 ## grounding
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 10 figures | 10 figures, 10 source figures | 127 (112 to 146) | 11.2 (9.4 to 15.9) | 509 (509 to 509) KB | 0 (0 to 0) MB |
-| 25 figures | 25 figures, 25 source figures | 349 (332 to 353) | 16.6 (15.4 to 22.4) | 618 (618 to 618) KB | 11 (0 to 16) MB |
-| 50 figures | 50 figures, 50 source figures | 1356 (1332 to 1397) | 44.8 (40.6 to 46.6) | 890 (890 to 890) KB | 74 (63 to 97) MB |
+| 10 figures | 10 figures, 10 source figures | 118 (109 to 131) | 11.7 (9.7 to 13.4) | 509 (509 to 509) KB | 0 (0 to 1) MB |
+| 25 figures | 25 figures, 25 source figures | 367 (356 to 383) | 20.3 (17.2 to 21.3) | 618 (618 to 618) KB | 11 (0 to 17) MB |
+| 50 figures | 50 figures, 50 source figures | 1379 (1353 to 1567) | 49.1 (44.2 to 70.4) | 890 (890 to 890) KB | 60 (28 to 90) MB |
 
 ## trace
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 10 events | 10 events in 71 columns | 1038 (984 to 1087) | 24.6 (22.1 to 28.8) | 2762 (2762 to 2762) KB | 2 (2 to 4) MB |
-| 50 events | 50 events in 351 columns | 4307 (4151 to 4899) | 34.4 (31.1 to 39.5) | 3157 (3157 to 3157) KB | 92 (83 to 150) MB |
-| 200 events | 200 events in 1401 columns | 19360 (18073 to 20720) | 56.7 (51.4 to 70.8) | 3715 (3715 to 3715) KB | 406 (373 to 574) MB |
+| 10 events | 10 events in 43 columns | 568 (516 to 574) | 23.2 (19.9 to 26.2) | 2596 (2596 to 2596) KB | 1 (0 to 4) MB |
+| 50 events | 50 events in 211 columns | 2142 (2096 to 2245) | 28.8 (26.6 to 42.5) | 2950 (2950 to 2950) KB | 21 (20 to 51) MB |
+| 200 events | 200 events in 841 columns | 9284 (9043 to 10946) | 41.2 (37.4 to 44.7) | 3400 (3400 to 3400) KB | 180 (150 to 216) MB |
 
 ## trace with exfiltration
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 10 events | 10 events in 71 columns | refused after 1091 (1077 to 1154) | none | none | 3 (1 to 5) MB |
-| 50 events | 50 events in 351 columns | refused after 4313 (4220 to 4419) | none | none | 29 (0 to 33) MB |
-| 200 events | 200 events in 1401 columns | refused after 19471 (18872 to 20324) | none | none | 362 (321 to 394) MB |
+| 10 events | 10 events in 43 columns | refused after 612 (570 to 624) | none | none | 1 (0 to 6) MB |
+| 50 events | 50 events in 211 columns | refused after 2231 (2142 to 2269) | none | none | 6 (5 to 10) MB |
+| 200 events | 200 events in 841 columns | refused after 9601 (9480 to 10291) | none | none | 159 (111 to 183) MB |
 
 
 ## Limits found while measuring
