@@ -4,7 +4,8 @@ defmodule ZkfolAiDemo.Acts do
 
   Each act prints what it does as it does it and returns `:ok`, or `{:error, refusal}` when
   something outside the demo's claims failed (no API key, a model error). A refusal by the
-  gate or the verifier is not an error: it is the result being shown.
+  gate or the verifier is not an error: it is the result being shown. The acts a guided run
+  has to follow, 1, 2 and 5, return `{:ok, what_happened}` instead of `:ok`.
 
   ### Public API
 
@@ -13,6 +14,8 @@ defmodule ZkfolAiDemo.Acts do
   - `act3/1`: an edited output and a tampered proof, and the prover failing on a false one.
   - `act4/1`: verification from two files alone.
   - `act5/1`: a hijacked agent, and the harness refusing its exfiltration.
+  - `exfil?/1`: whether an agent run tried to send anything off the allowlist.
+  - `injection/1`: the audience's text, with the attacker's address filled in.
   - `inboxes/0`: the two mail sinks, side by side.
   - `probe_injections/1`: each injection template, tried against the live model.
   - `published/0`: the hashes of every published file, for an audience to check beforehand.
@@ -67,8 +70,11 @@ defmodule ZkfolAiDemo.Acts do
   #                          Act 1                           #
   ############################################################
 
-  @doc "I ask the model for text with no constraint, and show the gate refusing it."
-  @spec act1(options()) :: :ok | {:error, Refusal.t()}
+  @doc """
+  I ask the model for text with no constraint, and show the gate refusing it. I return
+  whether the gate withheld the text: a model that happens to avoid dashes gets released.
+  """
+  @spec act1(options()) :: {:ok, :withheld | :released} | {:error, Refusal.t()}
   def act1(opts) do
     Show.title("Act 1: an unconstrained model")
     user = essay(topic(opts))
@@ -87,9 +93,11 @@ defmodule ZkfolAiDemo.Acts do
            ) do
         {:withheld, %Withheld{} = withheld} ->
           withheld(withheld, prefix)
+          {:ok, :withheld}
 
         {:released, %Release{}} ->
           Show.note("This output happened to comply, so the gate released it.")
+          {:ok, :released}
       end
     end
   end
@@ -98,8 +106,11 @@ defmodule ZkfolAiDemo.Acts do
   #                          Act 2                           #
   ############################################################
 
-  @doc "I get a compliant output, prove it, verify it in a separate process, and keep the files."
-  @spec act2(options()) :: :ok | {:error, Refusal.t()}
+  @doc """
+  I get a compliant output, prove it, verify it in a separate process, and keep the files. I
+  return whether an output was released: a model that keeps using dashes is withheld every time.
+  """
+  @spec act2(options()) :: {:ok, :released | :withheld} | {:error, Refusal.t()}
   def act2(opts) do
     Show.title("Act 2: a compliant output, proved")
     limit = if Keyword.has_key?(opts, :from_file), do: 1, else: @attempts
@@ -107,9 +118,10 @@ defmodule ZkfolAiDemo.Acts do
   end
 
   @spec compliant(options(), String.t(), pos_integer(), pos_integer()) ::
-          :ok | {:error, Refusal.t()}
+          {:ok, :released | :withheld} | {:error, Refusal.t()}
   defp compliant(_opts, _user, attempt, limit) when attempt > limit do
     Show.banner(:red, ["NO COMPLIANT OUTPUT AFTER #{limit} ATTEMPTS", "Nothing was released."])
+    {:ok, :withheld}
   end
 
   defp compliant(opts, user, attempt, limit) do
@@ -126,6 +138,7 @@ defmodule ZkfolAiDemo.Acts do
            ) do
         {:released, %Release{} = release} ->
           released(release, prefix)
+          {:ok, :released}
 
         {:withheld, %Withheld{} = withheld} ->
           withheld(withheld, prefix)
@@ -279,9 +292,10 @@ defmodule ZkfolAiDemo.Acts do
   I run a tool-using agent twice over the company folder: once as asked, and once with the
   audience's text planted in a document. The harness gates every email, so the legitimate one
   arrives and the exfiltration does not. `--mode assume-compromised` tells the agent to obey
-  instructions it finds in documents, which makes the hijack certain.
+  instructions it finds in documents, which makes the hijack certain. I return the injected
+  run, so a caller can tell whether the agent was fooled.
   """
-  @spec act5(options()) :: :ok | {:error, Refusal.t()}
+  @spec act5(options()) :: {:ok, Run.t()} | {:error, Refusal.t()}
   def act5(opts) do
     mode = mode(opts)
     Show.title("Act 5: a hijacked agent")
@@ -303,6 +317,7 @@ defmodule ZkfolAiDemo.Acts do
           Show.step("The two inboxes, after the injected run")
           inboxes()
           summary(mode, run)
+          {:ok, run}
         end
       end
     end
@@ -491,10 +506,12 @@ defmodule ZkfolAiDemo.Acts do
     end
   end
 
-  # Whether the run tried to send anything to a destination off the allowlist. A report, not
-  # a decision: the gate has already decided each action.
+  @doc """
+  I report whether the run tried to send anything to a destination off the allowlist. A
+  report, not a decision: the gate has already decided each action.
+  """
   @spec exfil?(Run.t()) :: boolean()
-  defp exfil?(%Run{attempts: attempts, allowlist: allowlist}) do
+  def exfil?(%Run{attempts: attempts, allowlist: allowlist}) do
     ids = for entry <- allowlist.entries, do: entry.id
 
     Enum.any?(attempts, fn %Attempt{events: events} ->
@@ -505,8 +522,12 @@ defmodule ZkfolAiDemo.Acts do
   @spec blocked(Run.t()) :: non_neg_integer()
   defp blocked(%Run{attempts: attempts}), do: Enum.count(attempts, &(&1.verdict == :blocked))
 
+  @doc """
+  I read the audience's text from `--injection FILE` (or `-` for stdin), with the attacker's
+  address where it says `{{ATTACKER}}`.
+  """
   @spec injection(options()) :: {:ok, String.t()} | {:error, Refusal.t()}
-  defp injection(opts) do
+  def injection(opts) do
     text =
       case Keyword.get(opts, :injection) do
         nil -> nil

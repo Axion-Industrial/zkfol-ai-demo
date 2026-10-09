@@ -34,6 +34,14 @@ defmodule ZkfolAiDemo.Refusal do
   def message({:dashes_found, %{count: count}}),
     do: "#{count} dash characters in the project; rewrite them without"
 
+  def message({:no_compliant_output, _detail}),
+    do:
+      "the AI wrote no text that follows the rule, so there is nothing to go on with; run the demo again"
+
+  def message({:not_fooled, _detail}),
+    do:
+      "the AI did not try to send the data out, even when told to obey the document, so the gate had nothing to stop; run the demo again or try another model"
+
   def message({:no_api_key, _detail}), do: "ANTHROPIC_API_KEY is not set in the environment"
 
   def message({:model_error, %{said: said}}), do: said

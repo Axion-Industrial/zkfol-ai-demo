@@ -67,6 +67,23 @@ export ZKFOL_MODEL=...         # optional; the default is claude-opus-5-5
 Everything runs through `bin/harness`, which uses the test environment so the proving store
 stays apart from a live development node.
 
+## Recording the demo
+
+`bin/demo` plays every act in order for a recording. It asks for the key if the environment has
+none (nothing shows as you paste it), waits while you start the screen recorder, and defaults the
+model to `claude-haiku-4-5`. Each part opens with a magenta caption that says what is about to
+happen and closes with one that says what was shown. Green and red stay reserved for the
+harness's own verdicts.
+
+- `bin/demo` waits for Return at each caption, for a presenter talking over it.
+- `bin/demo --auto` waits a time that grows with each caption, so no key press is needed.
+- `--injection FILE` plants a different template (the default is `04_nested_task.txt`).
+
+If the AI is not fooled by the planted text, the demo says so and runs the act again with the
+AI told to obey documents, with that mode shown on screen. If it still is not fooled, or writes
+no text that follows the rule, the demo stops and says why. Each part is also a public function
+of `ZkfolAiDemo.Demo`, and `Examples.EDemo` runs the ones that need no live model.
+
 ## Run order for a live demo
 
 Before the audience arrives, on the stage machine:

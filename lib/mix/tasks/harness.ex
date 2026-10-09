@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Harness do
   @moduledoc """
   I am the demo's command line: `mix harness <command> [options]`, run through `bin/harness`.
 
+      bin/harness demo [--auto] [--injection FILE]
       bin/harness act1 [--topic T] [--from-file F]
       bin/harness act2 [--topic T]
       bin/harness act3 [--edited FILE] [--edited-proof FILE]
@@ -23,10 +24,12 @@ defmodule Mix.Tasks.Harness do
   alias ZkfolAiDemo.Acts
   alias ZkfolAiDemo.Allowlist
   alias ZkfolAiDemo.Bench
+  alias ZkfolAiDemo.Demo
   alias ZkfolAiDemo.Lint
 
   @requirements ["app.start"]
   @switches [
+    auto: :boolean,
     topic: :string,
     from_file: :string,
     edited: :string,
@@ -47,6 +50,9 @@ defmodule Mix.Tasks.Harness do
     {opts, [command | _]} = OptionParser.parse!(args, strict: @switches)
 
     case command do
+      "demo" ->
+        finish(Demo.run(opts))
+
       "act1" ->
         finish(Acts.act1(opts))
 
@@ -102,8 +108,9 @@ defmodule Mix.Tasks.Harness do
     :ok
   end
 
-  @spec finish(:ok | {:error, Zkfol.Refusal.t()}) :: :ok
+  @spec finish(:ok | {:ok, term()} | {:error, Zkfol.Refusal.t()}) :: :ok
   defp finish(:ok), do: :ok
+  defp finish({:ok, _what_happened}), do: :ok
 
   defp finish({:error, refusal}) do
     IO.puts(:stderr, "\n#{ZkfolAiDemo.Refusal.message(refusal)}")

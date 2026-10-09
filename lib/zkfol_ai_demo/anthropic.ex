@@ -10,6 +10,7 @@ defmodule ZkfolAiDemo.Anthropic do
 
   - `message/1` sends one Messages API request.
   - `model/0` is the model a run uses.
+  - `key/0` is the API key, or a refusal when the environment has none.
   - `text/1` is the text blocks of a response, joined.
   """
 
@@ -40,8 +41,9 @@ defmodule ZkfolAiDemo.Anthropic do
   def text(%{"content" => content}),
     do: content |> Enum.filter(&(&1["type"] == "text")) |> Enum.map_join("\n", & &1["text"])
 
+  @doc "I am the API key from the environment, or a refusal when there is none."
   @spec key() :: {:ok, String.t()} | {:error, Refusal.t()}
-  defp key do
+  def key do
     case System.get_env("ANTHROPIC_API_KEY") do
       key when key in [nil, ""] -> {:error, {:no_api_key, %{}}}
       key -> {:ok, key}

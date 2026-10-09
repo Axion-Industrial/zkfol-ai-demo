@@ -1,0 +1,25 @@
+#!/bin/sh
+# The guided demo, for a recording. It asks for the AI key if the environment has none (nothing
+# shows as you paste it), waits while you start the screen recorder, then runs the demo.
+#
+#   bin/demo           waits for Return at each caption, for someone talking over it
+#   bin/demo --auto    needs no key presses after the start
+cd "$(dirname "$0")/.." || exit 1
+
+if [ -z "$ANTHROPIC_API_KEY" ]; then
+  trap 'stty echo 2>/dev/null' EXIT INT
+  printf 'Paste your AI key (nothing shows as you paste), then press Return: '
+  stty -echo 2>/dev/null
+  read -r ANTHROPIC_API_KEY
+  stty echo 2>/dev/null
+  printf '\n'
+  export ANTHROPIC_API_KEY
+fi
+
+export ZKFOL_MODEL="${ZKFOL_MODEL:-claude-haiku-4-5}"
+
+printf 'Start your screen recorder now (Cmd+Shift+5), then press Return to begin. '
+read -r _
+clear
+sleep 2
+exec bin/harness demo "$@"

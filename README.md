@@ -56,5 +56,9 @@ export ZKFOL_MODEL=claude-haiku-4-5
 bin/harness act2 --topic "a short note about autumn"
 ```
 
+To record the demo for someone else to watch, run `bin/demo` (or `bin/demo --auto`, which needs
+no key presses). It asks for your AI key without showing it, then plays every act in order, each
+with a plain-English caption, so the recording explains itself.
+
 You need Elixir 1.18 on OTP 27 and Rust (rustup fetches the pinned toolchain). All data in
 this repository is synthetic.

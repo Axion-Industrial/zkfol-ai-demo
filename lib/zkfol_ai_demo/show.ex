@@ -8,6 +8,7 @@ defmodule ZkfolAiDemo.Show do
   - `title/1`, `step/1`, `good/1`, `bad/1`, `rejected/1`, `note/1` and `kv/2` print one line each.
   - `banner/2` prints a boxed, coloured banner, and `inbox/3` an inbox.
   - `text/1` prints a text with every dash highlighted, and `dashes/1` counts them.
+  - `clear/0` clears the screen.
   """
 
   @dash_pattern ~r/[\x{2012}-\x{2015}\x{2E3A}\x{2E3B}\x{2E40}]|-{2,}/u
@@ -103,7 +104,10 @@ defmodule ZkfolAiDemo.Show do
         to_string(value)
       ])
 
-  @doc "I print a banner of `lines`, in `colour` (`:red`, `:green` or `:yellow`), full width."
+  @doc """
+  I print a banner of `lines`, in `colour`, full width. Green, red and yellow are the harness's
+  own verdicts and modes; the guided demo uses magenta for its explanations.
+  """
   @spec banner(atom(), [String.t()]) :: :ok
   def banner(colour, lines) do
     rule = String.duplicate("#", width())
@@ -136,6 +140,10 @@ defmodule ZkfolAiDemo.Show do
   @doc "I count the dashes `text/1` would highlight."
   @spec dashes(String.t()) :: non_neg_integer()
   def dashes(text), do: @dash_pattern |> Regex.scan(text) |> length()
+
+  @doc "I clear the screen and put the cursor at the top, so a part starts on an empty page."
+  @spec clear() :: :ok
+  def clear, do: IO.write([IO.ANSI.clear(), IO.ANSI.home()])
 
   @spec width() :: pos_integer()
   defp width do

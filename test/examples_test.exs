@@ -1,6 +1,7 @@
 for module <-
       [
         Examples.ENoDash,
+        Examples.EDemo,
         Examples.ECanon,
         Examples.EPolicy,
         Examples.EGate,
