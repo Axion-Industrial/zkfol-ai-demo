@@ -9,16 +9,17 @@ will be used, and the file is rewritten with its own stamp.
 
 | | |
 |---|---|
-| zkFOL commit | `08149197ff133536fa201a48ce9cc9703b0603f5` |
+| Demo commit | `d399b815bf304d8d57d59630bc3124b71ab090e2` |
+| zkFOL commit | `10374e1e7e334cf0cffd923b381f3d9f0790816c` |
 | Zinc+ commit | `5a01924a06b8748e3250bda37aafd7a34135b223` (the `Cargo.lock` revision of `zinc-protocol`) |
 | CPU | Intel(R) Xeon(R) Processor @ 2.80GHz, 4 cores |
 | Memory | 15.7 GB |
 | OS | Ubuntu 24.04.5 LTS |
 | Erlang / Elixir / Rust | 27 (erts 15.2.7) / 1.18.4 / rustc 1.91.0 (f8297e351 2025-10-28) |
-| Date | 2026-10-06 |
+| Date | 2026-10-09 |
 | Run order | cells run strictly one at a time, in the order below |
-| Load average at cell starts (1 minute) | 0.63 to 1.51 |
-| CPU steal over the whole run | 3.15 % |
+| Load average at cell starts (1 minute) | 0.88 to 3.52 |
+| CPU steal over the whole run | 3.19 % |
 
 "Uncontended" here means what those two rows say: the runner starts one cell at a time,
 and the load average and steal time above are what the machine reported. The load average
@@ -43,42 +44,43 @@ about anything outside the run.
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 300 words | 1 row of 4095 cells | 111 (108 to 118) | 32.0 (26.6 to 37.4) | 284 (284 to 284) KB | 31 (29 to 46) MB |
-| 1000 words | 2 rows of 4095 cells | 140 (123 to 145) | 31.8 (28.6 to 46.1) | 298 (298 to 298) KB | 42 (40 to 48) MB |
-| 3000 words | 6 rows of 4095 cells | 289 (267 to 296) | 28.1 (27.1 to 34.6) | 351 (351 to 351) KB | 89 (80 to 105) MB |
+| 100 characters | 100 cells | 34.2 (31.9 to 45.4) | 7.7 (7.0 to 8.7) | 89.0 (89.0 to 89.0) KB | 0 (0 to 7) MB |
+| 500 characters | 500 cells | 82.4 (76.7 to 85.4) | 9.6 (8.3 to 13.3) | 116 (116 to 116) KB | 5 (0 to 7) MB |
+| 999 characters | 999 cells | 134 (132 to 149) | 13.3 (11.1 to 17.1) | 145 (145 to 145) KB | 5 (0 to 8) MB |
 
 ## grounding
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 300 words | 20 figures, 50 source figures | 154 (143 to 162) | 20.4 (18.4 to 22.8) | 415 (415 to 415) KB | 3 (1 to 3) MB |
-| 1000 words | 67 figures, 50 source figures | 161 (150 to 176) | 20.7 (17.8 to 23.5) | 415 (415 to 415) KB | 2 (1 to 3) MB |
-| 3000 words | 200 figures, 50 source figures | 171 (166 to 182) | 21.9 (19.6 to 23.6) | 415 (415 to 415) KB | 2 (1 to 3) MB |
+| 10 figures | 10 figures, 10 source figures | 127 (112 to 146) | 11.2 (9.4 to 15.9) | 509 (509 to 509) KB | 0 (0 to 0) MB |
+| 25 figures | 25 figures, 25 source figures | 349 (332 to 353) | 16.6 (15.4 to 22.4) | 618 (618 to 618) KB | 11 (0 to 16) MB |
+| 50 figures | 50 figures, 50 source figures | 1356 (1332 to 1397) | 44.8 (40.6 to 46.6) | 890 (890 to 890) KB | 74 (63 to 97) MB |
 
 ## trace
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 10 events | 10 events in 127 columns | 173 (153 to 182) | 10.6 (10.0 to 13.6) | 486 (486 to 486) KB | 0 (0 to 1) MB |
-| 50 events | 50 events in 127 columns | 172 (158 to 180) | 10.6 (10.1 to 17.2) | 486 (486 to 486) KB | 1 (0 to 1) MB |
-| 200 events | 200 events in 255 columns | 304 (294 to 320) | 13.0 (11.1 to 15.7) | 531 (531 to 531) KB | 1 (1 to 1) MB |
+| 10 events | 10 events in 71 columns | 1038 (984 to 1087) | 24.6 (22.1 to 28.8) | 2762 (2762 to 2762) KB | 2 (2 to 4) MB |
+| 50 events | 50 events in 351 columns | 4307 (4151 to 4899) | 34.4 (31.1 to 39.5) | 3157 (3157 to 3157) KB | 92 (83 to 150) MB |
+| 200 events | 200 events in 1401 columns | 19360 (18073 to 20720) | 56.7 (51.4 to 70.8) | 3715 (3715 to 3715) KB | 406 (373 to 574) MB |
 
 ## trace with exfiltration
 
 | Input | Shape | Prove (ms) | Verify (ms) | Proof | RSS delta |
 |---|---|---|---|---|---|
-| 10 events | 10 events in 127 columns | refused after 171 (166 to 185) | none | none | 0 (0 to 1) MB |
-| 50 events | 50 events in 127 columns | refused after 179 (170 to 192) | none | none | 1 (0 to 1) MB |
-| 200 events | 200 events in 255 columns | refused after 326 (311 to 335) | none | none | 1 (0 to 2) MB |
+| 10 events | 10 events in 71 columns | refused after 1091 (1077 to 1154) | none | none | 3 (1 to 5) MB |
+| 50 events | 50 events in 351 columns | refused after 4313 (4220 to 4419) | none | none | 29 (0 to 33) MB |
+| 200 events | 200 events in 1401 columns | refused after 19471 (18872 to 20324) | none | none | 362 (321 to 394) MB |
 
 
 ## Limits found while measuring
 
-- **2^15 rows.** The pinned Zinc+ rejects an honest proof once a column needs 2^15 rows
-  (`Proximity failure` at the integer commitment), so a row holds at most 16383 cells and
-  a long text spans several rows.
+- **Unroll budget.** The compiler unrolls a relation at every step of its derivation and
+  stops at 3,000 sites, which is 999 codepoints for the no-dash rule. A longer text is
+  refused before anything is derived.
+- **32-bit words.** The compiled program's lookup check works in 32-bit words: an
+  allowlist of two entries wider than a word failed to prove (`Lookup(FinalEvaluationMismatch)`),
+  so a destination is four words, the first 128 bits of the hash of its address.
 - **2^56.** An honest proof of a column holding a value above about 2^56 beside small
-  ones is rejected, so every cell stays under it. Figures encode under 2^54, and a
-  destination identifier is 54 bits of a hash.
-- **Degree.** The protocol's degree bound is 32. The trace predicate's largest term has
-  degree 16.
+  ones is rejected, so every cell stays under it. Figures encode under 2^54, and the
+  grounding sentinel is 2^55.
