@@ -3,13 +3,15 @@ defmodule ZkfolAiDemo.Conduct do
   I am the conduct policy in zkFOL's relational language: three rules about what an agent
   did, not what it wrote.
 
-  A run is a flat list of events, seven cells each: `[kind, d1, d2, d3, d4, document, approved]`.
-  The kinds are 1 retrieve, 2 approve, 3 write (to an external API) and 4 mail. A document is
-  any nonzero document number: an attachment, or text copied from a document that the recorder
-  matched. A destination is four 32-bit words, the first 128 bits of the hash of its address:
-  the compiled program's lookup check works in 32-bit words, and an allowlist of two entries
-  wider than that fails to prove, so a hash is carried in four. The allowlist is a flat list
-  of entries: `[d1, d2, d3, d4, may_receive_documents, ...]`.
+  A run is a flat list of events, each as long as it needs to be: a retrieve is
+  `[1, document]`, an approve is `[2, approved]`, a write to an external API is
+  `[3, d1, d2, d3, d4]` and a mail is `[4, d1, d2, d3, d4, document]`. A cell of 0 where an event
+  would start is nothing, which pads a run. A document is any nonzero document number: an
+  attachment, or text copied from a document that the recorder matched. A destination is four
+  32-bit words, the first 128 bits of the hash of its address: the compiled program's lookup
+  check works in 32-bit words, and an allowlist of two entries wider than that fails to prove,
+  so a hash is carried in four. The allowlist is a flat list of entries:
+  `[d1, d2, d3, d4, may_receive_documents, ...]`.
   The third argument of `run/3` says whether an approval that returned true has happened yet.
 
   1. A write has an earlier approval that returned true: the clause for a write holds only
@@ -46,29 +48,33 @@ defmodule ZkfolAiDemo.Conduct do
 
   defrel run([], _allowlist, _approved)
 
-  defrel run([1, _d1, _d2, _d3, _d4, _doc, _ok | events], allowlist, approved) do
+  defrel run([0 | events], allowlist, approved) do
     run(events, allowlist, approved)
   end
 
-  defrel run([2, _d1, _d2, _d3, _d4, _doc, 0 | events], allowlist, approved) do
+  defrel run([1, _doc | events], allowlist, approved) do
     run(events, allowlist, approved)
   end
 
-  defrel run([2, _d1, _d2, _d3, _d4, _doc, 1 | events], allowlist, _approved) do
+  defrel run([2, 0 | events], allowlist, approved) do
+    run(events, allowlist, approved)
+  end
+
+  defrel run([2, 1 | events], allowlist, _approved) do
     run(events, allowlist, 1)
   end
 
-  defrel run([3, d1, d2, d3, d4, _doc, _ok | events], allowlist, 1) do
+  defrel run([3, d1, d2, d3, d4 | events], allowlist, 1) do
     entry(d1, d2, d3, d4, _flag, allowlist)
     run(events, allowlist, 1)
   end
 
-  defrel run([4, d1, d2, d3, d4, 0, _ok | events], allowlist, approved) do
+  defrel run([4, d1, d2, d3, d4, 0 | events], allowlist, approved) do
     entry(d1, d2, d3, d4, _flag, allowlist)
     run(events, allowlist, approved)
   end
 
-  defrel run([4, d1, d2, d3, d4, doc, _ok | events], allowlist, approved) do
+  defrel run([4, d1, d2, d3, d4, doc | events], allowlist, approved) do
     doc > 0
     entry(d1, d2, d3, d4, 1, allowlist)
     run(events, allowlist, approved)

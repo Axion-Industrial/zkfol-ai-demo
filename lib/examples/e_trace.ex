@@ -122,7 +122,7 @@ defmodule Examples.ETrace do
   example a_destination_word_over_32_bits_fails_the_proof do
     wide = fn n -> [Integer.pow(2, 40) - n, 0, 0, 0] end
     allowlist = wide.(5) ++ [1] ++ wide.(9) ++ [0]
-    events = [4] ++ wide.(5) ++ [1, 0]
+    events = [4] ++ wide.(5) ++ [1]
 
     assert {:ok, %Derivation{} = derivation} =
              Derivation.run(Conduct.run(), [events, allowlist, 0])

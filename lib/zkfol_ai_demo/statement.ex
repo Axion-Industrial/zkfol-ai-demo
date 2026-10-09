@@ -9,9 +9,9 @@ defmodule ZkfolAiDemo.Statement do
   A false one has no derivation, so it is built on a derivation of the nearest arguments the
   relation does hold of, and reaches the prover with the real rows, which cannot be proved.
 
-  The public values are laid in one more row after the derivation's rows. I add a read of that
-  row to the predicate, which is what keeps the emitter from dropping it. Cells the derivation
-  opened are public too, so a verifier is shown what the relation was run against.
+  The public values are laid in as many rows as they need after the derivation's rows. I add a
+  read of each to the predicate, which is what keeps the emitter from dropping it. Cells the
+  derivation opened are public too, so a verifier is shown what the relation was run against.
 
   ### Public API
 
@@ -76,17 +76,18 @@ defmodule ZkfolAiDemo.Statement do
   def uair(%__MODULE__{derivation: %Derivation{} = derivation} = statement) do
     arity = length(derivation.rows)
     width = derivation.rows |> hd() |> length()
-    {row, placed, claims} = Bindings.place(statement.public, width, arity + 1)
+    {rows, placed, claims} = Bindings.place(statement.public, width, arity + 1)
     claims = claims ++ derivation.claims
-    pred = Ast.conj([derivation.pred, Ast.natural(Ast.cell(arity + 1))])
+    reads = for i <- 1..length(rows), do: Ast.natural(Ast.cell(arity + i))
+    pred = Ast.conj([derivation.pred | reads])
 
-    with {:ok, uair} <- Uair.emit(pred, Interpretation.new(derivation.rows ++ [row]), claims) do
+    with {:ok, uair} <- Uair.emit(pred, Interpretation.new(derivation.rows ++ rows), claims) do
       {:ok, %{uair | columns: committed(uair, derivation.rows, statement.rows)},
        placed ++ opened(derivation, claims, width)}
     end
   end
 
-  # The cells the derivation opened sit in the public columns after the one for the public
+  # The cells the derivation opened sit in the public columns after those for the public
   # values, in the order their rows are first claimed.
   @spec opened(Derivation.t(), [Interpretation.claim()], pos_integer()) :: [Binding.t()]
   defp opened(%Derivation{opened: nil}, _claims, _width), do: []

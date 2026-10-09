@@ -6,12 +6,13 @@ defmodule ZkfolAiDemo.Trace do
 
   The allowlist is opened as public, so a verifier sees exactly what the destinations were
   checked against, and pins both its cells and the hash of the signed file. The events stay
-  private. A run shorter than `@min_events` is padded with retrievals that touch no document,
-  which no rule is about, so that the values a proof binds fit in the one public row.
+  private. A run shorter than `@min_cells` cells is padded with cells of nothing, so that the
+  values a proof binds fit in two public rows and the proof stays small.
 
   A run that breaks a rule has no derivation. It still reaches the real prover, as
   `ZkfolAiDemo.Statement` explains: I derive the nearest run that keeps the rules, by asking
-  the relation itself which events it refuses, and put the real events in its place.
+  the relation itself which events it refuses and putting nothing, cell for cell, in their
+  place, and I commit the real events instead.
 
   ### Public API
 
@@ -29,14 +30,12 @@ defmodule ZkfolAiDemo.Trace do
   alias ZkfolAiDemo.Derivation
   alias ZkfolAiDemo.Statement
 
-  # The public row holds 52 words, one to a column, and a derived witness has a column more
-  # than the events have cells.
-  @min_events 8
+  # The public values are 52 words, and a derived witness is a column wider than the events
+  # have cells, so 26 cells put them in two rows.
+  @min_cells 26
 
   # Where the derivation keeps the events: the bank of `run`'s first argument.
   @bank :"run a1"
-
-  @kinds %{retrieve: 1, approve: 2, write: 3, mail: 4}
 
   typedstruct module: Event, enforce: true do
     @typedoc """
@@ -53,10 +52,10 @@ defmodule ZkfolAiDemo.Trace do
   @spec statement([Event.t()], Allowlist.t(), Context.t()) ::
           {:ok, Statement.t()} | {:error, Refusal.t()}
   def statement(events, %Allowlist{} = allowlist, %Context{} = context) do
-    padded =
-      events ++ List.duplicate(%Event{kind: :retrieve}, max(@min_events - length(events), 0))
+    cells = Enum.map(events, &cells/1)
+    padding = List.duplicate(0, max(@min_cells - length(List.flatten(cells)), 0))
 
-    with {:ok, derivation, rows} <- witnessed(padded, allowlist) do
+    with {:ok, derivation, rows} <- witnessed(cells ++ [padding], allowlist) do
       {:ok,
        %Statement{
          derivation: derivation,
@@ -70,7 +69,7 @@ defmodule ZkfolAiDemo.Trace do
 
   # The witness: derived from the events when the rules hold of them, and otherwise from the
   # nearest events they do hold of, with the real events put in the events' row.
-  @spec witnessed([Event.t()], Allowlist.t()) ::
+  @spec witnessed([[non_neg_integer()]], Allowlist.t()) ::
           {:ok, Derivation.t(), [[integer()]]} | {:error, Refusal.t()}
   defp witnessed(events, allowlist) do
     case derive(events, allowlist) do
@@ -79,49 +78,46 @@ defmodule ZkfolAiDemo.Trace do
 
       :no_answer ->
         with {:ok, derivation} <- derive(repaired(events, allowlist), allowlist),
-             do: {:ok, derivation, Derivation.forged(derivation, @bank, cells(events))}
+             do: {:ok, derivation, Derivation.forged(derivation, @bank, List.flatten(events))}
 
       {:error, _refusal} = error ->
         error
     end
   end
 
-  @spec derive([Event.t()], Allowlist.t()) ::
+  @spec derive([[non_neg_integer()]], Allowlist.t()) ::
           {:ok, Derivation.t()} | :no_answer | {:error, Refusal.t()}
   defp derive(events, allowlist),
     do: Derivation.run(Conduct.run(), arguments(events, allowlist), :allowlist)
 
-  @spec arguments([Event.t()], Allowlist.t()) :: [term()]
+  @spec arguments([[non_neg_integer()]], Allowlist.t()) :: [term()]
   defp arguments(events, %Allowlist{entries: entries}) do
     table =
       for %Entry{id: id, documents: documents} <- entries,
           cell <- id ++ [flag(documents)],
           do: cell
 
-    [cells(events), table, 0]
+    [List.flatten(events), table, 0]
   end
 
-  @spec cells([Event.t()]) :: [non_neg_integer()]
-  defp cells(events) do
-    for %Event{kind: kind, dest: dest, doc: doc, approved: approved} <- events,
-        cell <- [Map.fetch!(@kinds, kind)] ++ destination(dest) ++ [doc, flag(approved)],
-        do: cell
-  end
-
-  @spec destination(String.t() | nil) :: [non_neg_integer()]
-  defp destination(nil), do: [0, 0, 0, 0]
-  defp destination(dest), do: Allowlist.id(dest)
+  # The cells of one event, as `ZkfolAiDemo.Conduct` reads them.
+  @spec cells(Event.t()) :: [non_neg_integer()]
+  defp cells(%Event{kind: :retrieve, doc: doc}), do: [1, doc]
+  defp cells(%Event{kind: :approve, approved: approved}), do: [2, flag(approved)]
+  defp cells(%Event{kind: :write, dest: dest}), do: [3 | Allowlist.id(dest)]
+  defp cells(%Event{kind: :mail, dest: dest, doc: doc}), do: [4 | Allowlist.id(dest)] ++ [doc]
 
   @spec flag(boolean()) :: 0 | 1
   defp flag(true), do: 1
   defp flag(false), do: 0
 
   # The nearest events the rules hold of: an event they refuse, given what came before it, is
-  # replaced by a retrieval. The relation is asked; no rule is repeated here.
-  @spec repaired([Event.t()], Allowlist.t()) :: [Event.t()]
+  # replaced by as many cells of nothing. The relation is asked; no rule is repeated here.
+  @spec repaired([[non_neg_integer()]], Allowlist.t()) :: [[non_neg_integer()]]
   defp repaired(events, allowlist), do: repaired([], events, allowlist)
 
-  @spec repaired([Event.t()], [Event.t()], Allowlist.t()) :: [Event.t()]
+  @spec repaired([[non_neg_integer()]], [[non_neg_integer()]], Allowlist.t()) ::
+          [[non_neg_integer()]]
   defp repaired(kept, [], _allowlist), do: kept
 
   defp repaired(kept, [event | rest], allowlist) do
@@ -129,7 +125,7 @@ defmodule ZkfolAiDemo.Trace do
 
     if Derivation.holds?(Conduct.run(), arguments(next, allowlist)),
       do: repaired(next, rest, allowlist),
-      else: repaired(kept ++ [%Event{kind: :retrieve}], rest, allowlist)
+      else: repaired(kept ++ [List.duplicate(0, length(event))], rest, allowlist)
   end
 
   # What a verifier is shown and holds the proof to, in the order every statement binds it.
