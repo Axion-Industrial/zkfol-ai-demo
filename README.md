@@ -7,15 +7,18 @@ proof says it satisfies a published policy. A verifier that has never seen the t
 rejects the proof from two files. Everything runs the real prover (Zinc+, through zkFOL's
 Rustler NIF), and a prompt-injected agent still cannot send anything the policy forbids.
 
-There are three policies: no em dash in the text, every figure in the text appears in the
-sources, and an action trace in which every write and mail goes to a signed-allowlist
-destination after an approval. See [harness/README.md](harness/README.md) for the five acts,
-the run order for a live demo, the failure points and what the proofs do not say, and
-[RESULTS.md](RESULTS.md) for measured times and proof sizes.
+There are three policies, and each is a relation in zkFOL's own language: no em dash in the
+text, every figure in the text appears in the sources, and an action trace in which every
+write and mail goes to a signed-allowlist destination after an approval. See
+[harness/README.md](harness/README.md) for the five acts, the run order for a live demo, the
+failure points and what the proofs do not say, and [RESULTS.md](RESULTS.md) for measured times
+and proof sizes.
 
-## The no-dash check in zkFOL's own language
+## The policies in zkFOL's own language
 
-The whole policy fits in one relation (`lib/zkfol_ai_demo/no_dash.ex`):
+Each policy is a few `defrel` clauses, and nothing else is the policy. zkFOL's pipeline derives
+the witness and lowers the relation to the predicate the prover is given. The first one fits in
+one relation (`lib/zkfol_ai_demo/no_dash.ex`):
 
 ```elixir
 defrel no_dash(text) do
@@ -23,10 +26,25 @@ defrel no_dash(text) do
 end
 ```
 
-A text is its list of codepoints, using the string-literals topic. `Examples.ENoDash` proves a
-clean text with the real prover and shows a dashed one has no answer, so nothing is proved.
-The harness's own check (`ZkfolAiDemo.Canon`) first normalises the ways a dash can be
-smuggled in, then proves the same absence.
+A text is its list of codepoints, using the string-literals topic. The other two are
+`lib/zkfol_ai_demo/grounded.ex` (every figure is a `member` of the sources) and
+`lib/zkfol_ai_demo/conduct.ex` (a run is a list of events: a write needs an earlier approval,
+and every write and mail needs a destination in the allowlist, found by a recursive `entry`).
+The SHA-256 of each file is a public input of every proof made under it.
+
+`Examples.ENoDash` proves a clean text with the real prover and shows a dashed one has no
+answer, so zkFOL proves nothing. The harness still runs the real prover on a dashed text, so a
+refusal can be watched: it derives the nearest text the rule holds of, with each dash replaced
+by a space, and puts the real codepoints in the committed columns. That witness cannot satisfy
+the rule, and the prover fails with `AssertZero(0)`. The same is done for an action trace (each
+refused event becomes a retrieval, found by asking the relation) and for figures the sources
+lack. `ZkfolAiDemo.Canon` first normalises the ways a dash can be smuggled in, so the relation
+only has to forbid one codepoint.
+
+Two limits of the compiler shape this. It stops at 3,000 unrolled sites, which is 999
+codepoints of text, so the demo asks the model for about 80 words. And its lookup check works
+in 32-bit words, so a destination, which is 128 bits of a hash, is carried as four words. Both
+are shown in `Examples.ENoDash` and `Examples.ETrace`, and both would move with the compiler.
 
 ## Using zkFOL in your own project
 

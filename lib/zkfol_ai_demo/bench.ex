@@ -17,7 +17,6 @@ defmodule ZkfolAiDemo.Bench do
   alias ZkfolAiDemo.Allowlist
   alias ZkfolAiDemo.Context
   alias ZkfolAiDemo.Grounding
-  alias ZkfolAiDemo.Policy
   alias ZkfolAiDemo.Show
   alias ZkfolAiDemo.Statement
   alias ZkfolAiDemo.Text
@@ -81,17 +80,18 @@ defmodule ZkfolAiDemo.Bench do
   #                         The plan                         #
   ############################################################
 
-  # Text at about 300, 1000 and 3000 words; the grounded text the same with figures; the trace
-  # at 10, 50 and 200 events, and the same traces with one forbidden mail at the end.
+  # Text at 100, 500 and 999 characters, the most the compiler derives; the grounded figures at
+  # 10, 25 and 50 against as many sources; the trace at 10, 50 and 200 events, and the same
+  # traces with one forbidden mail at the end.
   @spec plan() :: [{String.t(), String.t(), (-> {Statement.t(), String.t()}), :proved | :refused}]
   defp plan do
     text =
-      for words <- [300, 1000, 3000],
-          do: {"text (no em dash)", "#{words} words", fn -> text(words) end, :proved}
+      for chars <- [100, 500, Text.capacity()],
+          do: {"text (no em dash)", "#{chars} characters", fn -> text(chars) end, :proved}
 
     grounding =
-      for words <- [300, 1000, 3000],
-          do: {"grounding", "#{words} words", fn -> grounding(words) end, :proved}
+      for figures <- [10, 25, 50],
+          do: {"grounding", "#{figures} figures", fn -> grounding(figures) end, :proved}
 
     trace =
       for n <- [10, 50, 200],
@@ -107,28 +107,16 @@ defmodule ZkfolAiDemo.Bench do
   end
 
   @spec text(pos_integer()) :: {Statement.t(), String.t()}
-  defp text(words) do
-    {:ok, statement} = Text.statement(prose(words), Policy.load(), context())
-    layout = statement.manifest.layout
-
-    {statement,
-     "#{length(statement.rows)} #{if length(statement.rows) == 1, do: "row", else: "rows"} of #{layout.cols} cells"}
+  defp text(chars) do
+    {:ok, statement} = Text.statement(String.slice(prose(chars), 0, chars), context())
+    {statement, "#{statement.manifest.cells} cells"}
   end
 
+  # Every figure of the output is among the sources, which hold as many figures as it does.
   @spec grounding(pos_integer()) :: {Statement.t(), String.t()}
-  defp grounding(words) do
-    figures = for i <- 1..50, do: "#{1000 + i * 37}"
-    sources = [Enum.join(figures, " ")]
-
-    output =
-      prose(words)
-      |> String.split(" ")
-      |> Enum.with_index()
-      |> Enum.map_join(" ", fn {word, i} ->
-        if rem(i, 15) == 0, do: Enum.at(figures, rem(div(i, 15), 50)), else: word
-      end)
-
-    {:ok, statement} = Grounding.statement(output, sources, context())
+  defp grounding(count) do
+    figures = for i <- 1..count, do: "#{1000 + i * 37}"
+    {:ok, statement} = Grounding.statement(Enum.join(figures, " "), figures, context())
 
     {statement,
      "#{statement.manifest.figures} figures, #{statement.manifest.source_figures} source figures"}
@@ -145,7 +133,7 @@ defmodule ZkfolAiDemo.Bench do
         else: base
 
     {:ok, statement} = Trace.statement(events, allowlist, context())
-    {statement, "#{n} events in #{statement.manifest.capacity} columns"}
+    {statement, "#{n} events in #{statement.derivation.rows |> hd() |> length()} columns"}
   end
 
   # A compliant mix: reads, approvals, an approved write, and mail to an allowed destination.
@@ -332,14 +320,15 @@ defmodule ZkfolAiDemo.Bench do
 
     ## Limits found while measuring
 
-    - **2^15 rows.** The pinned Zinc+ rejects an honest proof once a column needs 2^15 rows
-      (`Proximity failure` at the integer commitment), so a row holds at most 16383 cells and
-      a long text spans several rows.
+    - **Unroll budget.** The compiler unrolls a relation at every step of its derivation and
+      stops at 3,000 sites, which is 999 codepoints for the no-dash rule. A longer text is
+      refused before anything is derived.
+    - **32-bit words.** The compiled program's lookup check works in 32-bit words: an
+      allowlist of two entries wider than a word failed to prove (`Lookup(FinalEvaluationMismatch)`),
+      so a destination is four words, the first 128 bits of the hash of its address.
     - **2^56.** An honest proof of a column holding a value above about 2^56 beside small
-      ones is rejected, so every cell stays under it. Figures encode under 2^54, and a
-      destination identifier is 54 bits of a hash.
-    - **Degree.** The protocol's degree bound is 32. The trace predicate's largest term has
-      degree 16.
+      ones is rejected, so every cell stays under it. Figures encode under 2^54, and the
+      grounding sentinel is 2^55.
     """
   end
 

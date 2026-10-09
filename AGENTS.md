@@ -16,6 +16,9 @@ the failure points and what the proofs do not say.
   commit. Cloud sessions ignore it, so live model runs happen on a real machine.
 - **No em dashes** in code, docs or commits (`bin/harness lint` checks this), and British
   English in prose.
+- **A policy is its relation and nothing else.** Write it as `defrel` clauses and run it
+  through zkFOL's pipeline; do not build a predicate or witness by hand. The relation's file
+  is the published policy, so keep it free of anything that is not the rule.
 - **zkFOL is a dependency, not a fork.** Anything that needs the compiler or its Rust crate
   changed goes to zkFOL as its own topic. The proof export and standalone verifier are on
   `zkfol-ai/proof-export` and string literals on `mariari/string-literals`; `mix.exs` points at
@@ -37,12 +40,15 @@ Examples are the primary verification: run them, do not reason from signatures.
 
 ## Layout
 
-- `lib/zkfol_ai_demo/`: the policies (`canon`, `policy`, `text`, `grounding`, `figures`,
-  `trace`), the gate, the agent and its tools, the inboxes (`mailbox`, started by
+- `lib/zkfol_ai_demo/`: the policies, each a `defrel` relation in a file of its own (`no_dash`,
+  `grounded`, `conduct`, whose file hashes every proof binds), what turns a relation into a
+  proof (`derivation` runs zkFOL's pipeline, `statement` emits and proves, and `text`,
+  `grounding` and `trace` build a statement for each policy), the canonicalisers (`canon`,
+  `figures`), the gate, the agent and its tools, the inboxes (`mailbox`, started by
   `application`), the acts, the guided demo (`demo`) and the benchmark.
 - `lib/examples/`: examples, wired into `test/examples_test.exs`.
 - `lib/mix/tasks/harness.ex` and `bin/harness`: the command line.
-- `harness/`: published policies, the signed allowlist, synthetic documents, injection templates.
+- `harness/`: the signed allowlist, synthetic documents, injection templates.
 
 ## Conventions
 

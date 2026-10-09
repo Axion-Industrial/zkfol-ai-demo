@@ -1,7 +1,7 @@
 defmodule Examples.EGrounding do
   @moduledoc """
   I am the grounding policy's evidence: a figure in the sources proves, a figure outside them
-  is refused by the prover, and a forged pointer cannot reach a value that is not a source.
+  is refused by the prover, and the sources a proof was made against are the ones it binds.
   """
 
   use ExExample
@@ -15,7 +15,6 @@ defmodule Examples.EGrounding do
   alias ZkfolAiDemo.Gate.Withheld
   alias ZkfolAiDemo.Grounding
   alias ZkfolAiDemo.Statement
-  alias Zkfol.Refusal
   alias Zkfol.Verifier
   alias Zkfol.Verifier.Request
 
@@ -67,23 +66,19 @@ defmodule Examples.EGrounding do
     withheld
   end
 
-  @doc """
-  A pointer forged to land on another public value, which the figure equals, is refused: the
-  pointer is held inside the table, so a hash word is no source.
-  """
-  @spec forged_pointer_cannot_leave_the_table() :: Refusal.t()
-  example forged_pointer_cannot_leave_the_table do
-    {:ok, honest} = Grounding.statement("In 2023 revenue was 4,200,000.", @sources, context())
-    [figures, pointers, table] = honest.rows
-    policy_word = Enum.at(table, 0)
+  @doc "The sources are public and pinned: a proof made against other sources does not verify."
+  @spec proof_against_other_sources_is_rejected() :: String.t()
+  example proof_against_other_sources_is_rejected do
+    %Release{request: request} = grounded_output_is_released()
+    {:ok, other} = Grounding.statement("In 2023 revenue was 4,200,000.", ["4,200,000"], context())
+    pins = request.pins |> File.read!() |> JSON.decode!()
+    pins = Map.put(pins, "sources", Statement.pins(other)["sources"])
 
-    forged = %{
-      honest
-      | rows: [List.replace_at(figures, 0, policy_word), List.replace_at(pointers, 0, 1), table]
-    }
+    assert {:error, {:verifier_rejected, %{said: said}}} =
+             Verifier.verify(%{request | pins: Verifier.pin(pins, request.pins <> ".other")})
 
-    assert {:error, {:verifier_rejected, _} = refusal} = Statement.prove(forged, prefix("forged"))
-    refusal
+    assert said =~ "sources"
+    said
   end
 
   @doc "Nothing to ground is grounded: an output with no figures proves."

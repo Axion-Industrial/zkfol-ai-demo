@@ -1,7 +1,7 @@
 defmodule ZkfolAiDemo.Canon do
   @moduledoc """
-  I am the canonicaliser: I turn raw model output into the fixed-shape matrix of integers a
-  policy is proved over, and I commit to it.
+  I am the canonicaliser: I turn raw model output into the canonical text a policy is proved
+  of.
 
   The text a reader sees and the text a policy judges must not differ in a way that hides a
   banned character, so I only ever err towards seeing more of it. Every step below can add
@@ -35,29 +35,23 @@ defmodule ZkfolAiDemo.Canon do
   string released has no dash after the steps above. It says nothing about what a consumer
   that decodes further would see.
 
-  ### The matrix and its hashes
+  ### The hash
 
-  The canonical codepoints are remapped by the policy, padded with its sentinel to a layout
-  of `rows` by `cols` cells, and committed to with SHA-256. `source_hash/0` is SHA-256 of
-  this file as compiled, so `sha256sum lib/zkfol_ai_demo/canon.ex` reproduces it.
+  `source_hash/0` is SHA-256 of this file as compiled, so
+  `sha256sum lib/zkfol_ai_demo/canon.ex` reproduces it, and every proof binds it.
 
   ### Public API
 
-  - `run/3` canonicalises raw output under a policy.
-  - `text/1` is the text half alone.
+  - `text/1` is the canonical text of raw output.
   - `source_hash/0` is the hash of this file.
   """
 
-  use TypedStruct
-
-  alias ZkfolAiDemo.Policy
   alias Zkfol.Refusal
 
   @external_resource __ENV__.file
   @source_hash :crypto.hash(:sha256, File.read!(__ENV__.file))
 
   @max_depth 8
-  @max_rows 16
   @dashes [0x2012, 0x2013, 0x2015, 0x2E3A, 0x2E3B, 0x2E40]
   @named %{
     "amp" => ?&,
@@ -74,48 +68,6 @@ defmodule ZkfolAiDemo.Canon do
   }
   @em <<0x2014::utf8>>
   @replacement <<0xFFFD::utf8>>
-
-  typedstruct module: Layout, enforce: true do
-    @typedoc """
-    The shape of the matrix: `rows` rows of `cols` cells. A trace column needs `cols` plus a
-    padding row to fill a power of two, so `cols` is one less than one.
-    """
-    field(:rows, pos_integer())
-    field(:cols, pos_integer())
-  end
-
-  typedstruct module: Result, enforce: true do
-    @typedoc "A text canonicalised, and everything a proof about it binds."
-    field(:text, String.t())
-    field(:matrix, [[non_neg_integer()]])
-    field(:layout, ZkfolAiDemo.Canon.Layout.t())
-    field(:array_hash, binary())
-    field(:canonicaliser_hash, binary())
-    field(:policy_hash, binary())
-    field(:unicode_version, String.t())
-  end
-
-  @doc "I canonicalise `raw` under `policy`, into `layout` or the smallest standard one."
-  @spec run(String.t(), Policy.t(), Layout.t() | nil) :: {:ok, Result.t()} | {:error, Refusal.t()}
-  def run(raw, %Policy{} = policy, layout \\ nil) do
-    with {:ok, text} <- text(raw),
-         cells = for(cp <- String.to_charlist(text), do: Policy.encode(policy, cp)),
-         {:ok, layout} <- fit(layout, length(cells)) do
-      padding = List.duplicate(policy.sentinel, layout.rows * layout.cols - length(cells))
-      matrix = Enum.chunk_every(cells ++ padding, layout.cols)
-
-      {:ok,
-       %Result{
-         text: text,
-         matrix: matrix,
-         layout: layout,
-         array_hash: commit(layout, matrix),
-         canonicaliser_hash: @source_hash,
-         policy_hash: policy.hash,
-         unicode_version: String.Unicode.version() |> Tuple.to_list() |> Enum.join(".")
-       }}
-    end
-  end
 
   @doc "I am the canonical text of `raw`: its normal form, then any dash its base64 holds."
   @spec text(String.t()) :: {:ok, String.t()} | {:error, Refusal.t()}
@@ -251,25 +203,5 @@ defmodule ZkfolAiDemo.Canon do
         ],
         String.valid?(bytes),
         do: bytes
-  end
-
-  @spec fit(Layout.t() | nil, non_neg_integer()) :: {:ok, Layout.t()} | {:error, Refusal.t()}
-  defp fit(nil, cells) do
-    cols = if cells <= 2047, do: 2047, else: 4095
-    fit(%Layout{rows: max(1, div(cells + cols - 1, cols)), cols: cols}, cells)
-  end
-
-  defp fit(%Layout{rows: rows, cols: cols} = layout, cells) do
-    capacity = min(rows, @max_rows) * cols
-
-    if cells <= capacity and rows <= @max_rows,
-      do: {:ok, layout},
-      else: {:error, {:text_exceeds_capacity, %{cells: cells, capacity: capacity}}}
-  end
-
-  @spec commit(Layout.t(), [[non_neg_integer()]]) :: binary()
-  defp commit(%Layout{rows: rows, cols: cols}, matrix) do
-    cells = for row <- matrix, cell <- row, into: <<>>, do: <<cell::32>>
-    :crypto.hash(:sha256, ["zkfol.harness.canon-array.v1", <<rows::32, cols::32>>, cells])
   end
 end

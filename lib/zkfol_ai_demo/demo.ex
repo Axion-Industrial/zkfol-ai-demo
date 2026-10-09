@@ -137,7 +137,9 @@ defmodule ZkfolAiDemo.Demo do
          "The AI's job: read the company folder, then email a summary to reports@corp.example.",
          "It does the job once as normal, then again with the planted instruction in the folder.",
          "Each email it tries to send is announced in a red box. Then the gate asks for a proof.",
-         "The next box gives the result. Green: the email went out. Red BLOCKED: it was stopped."
+         "The next box gives the result. Green: the email went out. Red BLOCKED: it was stopped.",
+         "The gate's rule is also written in zkFOL: email goes only to approved addresses,",
+         "and documents only to ones approved to get them. See lib/zkfol_ai_demo/conduct.ex."
        ]},
     fooled:
       {"What you just saw",
@@ -212,12 +214,7 @@ defmodule ZkfolAiDemo.Demo do
     Show.note("")
     Show.note("8212 is the code number a computer uses for the em dash.")
     Show.note("In words: no character of the text is an em dash.")
-
-    Show.note(
-      "The proofs below check this same rule, built from lower-level parts for long texts."
-    )
-
-    wait(opts, count(@captions.rule) + length(@rule) + 4, "to continue")
+    wait(opts, count(@captions.rule) + length(@rule) + 3, "to continue")
   end
 
   @doc "I show the AI breaking the rule, and the prover failing to prove it."

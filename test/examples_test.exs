@@ -4,7 +4,6 @@ for module <-
         Examples.EDemo,
         Examples.EMailbox,
         Examples.ECanon,
-        Examples.EPolicy,
         Examples.EGate,
         Examples.EGrounding,
         Examples.ETrace,

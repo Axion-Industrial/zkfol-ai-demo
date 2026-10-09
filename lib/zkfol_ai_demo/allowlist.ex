@@ -8,9 +8,9 @@ defmodule ZkfolAiDemo.Allowlist do
   repository, and the process that runs an agent holds only the public key and the signature.
   I refuse an allowlist whose signature does not verify, so a changed file is a stopped run.
 
-  A destination is identified by the first 54 bits of the SHA-256 of its normalised address:
-  wide enough that nobody can search for an address that collides with an allowed one, and
-  narrow enough to stay under the 2^56 cell limit of the pinned Zinc+.
+  A destination is identified by the first 128 bits of the SHA-256 of its normalised address,
+  as four 32-bit words: wide enough that nobody can search for an address that collides with an
+  allowed one, and each word within the 32 bits the compiled program's lookup check works in.
 
   ### Public API
 
@@ -31,7 +31,7 @@ defmodule ZkfolAiDemo.Allowlist do
   typedstruct module: Entry, enforce: true do
     @typedoc "One allowed destination, its identifier, and whether it may receive documents."
     field(:address, String.t())
-    field(:id, pos_integer())
+    field(:id, [non_neg_integer()])
     field(:documents, boolean())
   end
 
@@ -71,11 +71,11 @@ defmodule ZkfolAiDemo.Allowlist do
     end
   end
 
-  @doc "I am a destination's identifier: 54 bits of the hash of its normalised address."
-  @spec id(String.t()) :: pos_integer()
+  @doc "I am a destination's identifier: 128 bits of the hash of its normalised address, as words."
+  @spec id(String.t()) :: [non_neg_integer()]
   def id(address) do
-    <<id::54, _rest::bitstring>> = :crypto.hash(:sha256, normalise(address))
-    max(id, 1)
+    <<id::binary-size(16), _rest::binary>> = :crypto.hash(:sha256, normalise(address))
+    ZkfolAiDemo.Bindings.words(id)
   end
 
   @doc "I am an address as the allowlist reads it: trimmed and lowercased, without a display name."

@@ -1,7 +1,8 @@
 defmodule Examples.ETrace do
   @moduledoc """
-  I am the trace policy's evidence: a run that keeps to the rules proves, each rule broken is
-  refused by the real prover, and a witness forged to hide a break is refused by the circuit.
+  I am the conduct policy's evidence: a run that keeps to the rules proves, each rule broken is
+  refused by the real prover, and a proof made against a wider allowlist does not verify
+  against the published one.
   """
 
   use ExExample
@@ -9,14 +10,20 @@ defmodule Examples.ETrace do
   import ExUnit.Assertions
 
   alias ZkfolAiDemo.Allowlist
+  alias ZkfolAiDemo.Allowlist.Entry
+  alias ZkfolAiDemo.Conduct
   alias ZkfolAiDemo.Context
+  alias ZkfolAiDemo.Derivation
   alias ZkfolAiDemo.Gate
   alias ZkfolAiDemo.Gate.Release
   alias ZkfolAiDemo.Gate.Withheld
   alias ZkfolAiDemo.Statement
   alias ZkfolAiDemo.Trace
   alias ZkfolAiDemo.Trace.Event
-  alias Zkfol.Refusal
+  alias Zkfol.Interpretation
+  alias Zkfol.Prover
+  alias Zkfol.Uair
+  alias Zkfol.Verifier
 
   @inside "reports@corp.example"
   @no_documents "status@corp.example"
@@ -80,59 +87,50 @@ defmodule Examples.ETrace do
   end
 
   @doc """
-  A witness forged to hide a break is refused by the circuit: a destination claimed allowed
-  when it is not, a write recorded as no write, and an approval pointer aimed at a refusal.
+  The allowlist is public and pinned: a proof made against a wider allowlist, which lets a
+  mail to the attacker keep the rules, does not verify against the published one.
   """
-  @spec forged_witnesses_are_refused() :: [Refusal.t()]
-  example forged_witnesses_are_refused do
-    attacker_mail = [%Event{kind: :retrieve, doc: 1}, %Event{kind: :mail, dest: @attacker}]
+  @spec proof_against_another_allowlist_is_rejected() :: String.t()
+  example proof_against_another_allowlist_is_rejected do
+    published = allowlist()
+    attacker = %Entry{address: @attacker, id: Allowlist.id(@attacker), documents: true}
+    widened = %{published | entries: published.entries ++ [attacker]}
+    leak = [%Event{kind: :retrieve, doc: 1}, %Event{kind: :mail, dest: @attacker, doc: 1}]
+    kept = [%Event{kind: :retrieve, doc: 1}, %Event{kind: :mail, dest: @inside, doc: 1}]
 
-    declined = [
-      %Event{kind: :approve, approved: false},
-      %Event{kind: :write, dest: @no_documents}
-    ]
+    assert {:released, %Release{request: request}} =
+             Gate.release(Trace.statement(leak, widened, context()), prefix("widened"))
 
-    unapproved = [%Event{kind: :write, dest: @no_documents}]
+    # The pin a verifier computes from the published allowlist.
+    {:ok, honest} = Trace.statement(kept, published, context())
+    pin = Statement.pins(honest)["allowlist"]
+    pins = request.pins |> File.read!() |> JSON.decode!() |> Map.put("allowlist", pin)
 
-    forgeries = [
-      {attacker_mail, [{:allowed, 2, 1}]},
-      {unapproved, [{:write, 1, 0}]},
-      {declined, [{:pointer, 2, 1}, {:slack, 2, 0}]}
-    ]
+    assert {:error, {:verifier_rejected, %{said: said}}} =
+             Verifier.verify(%{request | pins: Verifier.pin(pins, request.pins <> ".published")})
 
-    for {events, edits} <- forgeries do
-      {:ok, honest} = Trace.statement(events, allowlist(), context())
-      forged = %{honest | rows: Enum.reduce(edits, honest.rows, &edit/2)}
-
-      assert {:error, {:verifier_rejected, _} = refusal} =
-               Statement.prove(forged, prefix("forged"))
-
-      refusal
-    end
+    assert said =~ "allowlist"
+    said
   end
 
-  @doc "A run too long for one layout moves to the next width, and one too long for any is refused."
-  @spec capacity_grows_with_the_run() :: [pos_integer()]
-  example capacity_grows_with_the_run do
-    widths = for n <- [1, 127, 128, 255, 256, 511], do: Trace.capacity(n)
-    assert widths == [127, 127, 255, 255, 511, 511]
-    assert Trace.capacity(512) == nil
+  @doc """
+  The compiled program's lookup check works in 32-bit words, which is why a destination is
+  four words: an allowlist of two entries a word of 2^40 wide holds of the run, and the
+  prover cannot prove it.
+  """
+  @spec a_destination_word_over_32_bits_fails_the_proof() :: String.t()
+  example a_destination_word_over_32_bits_fails_the_proof do
+    wide = fn n -> [Integer.pow(2, 40) - n, 0, 0, 0] end
+    allowlist = wide.(5) ++ [1] ++ wide.(9) ++ [0]
+    events = [4] ++ wide.(5) ++ [1, 0]
 
-    long = List.duplicate(%Event{kind: :retrieve, doc: 1}, 512)
-    assert {:error, {:text_exceeds_capacity, _}} = Trace.statement(long, allowlist(), context())
-    widths
-  end
+    assert {:ok, %Derivation{} = derivation} =
+             Derivation.run(Conduct.run(), [events, allowlist, 0])
 
-  # Row `name` of column `x` set to `value`, on rows in the order the statement lays them out.
-  @spec edit({atom(), pos_integer(), integer()}, [[integer()]]) :: [[integer()]]
-  defp edit({name, x, value}, rows) do
-    row =
-      Enum.find_index(
-        ~w(kind dest doc approved write mail carries pointer slack entry allowed)a,
-        &(&1 == name)
-      )
-
-    List.update_at(rows, row, &List.replace_at(&1, x - 1, value))
+    {:ok, uair} = Uair.emit(derivation.pred, Interpretation.new(derivation.rows))
+    assert {:error, {:prover_failed, %{said: said}}} = Prover.prove_uair(uair, timeout: 120_000)
+    assert said =~ "Lookup"
+    said
   end
 
   @spec release([Event.t()], String.t()) :: {:released, Release.t()} | {:withheld, Withheld.t()}

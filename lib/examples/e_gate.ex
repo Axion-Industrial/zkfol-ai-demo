@@ -14,7 +14,7 @@ defmodule Examples.EGate do
   alias ZkfolAiDemo.Gate
   alias ZkfolAiDemo.Gate.Release
   alias ZkfolAiDemo.Gate.Withheld
-  alias ZkfolAiDemo.Policy
+  alias ZkfolAiDemo.NoDash
   alias ZkfolAiDemo.Statement
   alias ZkfolAiDemo.Text
   alias Zkfol.Verifier
@@ -31,12 +31,14 @@ defmodule Examples.EGate do
     raw = "The harvest was good, and the lanterns were well-kept."
 
     assert {:released, %Release{} = release} =
-             Gate.release(Text.statement(raw, policy(), context()), prefix)
+             Gate.release(Text.statement(raw, context()), prefix)
 
     for suffix <- ~w(.proof .public.json .pins.json .manifest.json .txt),
         do: assert(File.exists?(prefix <> suffix), suffix)
 
-    assert release.accepted.bindings["policy"] == Bindings.hex(Bindings.words(policy().hash))
+    assert release.accepted.bindings["policy"] ==
+             Bindings.hex(Bindings.words(NoDash.source_hash()))
+
     assert File.read!(prefix <> ".txt") == raw
     release
   end
@@ -48,21 +50,22 @@ defmodule Examples.EGate do
     raw = "The harvest was good #{<<0x2014::utf8>>} or so they said."
 
     assert {:withheld, %Withheld{stage: :prove, reason: {:verifier_rejected, _}} = withheld} =
-             Gate.release(Text.statement(raw, policy(), context()), prefix)
+             Gate.release(Text.statement(raw, context()), prefix)
 
     refute File.exists?(prefix <> ".proof")
     refute File.exists?(prefix <> ".txt")
     withheld
   end
 
-  @doc "A text too long for any layout never reaches the prover."
+  @doc "A text longer than the compiler derives never reaches the prover."
   @spec oversized_text_is_withheld_before_proving() :: Withheld.t()
   example oversized_text_is_withheld_before_proving do
-    raw = String.duplicate("a", 70_000)
+    raw = String.duplicate("a", Text.capacity() + 1)
 
     assert {:withheld, %Withheld{stage: :canonicalise} = withheld} =
-             Gate.release(Text.statement(raw, policy(), context()), prefix("oversized"))
+             Gate.release(Text.statement(raw, context()), prefix("oversized"))
 
+    assert {:text_exceeds_capacity, %{cells: 1000, capacity: 999}} = withheld.reason
     withheld
   end
 
@@ -72,11 +75,7 @@ defmodule Examples.EGate do
     %Release{accepted: accepted} = compliant_output_is_released()
 
     {:ok, statement} =
-      Text.statement(
-        "The harvest was good, and the lanterns were well kept.",
-        policy(),
-        context()
-      )
+      Text.statement("The harvest was good, and the lanterns were well kept.", context())
 
     {:ok, edited} = Statement.commit(statement)
 
@@ -118,7 +117,7 @@ defmodule Examples.EGate do
     other = prefix("other")
 
     {:released, %Release{request: other_request}} =
-      Gate.release(Text.statement("Another output.", policy(), context()), other)
+      Gate.release(Text.statement("Another output.", context()), other)
 
     assert {:error, {:verifier_rejected, _}} =
              Verifier.verify(%{request | public: other_request.public})
@@ -144,9 +143,6 @@ defmodule Examples.EGate do
     refute json =~ "lanterns"
     %{public_cells: length(List.flatten(columns)), bound_words: MapSet.size(bound)}
   end
-
-  @spec policy() :: Policy.t()
-  defp policy, do: Policy.load()
 
   @spec context() :: Context.t()
   defp context, do: Context.new("claude-opus-5-5", "Write plainly.", "Write about a harvest.")

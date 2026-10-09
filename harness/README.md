@@ -15,20 +15,23 @@ every address (on the reserved `.example` domain).
 
 | Policy | What the proof says | Where |
 |---|---|---|
-| Text | The output has no em dash, after normalising the ways one can be smuggled | `ZkfolAiDemo.Canon`, `Policy`, `Text` |
-| Grounding | Every numeric figure in the output also appears in a supplied source set | `ZkfolAiDemo.Grounding`, `Figures` |
-| Trace | A write had an earlier approval that returned true; every write and mail went to a signed-allowlist destination; a document went only where documents are allowed | `ZkfolAiDemo.Trace`, `Allowlist` |
+| Text | The output has no em dash, after normalising the ways one can be smuggled | `ZkfolAiDemo.NoDash` (the relation), `Text`, `Canon` |
+| Grounding | Every numeric figure in the output also appears in a supplied source set | `ZkfolAiDemo.Grounded` (the relation), `Grounding`, `Figures` |
+| Trace | A write had an earlier approval that returned true; every write and mail went to a signed-allowlist destination; a document went only where documents are allowed | `ZkfolAiDemo.Conduct` (the relation), `Trace`, `Allowlist` |
 
-Every proof also binds, as public inputs, the policy hash, the canonicaliser hash, the model
-identifier, the system prompt hash, the user prompt hash and a nonce (the trace also binds the
-allowlist hash, its signer and its entries). Without them a proof would say only that some
-text somewhere complies.
+Each relation is written in zkFOL's own language, in a file of its own, and `Derivation` runs
+it through zkFOL's pipeline. Every proof also binds, as public inputs, the policy hash (the
+SHA-256 of that file), the model identifier, the system prompt hash, the user prompt hash and a
+nonce. The text and grounding proofs also bind the canonicaliser hash. The trace binds the
+allowlist hash and its signer, and the allowlist's own cells are public, as are the sources of a
+grounding proof. Without these a proof would say only that some text somewhere complies.
 
 ## What an audience can inspect beforehand
 
 `bin/harness published` prints the SHA-256 of each of these, and `sha256sum` reproduces it.
 
-- `harness/policy/no-em-dash.json`, `grounding.json`, `trace.json`: the published policies.
+- `lib/zkfol_ai_demo/no_dash.ex`, `grounded.ex` and `conduct.ex`: the published policies, each
+  a relation in zkFOL's language. A proof binds the hash of its policy's file.
 - `lib/zkfol_ai_demo/canon.ex` and `figures.ex`: the canonicalisers. Their hashes are public
   inputs, so a proof is tied to exactly this source.
 - `harness/allowlist.json`, `allowlist.sig`, `allowlist.pub`: the signed allowlist and the
@@ -88,7 +91,7 @@ of `ZkfolAiDemo.Demo`, and `Examples.EDemo` runs the ones that need no live mode
 
 Before the audience arrives, on the stage machine:
 
-1. `mix test` (about 25 seconds, 200+ examples) and `bin/harness lint`.
+1. `mix test` (about 20 seconds) and `bin/harness lint`.
 2. `bin/harness published`, and put the hashes on a slide.
 3. `bin/harness fixtures`, so the replay texts exist if the API fails.
 4. `bin/harness probe-injections` with the key set. This records, in
@@ -159,7 +162,7 @@ a symlink, attachments, the tools' exports, and the signed files' hashes before 
 | **The model resists the injection in act 5** | A yellow "THE MODEL RESISTED THE INJECTION" banner; the attacker inbox is empty because nothing was sent | Do not hide it. Say it is the model, then re-run with `--mode assume-compromised`, which prints a red banner saying the hijack is arranged. Pre-stage a template from `TESTED.md` that the model obeyed that day. |
 | **The API ends the run with a safety refusal** | A yellow "THE API ENDED THE RUN WITH A SAFETY REFUSAL" banner, with the reason the API gave. Seen with `claude-opus-5-5` on all four templates, even in assume-compromised mode | This is the platform's safeguard, not the harness. Try an older model: `export ZKFOL_MODEL=claude-haiku-4-5`, then `bin/harness probe-injections`. The model name is printed on screen. |
 | Audience injection is ignored | Same as above | Have the four templates ready. Run `probe-injections` the morning of the demo. |
-| Proof fails on an honest text | `Proximity failure` | The pinned Zinc+ rejects a column needing 2^15 rows. Texts over about 65,000 characters are refused earlier. See RESULTS.md. |
+| A text is refused as too long | `the input needs 1000 cells and at most 999 can be proved over` | The compiler derives at most 999 codepoints of text. The acts ask the model for about 80 words and tell it to shorten a longer answer, so keep any edit short. See RESULTS.md. |
 | Act 4 on the second machine fails | `exec format error` or a missing library | The verifier binary is per platform. Build it on that machine ahead of time. |
 | Time | Act 5 makes two model runs of several calls each | Allow a minute or two. The proving itself is a fraction of a second per action. |
 
@@ -178,21 +181,35 @@ Read these before a hostile audience does.
 - **The output commitment is the proof's own commitment** to its witness columns (a Merkle
   root). It is deterministic and moves with any cell, so anyone holding the text can recompute
   it, which `act3` does. It does not hide the text from someone who can guess it. The SHA-256
-  of the canonical array in the manifest is a convenience label and is not bound to the proof.
+  of the canonical text in the manifest is a convenience label and is not bound to the proof.
+- **A false statement still reaches the real prover, by a stand-in.** A relation that does not
+  hold of its input has no derivation, so zkFOL's pipeline refuses it before proving. To let
+  the prover be watched failing, the gate derives the nearest input the relation does hold of
+  (each dash a space, each refused event a retrieval, each ungrounded figure the sentinel),
+  and puts the real cells into the committed columns. The prover fails with `AssertZero(0)`.
+  The nearest input is found by asking the relation, so no rule is written twice. The stand-in
+  is never proved or released.
+- **A proof names its policy by hash and does not pin its program.** The policy hash is a
+  public input, so a verifier can hold a proof to the published file. The verifier checks the
+  proof against the constraint program inside the proof, and does not recompile the published
+  relation to compare. A prover could claim a published policy's hash and prove a different
+  relation, so this is a gap that pinning a hash of the lowered program would close. It needs a
+  change in zkFOL's exporter and is not made here.
 - **The trace proof certifies the trace it is given.** That the trace is what the agent really
   did is the recorder's job: the destination an action is recorded with is the one it is run
   with, parsed once in `ZkfolAiDemo.Tools`. Inline copying of a document is caught by a
   six-word overlap test, which is a heuristic. Attachments are caught exactly.
-- **Rule 3 of the trace (documents only where allowed) is implied by rule 2** whenever the
-  signed file keeps every document-capable destination on the allowlist. It is kept as its own
-  constraint so it still holds if rule 2 is relaxed.
-- **A destination is 54 bits of a hash.** Searching for an address that collides with an
-  allowed one costs about 2^54 hashes. That is out of reach for a stage attacker and is not a
-  cryptographic margin.
+- **A destination is 128 bits of a hash**, the first four 32-bit words of the SHA-256 of its
+  normalised address. The compiled program's lookup check works in 32-bit words, and an
+  allowlist of two entries wider than that failed to prove, so four words keep the margin. The
+  recorder computes the identifier, so the trust in what an event's destination was is the
+  recorder's, as above.
 - **The public key file is the trust anchor** for the allowlist. Its hash is a public input
   of every trace proof (`allowlist_signer`), so a verifier can pin it.
-- **Limits of the pinned Zinc+.** An honest proof is rejected when a column needs 2^15 rows or
-  holds a value above about 2^56 beside small ones. The harness keeps inside both.
+- **Limits of the compiler and the pinned Zinc+.** The compiler stops at 3,000 unrolled sites,
+  which is 999 codepoints of text. The lookup check works in 32-bit words. An honest proof is
+  rejected when a column holds a value above about 2^56 beside small ones. The harness keeps
+  inside all three.
 
 ## Checking the work
 

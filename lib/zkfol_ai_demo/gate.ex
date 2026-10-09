@@ -46,7 +46,7 @@ defmodule ZkfolAiDemo.Gate do
     with {:ok, statement} <- staged(:canonicalise, built),
          {:ok, report} <- staged(:prove, Statement.prove(statement, prefix)),
          {:ok, commitment} <- staged(:bind, Statement.commit(statement)),
-         request = request(prefix, Map.put(statement.pins, "commitment", commitment)),
+         request = request(prefix, Map.put(Statement.pins(statement), "commitment", commitment)),
          {:ok, accepted} <- staged(:verify, Verifier.verify(request)) do
       File.write!(prefix <> ".txt", statement.output)
       File.write!(prefix <> ".manifest.json", JSON.encode!(statement.manifest))

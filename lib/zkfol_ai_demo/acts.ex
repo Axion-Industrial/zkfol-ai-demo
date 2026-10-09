@@ -32,7 +32,7 @@ defmodule ZkfolAiDemo.Acts do
   alias ZkfolAiDemo.Gate.Withheld
   alias ZkfolAiDemo.Allowlist
   alias ZkfolAiDemo.Mailbox
-  alias ZkfolAiDemo.Policy
+  alias ZkfolAiDemo.NoDash
   alias ZkfolAiDemo.Run
   alias ZkfolAiDemo.Run.Attempt
   alias ZkfolAiDemo.Show
@@ -86,10 +86,7 @@ defmodule ZkfolAiDemo.Acts do
       Show.step("The gate: canonicalise, then ask the prover for a proof")
       prefix = fresh(Path.join(@out, "act1"))
 
-      case Gate.release(
-             Text.statement(generation.text, Policy.load(), generation.context),
-             prefix
-           ) do
+      case Gate.release(Text.statement(generation.text, generation.context), prefix) do
         {:withheld, %Withheld{} = withheld} ->
           withheld(withheld, prefix)
           {:ok, :withheld}
@@ -131,17 +128,14 @@ defmodule ZkfolAiDemo.Acts do
       Show.kv("model", generation.context.model)
       prefix = fresh(@accepted)
 
-      case Gate.release(
-             Text.statement(generation.text, Policy.load(), generation.context),
-             prefix
-           ) do
+      case Gate.release(Text.statement(generation.text, generation.context), prefix) do
         {:released, %Release{} = release} ->
           released(release, prefix)
           {:ok, :released}
 
         {:withheld, %Withheld{} = withheld} ->
           withheld(withheld, prefix)
-          compliant(opts, retry(user), attempt + 1, limit)
+          compliant(opts, retry(user, withheld), attempt + 1, limit)
       end
     end
   end
@@ -182,7 +176,6 @@ defmodule ZkfolAiDemo.Acts do
     with {:ok, manifest} <- manifest(),
          {:ok, accepted} <- Verifier.verify(request(@accepted)),
          {:ok, edited} <- edited_text(opts) do
-      policy = Policy.load()
       context = context(manifest)
 
       Show.step("The accepted output, and your edit of it")
@@ -190,16 +183,16 @@ defmodule ZkfolAiDemo.Acts do
       Show.note("edited:")
       Show.text(edited)
 
-      stale_commitment(edited, policy, context, accepted)
+      stale_commitment(edited, context, accepted)
       edited_proof(opts, accepted)
-      prover_on_edit(edited, policy, context)
+      prover_on_edit(edited, context)
     end
   end
 
-  @spec stale_commitment(String.t(), Policy.t(), Context.t(), Accepted.t()) :: :ok
-  defp stale_commitment(edited, policy, context, accepted) do
+  @spec stale_commitment(String.t(), Context.t(), Accepted.t()) :: :ok
+  defp stale_commitment(edited, context, accepted) do
     Show.step("Re-verify the OLD proof against the EDITED text")
-    {:ok, statement} = Text.statement(edited, policy, context)
+    {:ok, statement} = Text.statement(edited, context)
     {:ok, commitment} = Statement.commit(statement)
     Show.kv("proof's commitment", short(accepted.commitment))
     Show.kv("edited text's commitment", short(commitment))
@@ -236,12 +229,12 @@ defmodule ZkfolAiDemo.Acts do
     end
   end
 
-  @spec prover_on_edit(String.t(), Policy.t(), Context.t()) :: :ok
-  defp prover_on_edit(edited, policy, context) do
+  @spec prover_on_edit(String.t(), Context.t()) :: :ok
+  defp prover_on_edit(edited, context) do
     Show.step("Run the REAL PROVER on the edited text")
     prefix = fresh(Path.join(@out, "act3"))
 
-    case Gate.release(Text.statement(edited, policy, context), prefix) do
+    case Gate.release(Text.statement(edited, context), prefix) do
       {:withheld, %Withheld{} = withheld} ->
         withheld(withheld, prefix)
 
@@ -589,9 +582,9 @@ defmodule ZkfolAiDemo.Acts do
   ############################################################
 
   @published ~w(
-    harness/policy/no-em-dash.json harness/policy/grounding.json harness/policy/trace.json
-    harness/allowlist.json harness/allowlist.sig harness/allowlist.pub
+    lib/zkfol_ai_demo/no_dash.ex lib/zkfol_ai_demo/grounded.ex lib/zkfol_ai_demo/conduct.ex
     lib/zkfol_ai_demo/canon.ex lib/zkfol_ai_demo/figures.ex
+    harness/allowlist.json harness/allowlist.sig harness/allowlist.pub
   )
 
   @doc "I print the SHA-256 of every published file, so `sha256sum` on each reproduces it."
@@ -714,7 +707,8 @@ defmodule ZkfolAiDemo.Acts do
     do: "the prover could not make a valid proof that this text meets the policy"
 
   defp plain(:canonicalise),
-    do: "the text could not be put into the fixed form the policy is proved over"
+    do:
+      "the text could not be put into the form the policy is proved over (too long, or too deeply encoded)"
 
   defp plain(:bind), do: "the proof could not be tied to this text"
   defp plain(:verify), do: "the separate verifier did not accept the proof"
@@ -748,12 +742,15 @@ defmodule ZkfolAiDemo.Acts do
   @spec pins(Path.t(), Statement.t(), String.t()) :: Path.t()
   defp pins(prefix, statement, commitment),
     do:
-      Verifier.pin(Map.put(statement.pins, "commitment", commitment), prefix <> ".edit.pins.json")
+      Verifier.pin(
+        Map.put(Statement.pins(statement), "commitment", commitment),
+        prefix <> ".edit.pins.json"
+      )
 
   @spec published_pins() :: Path.t()
   defp published_pins do
     pins = %{
-      "policy" => ZkfolAiDemo.Bindings.hex(ZkfolAiDemo.Bindings.words(Policy.load().hash)),
+      "policy" => ZkfolAiDemo.Bindings.hex(ZkfolAiDemo.Bindings.words(NoDash.source_hash())),
       "canonicaliser" => ZkfolAiDemo.Bindings.hex(ZkfolAiDemo.Bindings.words(Canon.source_hash()))
     }
 
@@ -795,10 +792,13 @@ defmodule ZkfolAiDemo.Acts do
   end
 
   @spec essay(String.t()) :: String.t()
-  defp essay(topic), do: "Write about 250 words on: #{topic}"
+  defp essay(topic), do: "Write a short piece, about 80 words, on: #{topic}"
 
-  @spec retry(String.t()) :: String.t()
-  defp retry(user),
+  @spec retry(String.t(), Withheld.t()) :: String.t()
+  defp retry(user, %Withheld{reason: {:text_exceeds_capacity, _detail}}),
+    do: user <> "\n\nYour previous answer was too long. Rewrite it in under 80 words."
+
+  defp retry(user, %Withheld{}),
     do: user <> "\n\nYour previous answer contained a dash. Rewrite it with no dash of any kind."
 
   @spec fresh(Path.t()) :: Path.t()

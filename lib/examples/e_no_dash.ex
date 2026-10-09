@@ -9,7 +9,9 @@ defmodule Examples.ENoDash do
   alias Zkfol.Pipeline
   alias Zkfol.Prover
   alias Zkfol.Statement
+  alias ZkfolAiDemo.Derivation
   alias ZkfolAiDemo.NoDash
+  alias ZkfolAiDemo.Text
 
   @clean "Autumn arrives quietly, and the light grows thin."
   # Built from its codepoint: this project refuses the character itself in a file.
@@ -45,5 +47,40 @@ defmodule Examples.ENoDash do
     end
 
     :ok
+  end
+
+  @doc "The policy a proof names is this file: its hash is SHA-256 of the source, recomputable by anyone."
+  @spec policy_hash_is_the_file_hash() :: binary()
+  example policy_hash_is_the_file_hash do
+    source = Path.expand("../zkfol_ai_demo/no_dash.ex", __DIR__)
+    assert NoDash.source_hash() == :crypto.hash(:sha256, File.read!(source))
+    NoDash.source_hash()
+  end
+
+  @doc """
+  The compiler unrolls the rule at every codepoint and stops at its budget: the longest text
+  it derives is `Text.capacity/0` codepoints, and one more is refused by the compiler itself.
+  """
+  @spec capacity_is_what_the_compiler_derives() :: Zkfol.Refusal.t()
+  example capacity_is_what_the_compiler_derives do
+    text = fn n -> NoDash.text(String.duplicate("a", n)) end
+
+    assert {:ok, %Derivation{}} = Derivation.run(NoDash.no_dash(), [text.(Text.capacity())])
+
+    assert {:error, {:unroll_budget, _detail} = refusal} =
+             Derivation.run(NoDash.no_dash(), [text.(Text.capacity() + 1)])
+
+    refusal
+  end
+
+  @doc "A text the rule does not hold of has no derivation, and the nearest one that does is the same text with a space."
+  @spec repair_is_the_nearest_compliant_text() :: [non_neg_integer()]
+  example repair_is_the_nearest_compliant_text do
+    repaired = NoDash.repaired(NoDash.text(@dashed))
+
+    assert Derivation.run(NoDash.no_dash(), [NoDash.text(@dashed)]) == :no_answer
+    assert {:ok, %Derivation{}} = Derivation.run(NoDash.no_dash(), [repaired])
+    assert List.to_string(repaired) == "Autumn arrives   quietly."
+    repaired
   end
 end

@@ -23,7 +23,7 @@ defmodule ZkfolAiDemo.Refusal do
     do: "the figure #{figure} has more than 15 digits and does not fit a cell"
 
   def message({:text_exceeds_capacity, %{cells: cells, capacity: capacity}}),
-    do: "the text needs #{cells} cells and the layout holds #{capacity}"
+    do: "the input needs #{cells} cells and at most #{capacity} can be proved over"
 
   def message({:encoding_unbounded, %{depth: depth}}),
     do: "the text is encoded more than #{depth} levels deep, so it cannot be normalised"

@@ -9,39 +9,19 @@ defmodule Examples.ECanon do
   import ExUnit.Assertions
 
   alias ZkfolAiDemo.Canon
-  alias ZkfolAiDemo.Canon.Layout
-  alias ZkfolAiDemo.Canon.Result
-  alias ZkfolAiDemo.Policy
+  alias ZkfolAiDemo.Derivation
+  alias ZkfolAiDemo.NoDash
   alias Zkfol.Refusal
 
   @em "\u2014"
 
-  @doc "I am the published no-em-dash policy, and its hash is the hash of its file."
-  @spec policy() :: Policy.t()
-  example policy do
-    policy = Policy.load()
-    assert policy.banned == [0x2014]
-    assert policy.hash == :crypto.hash(:sha256, File.read!(Policy.default_path()))
-    assert Policy.bound(policy) == 0x10FFFE
-    assert Policy.encode(policy, 0x2014) == 0x10FFFF
-    assert Policy.encode(policy, 0x10FFFF) == 0x2014
-    assert Policy.encode(policy, ?a) == ?a
-    policy
-  end
-
-  @doc "Honest text keeps its hyphens, fits one row, and is padded with the sentinel."
-  @spec clean_text() :: Result.t()
+  @doc "Honest text keeps its hyphens and is left exactly as it was."
+  @spec clean_text() :: String.t()
   example clean_text do
     raw = "A well-known, state-of-the-art result: 3-5 items, 100% sure (see https://a.b/c-d)."
-    assert {:ok, %Result{} = result} = Canon.run(raw, policy())
-    assert result.text == raw
-    assert result.layout == %Layout{rows: 1, cols: 2047}
-    assert [row] = result.matrix
-    assert length(row) == 2047
-    assert Enum.all?(row, &(&1 <= Policy.bound(policy())))
-    assert Enum.drop(row, String.length(raw)) |> Enum.all?(&(&1 == 0))
-    assert {:ok, ^result} = Canon.run(raw, policy())
-    result
+    assert {:ok, ^raw} = Canon.text(raw)
+    assert Derivation.holds?(NoDash.no_dash(), [NoDash.text(raw)])
+    raw
   end
 
   @doc "I am every smuggling form I know, each raw text that a reader could see a dash in."
@@ -88,15 +68,16 @@ defmodule Examples.ECanon do
     ]
   end
 
-  @doc "Every smuggling form lands as a banned cell in the matrix the proof is about."
+  @doc """
+  Every smuggling form lands as an em dash in the canonical text, and the no-dash relation has
+  no answer for it: the canonicaliser and the policy meet here.
+  """
   @spec smuggled_dashes_are_seen() :: [String.t()]
   example smuggled_dashes_are_seen do
-    top = Policy.bound(policy()) + 1
-
     for {label, raw} <- smuggled() do
-      assert {:ok, %Result{text: text, matrix: [row]}} = Canon.run(raw, policy())
+      assert {:ok, text} = Canon.text(raw)
       assert String.contains?(text, @em), "not seen: #{label}"
-      assert top in row, "not in the matrix: #{label}"
+      refute Derivation.holds?(NoDash.no_dash(), [NoDash.text(text)]), "not refused: #{label}"
       label
     end
   end
@@ -159,52 +140,12 @@ defmodule Examples.ECanon do
   end
 
   @doc "Invalid bytes and NUL cannot become the padding sentinel or break the encoding."
-  @spec invalid_bytes_and_nul() :: Result.t()
+  @spec invalid_bytes_and_nul() :: String.t()
   example invalid_bytes_and_nul do
-    assert {:ok, %Result{text: text} = result} = Canon.run(<<"a", 0, 0xFF, "b">>, policy())
+    assert {:ok, text} = Canon.text(<<"a", 0, 0xFF, "b">>)
     assert text == "a\uFFFD\uFFFDb"
-    result
-  end
-
-  @doc "The layout grows by whole rows of 4095, and a text past sixteen rows is refused."
-  @spec layouts() :: [Layout.t()]
-  example layouts do
-    layout = fn n ->
-      assert {:ok, %Result{layout: layout}} = Canon.run(String.duplicate("a", n), policy())
-      layout
-    end
-
-    layouts = [layout.(2047), layout.(2048), layout.(4095), layout.(4096), layout.(65_520)]
-
-    assert layouts == [
-             %Layout{rows: 1, cols: 2047},
-             %Layout{rows: 1, cols: 4095},
-             %Layout{rows: 1, cols: 4095},
-             %Layout{rows: 2, cols: 4095},
-             %Layout{rows: 16, cols: 4095}
-           ]
-
-    assert {:error, {:text_exceeds_capacity, %{cells: 65_521, capacity: 65_520}}} =
-             Canon.run(String.duplicate("a", 65_521), policy())
-
-    layouts
-  end
-
-  @doc "The commitment moves with any cell, with the shape, and with nothing else."
-  @spec commitment_binds_the_array() :: [binary()]
-  example commitment_binds_the_array do
-    hash = fn raw, layout ->
-      assert {:ok, %Result{array_hash: hash}} = Canon.run(raw, policy(), layout)
-      hash
-    end
-
-    base = hash.("hello world", nil)
-    assert byte_size(base) == 32
-    assert hash.("hello world", nil) == base
-    assert hash.("hello worle", nil) != base
-    assert hash.("hello world", %Layout{rows: 1, cols: 4095}) != base
-    assert hash.("hello world", %Layout{rows: 2, cols: 2047}) != base
-    [base]
+    refute 0 in NoDash.text(text)
+    text
   end
 
   @doc "The canonicaliser hash is SHA-256 of its own source, which anyone can recompute."
@@ -212,8 +153,6 @@ defmodule Examples.ECanon do
   example source_hash do
     source = Path.expand("../zkfol_ai_demo/canon.ex", __DIR__)
     assert Canon.source_hash() == :crypto.hash(:sha256, File.read!(source))
-    assert {:ok, %Result{canonicaliser_hash: hash}} = Canon.run("x", policy())
-    assert hash == Canon.source_hash()
-    hash
+    Canon.source_hash()
   end
 end
