@@ -60,8 +60,12 @@ defmodule ZkfolAiDemo.Derivation do
   @spec holds?(Rel.t(), [term()]) :: boolean()
   def holds?(relation, args) do
     case Zkfol.eval(relation, args) do
-      {:ok, query} -> Zkfol.Query.close(query) == :ok
-      {:error, {:no_answer, _detail}} -> false
+      {:ok, query} ->
+        :ok = Zkfol.Query.close(query)
+        true
+
+      {:error, {:no_answer, _detail}} ->
+        false
     end
   end
 

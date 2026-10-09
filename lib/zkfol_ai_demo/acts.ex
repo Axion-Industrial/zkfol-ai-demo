@@ -175,24 +175,22 @@ defmodule ZkfolAiDemo.Acts do
 
     with {:ok, manifest} <- manifest(),
          {:ok, accepted} <- Verifier.verify(request(@accepted)),
-         {:ok, edited} <- edited_text(opts) do
-      context = context(manifest)
-
+         {:ok, edited} <- edited_text(opts),
+         {:ok, statement} <- Text.statement(edited, context(manifest)) do
       Show.step("The accepted output, and your edit of it")
       Show.text(File.read!(@accepted <> ".txt"))
       Show.note("edited:")
       Show.text(edited)
 
-      stale_commitment(edited, context, accepted)
+      stale_commitment(statement, accepted)
       edited_proof(opts, accepted)
-      prover_on_edit(edited, context)
+      prover_on_edit(statement)
     end
   end
 
-  @spec stale_commitment(String.t(), Context.t(), Accepted.t()) :: :ok
-  defp stale_commitment(edited, context, accepted) do
+  @spec stale_commitment(Statement.t(), Accepted.t()) :: :ok
+  defp stale_commitment(statement, accepted) do
     Show.step("Re-verify the OLD proof against the EDITED text")
-    {:ok, statement} = Text.statement(edited, context)
     {:ok, commitment} = Statement.commit(statement)
     Show.kv("proof's commitment", short(accepted.commitment))
     Show.kv("edited text's commitment", short(commitment))
@@ -229,12 +227,12 @@ defmodule ZkfolAiDemo.Acts do
     end
   end
 
-  @spec prover_on_edit(String.t(), Context.t()) :: :ok
-  defp prover_on_edit(edited, context) do
+  @spec prover_on_edit(Statement.t()) :: :ok
+  defp prover_on_edit(statement) do
     Show.step("Run the REAL PROVER on the edited text")
     prefix = fresh(Path.join(@out, "act3"))
 
-    case Gate.release(Text.statement(edited, context), prefix) do
+    case Gate.release({:ok, statement}, prefix) do
       {:withheld, %Withheld{} = withheld} ->
         withheld(withheld, prefix)
 
