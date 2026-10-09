@@ -26,7 +26,9 @@ defmodule ZkfolAiDemo.Bench do
   alias Zkfol.Verifier.Request
 
   @results Path.expand("../../RESULTS.md", __DIR__)
-  @root Path.expand("../../..", __DIR__)
+  @root Path.expand("../..", __DIR__)
+  @zkfol Path.join(@root, "deps/zkfol")
+  @crate Path.join(@zkfol, "native/zkfol_zinc_plus")
 
   typedstruct module: Sample, enforce: true do
     @typedoc "One measured run of one cell. A refused statement has no proof, so no size or verify time."
@@ -286,6 +288,7 @@ defmodule ZkfolAiDemo.Bench do
 
     | | |
     |---|---|
+    | Demo commit | `#{stamp.demo}` |
     | zkFOL commit | `#{stamp.zkfol}` |
     | Zinc+ commit | `#{stamp.zinc}` (the `Cargo.lock` revision of `zinc-protocol`) |
     | CPU | #{stamp.cpu}, #{stamp.cores} cores |
@@ -383,7 +386,8 @@ defmodule ZkfolAiDemo.Bench do
   @spec stamp() :: map()
   defp stamp do
     %{
-      zkfol: commit(),
+      demo: commit(@root),
+      zkfol: commit(@zkfol),
       zinc: zinc(),
       cpu: cpu(),
       cores: System.schedulers_online(),
@@ -393,17 +397,17 @@ defmodule ZkfolAiDemo.Bench do
         to_string(:erlang.system_info(:otp_release)) <>
           " (erts " <> to_string(:erlang.system_info(:version)) <> ")",
       elixir: System.version(),
-      rust: command("rustc", ["--version"], Path.join(@root, "native/zkfol_zinc_plus")),
+      rust: command("rustc", ["--version"], @crate),
       date: Date.utc_today() |> Date.to_iso8601()
     }
   end
 
-  @spec commit() :: String.t()
-  defp commit do
-    sha = command("git", ["rev-parse", "HEAD"], @root)
+  @spec commit(Path.t()) :: String.t()
+  defp commit(dir) do
+    sha = command("git", ["rev-parse", "HEAD"], dir)
 
     dirty =
-      if command("git", ["status", "--porcelain", "--", ".", ":!RESULTS.md"], @root) == "",
+      if command("git", ["status", "--porcelain", "--", ".", ":!RESULTS.md"], dir) == "",
         do: "",
         else: " (with uncommitted changes)"
 
@@ -412,7 +416,7 @@ defmodule ZkfolAiDemo.Bench do
 
   @spec zinc() :: String.t()
   defp zinc do
-    lock = File.read!(Path.join(@root, "native/zkfol_zinc_plus/Cargo.lock"))
+    lock = File.read!(Path.join(@crate, "Cargo.lock"))
 
     case Regex.run(
            ~r/name = "zinc-protocol"\nversion = "[^"]+"\nsource = "git\+[^#]+#([0-9a-f]{40})"/,
